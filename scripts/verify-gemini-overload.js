@@ -12,7 +12,7 @@ process.env.GEMINI_OVERLOAD_RETRIES = '1';
 process.env.GEMINI_OVERLOAD_BACKOFF_MS = '20';
 delete process.env.GEMINI_MODEL_CHAIN;
 delete process.env.GEMINI_FALLBACK_MODELS;
-process.env.GEMINI_MODEL = 'gemini-3.8-flash';
+delete process.env.GEMINI_MODEL;
 
 const {
   parseModelChain,
@@ -21,10 +21,13 @@ const {
   openGeminiStream,
   OVERLOAD_USER_MESSAGE,
   DEFAULT_FALLBACK_MODELS,
+  GEMINI_MODEL,
 } = require('../server');
 
+assert.strictEqual(GEMINI_MODEL, 'gemini-3.5-flash-lite');
+assert.deepStrictEqual(DEFAULT_FALLBACK_MODELS, ['gemini-3.6-flash']);
 assert.deepStrictEqual(parseModelChain(), [
-  'gemini-3.8-flash',
+  'gemini-3.5-flash-lite',
   ...DEFAULT_FALLBACK_MODELS,
 ]);
 
@@ -33,8 +36,17 @@ assert.deepStrictEqual(parseModelChain(), ['a-flash', 'b-flash', 'c-lite']);
 delete process.env.GEMINI_MODEL_CHAIN;
 
 process.env.GEMINI_FALLBACK_MODELS = 'only-fallback';
-assert.deepStrictEqual(parseModelChain(), ['gemini-3.8-flash', 'only-fallback']);
+assert.deepStrictEqual(parseModelChain(), ['gemini-3.5-flash-lite', 'only-fallback']);
 delete process.env.GEMINI_FALLBACK_MODELS;
+
+process.env.GEMINI_MODEL_CHAIN =
+  'gemini-3.8-flash,gemini-3.6-flash,gemini-3.5-flash-lite';
+assert.deepStrictEqual(parseModelChain(), [
+  'gemini-3.8-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
+]);
+delete process.env.GEMINI_MODEL_CHAIN;
 
 assert.strictEqual(isOverloadError(503, 'UNAVAILABLE', 'high demand'), true);
 assert.strictEqual(isOverloadError(500, 'INTERNAL', 'boom'), false);

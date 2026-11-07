@@ -8,9 +8,10 @@ require('dotenv').config();
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+/** Prefer lean/fast models first under free-tier load; gemini-3.8-flash is opt-in via env. */
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 /** Default chain after the primary model when Gemini returns 503 / UNAVAILABLE. */
-const DEFAULT_FALLBACK_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash-lite'];
+const DEFAULT_FALLBACK_MODELS = ['gemini-3.6-flash'];
 const DONATE_URL = process.env.DONATE_URL || '#donate';
 /** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
 const MAX_OUTPUT_TOKENS = Math.min(
@@ -565,6 +566,7 @@ module.exports = {
   summarizeGeminiError,
   openGeminiStream,
   OVERLOAD_USER_MESSAGE,
+  GEMINI_MODEL,
   GEMINI_MODEL_CHAIN,
   DEFAULT_FALLBACK_MODELS,
 };
