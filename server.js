@@ -2,11 +2,16 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const cluster = require('cluster');
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+/** Behind nginx / Beget / Timeweb proxy — rate-limit must see real client IP. */
+app.set('trust proxy', 1);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 /** Prefer lean/fast models first under free-tier load; gemini-3.8-flash is opt-in via env. */
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
@@ -173,6 +178,134 @@ ${mode.overlay}`;
 
 app.use(express.json({ limit: '256kb' }));
 app.use(express.static(path.join(ROOT, 'public')));
+
+const CHAT_RATE_WINDOW_MS = 15 * 60 * 1000;
+const CHAT_RATE_MAX = 15;
+const RL_CHANNEL = 'nutrikod:rl';
+
+/**
+ * Rate-limit counters live in the master so every worker shares one 15/15min budget per IP.
+ * Workers talk to master over cluster IPC; single-process / tests keep the default MemoryStore.
+ */
+function createClusterRateLimitStore(windowMs) {
+  let seq = 0;
+  const pending = new Map();
+
+  process.on('message', (msg) => {
+    if (!msg || msg.channel !== RL_CHANNEL || msg.id == null) return;
+    const settle = pending.get(msg.id);
+    if (!settle) return;
+    pending.delete(msg.id);
+    settle(msg.result);
+  });
+
+  function call(op, key) {
+    return new Promise((resolve, reject) => {
+      if (typeof process.send !== 'function') {
+        reject(new Error('cluster rate-limit store needs process.send'));
+        return;
+      }
+      const id = ++seq;
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error('cluster rate-limit IPC timeout'));
+      }, 3000);
+      pending.set(id, (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      });
+      process.send({ channel: RL_CHANNEL, op, key, id });
+    });
+  }
+
+  return {
+    async increment(key) {
+      const result = await call('increment', key);
+      return {
+        totalHits: result.totalHits,
+        resetTime: result.resetTime ? new Date(result.resetTime) : undefined,
+      };
+    },
+    async decrement(key) {
+      await call('decrement', key);
+    },
+    async resetKey(key) {
+      await call('resetKey', key);
+    },
+    async get(key) {
+      const result = await call('get', key);
+      if (!result) return undefined;
+      return {
+        totalHits: result.totalHits,
+        resetTime: result.resetTime ? new Date(result.resetTime) : undefined,
+      };
+    },
+  };
+}
+
+/** Master-side map for createClusterRateLimitStore IPC. */
+function attachClusterRateLimitMaster(windowMs) {
+  const buckets = new Map();
+
+  const reply = (worker, id, result) => {
+    try {
+      worker.send({ channel: RL_CHANNEL, id, result });
+    } catch {
+      /* worker already gone */
+    }
+  };
+
+  const handle = (worker, msg) => {
+    if (!msg || msg.channel !== RL_CHANNEL) return;
+    const now = Date.now();
+    const key = String(msg.key || '');
+    let entry = buckets.get(key);
+    if (!entry || entry.resetTime <= now) {
+      entry = { hits: 0, resetTime: now + windowMs };
+      buckets.set(key, entry);
+    }
+
+    if (msg.op === 'increment') {
+      entry.hits += 1;
+      reply(worker, msg.id, { totalHits: entry.hits, resetTime: entry.resetTime });
+      return;
+    }
+    if (msg.op === 'decrement') {
+      entry.hits = Math.max(0, entry.hits - 1);
+      reply(worker, msg.id, {});
+      return;
+    }
+    if (msg.op === 'resetKey') {
+      buckets.delete(key);
+      reply(worker, msg.id, {});
+      return;
+    }
+    if (msg.op === 'get') {
+      reply(
+        worker,
+        msg.id,
+        entry ? { totalHits: entry.hits, resetTime: entry.resetTime } : null
+      );
+    }
+  };
+
+  cluster.on('fork', (worker) => {
+    worker.on('message', (msg) => handle(worker, msg));
+  });
+}
+
+/** Chat flood guard: 15 requests / 15 min per IP. */
+const chatLimiter = rateLimit({
+  windowMs: CHAT_RATE_WINDOW_MS,
+  max: CHAT_RATE_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  ...(cluster.isWorker ? { store: createClusterRateLimitStore(CHAT_RATE_WINDOW_MS) } : {}),
+  message: {
+    type: 'error',
+    text: 'Вы слишком часто общаетесь с ИИ, подождите немного',
+  },
+});
 
 app.get('/api/config', (_req, res) => {
   res.json({
@@ -528,7 +661,7 @@ async function streamMock(res, partner) {
   res.end();
 }
 
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', chatLimiter, async (req, res) => {
   const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const allowPartner = Boolean(req.body?.allowPartner);
   const mode = resolveChatMode(req.body?.mode, messages);
@@ -683,13 +816,29 @@ app.get('*', (_req, res) => {
 });
 
 if (require.main === module) {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(
-      `НутриКод на http://127.0.0.1:${PORT} (key: ${GEMINI_API_KEY ? 'yes' : 'mock'}, model: ${GEMINI_MODEL}, chain: ${GEMINI_MODEL_CHAIN.join(
-        '→'
-      )})`
-    );
-  });
+  // Master: one worker per CPU; workers serve HTTP. Dead workers are forked again — master stays up.
+  if (cluster.isPrimary) {
+    attachClusterRateLimitMaster(CHAT_RATE_WINDOW_MS);
+    const workers = Math.max(1, os.cpus().length);
+    console.log(`НутриКод master pid=${process.pid} — starting ${workers} worker(s)`);
+    for (let i = 0; i < workers; i++) {
+      cluster.fork();
+    }
+    cluster.on('exit', (worker, code, signal) => {
+      console.warn(
+        `Worker ${worker.process.pid} exited (code=${code}, signal=${signal || 'n/a'}) — respawning`
+      );
+      cluster.fork();
+    });
+  } else {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(
+        `НутриКод worker pid=${process.pid} on http://127.0.0.1:${PORT} (key: ${
+          GEMINI_API_KEY ? 'yes' : 'mock'
+        }, model: ${GEMINI_MODEL}, chain: ${GEMINI_MODEL_CHAIN.join('→')})`
+      );
+    });
+  }
 }
 
 module.exports = {
