@@ -9,8 +9,8 @@
   const DONATE_AFTER_TURNS = 3;
 
   const DONATE_VARIANTS = [
-    { id: 'a', copy: 'Если помогло — можно поддержать автора.' },
-    { id: 'b', copy: 'Сервис бесплатный. Донат — по желанию.' },
+    { id: 'a', copy: 'Если откликнулось — можно кинуть мелочь «админу на полезное».' },
+    { id: 'b', copy: 'Сервис бесплатный. Поддержка — по желанию, кнопки ниже.' },
   ];
 
   const messagesEl = document.getElementById('messages');

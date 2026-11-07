@@ -59,16 +59,34 @@ function pickPartner(messages) {
   return bestScore > 0 ? best : null;
 }
 
+function donateUrlForPrompt() {
+  const url = String(DONATE_URL || '').trim();
+  if (!url || url === '#donate' || url.startsWith('#')) return null;
+  return url;
+}
+
 function buildSystemInstruction(partner) {
   let extra = '';
   if (partner) {
-    extra = `
+    extra += `
 
 Контекст партнёра (упомяни мягко один раз, если уместно по теме пользователя; не навязывай):
 Название: ${partner.name}
 Суть: ${partner.blurb}
 Ссылка: ${partner.link}
 Оговорка: ${partner.disclaimer}`;
+  }
+  const donateUrl = donateUrlForPrompt();
+  if (donateUrl) {
+    extra += `
+
+Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
+DONATE_URL: ${donateUrl}`;
+  } else {
+    extra += `
+
+Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
+DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже».`;
   }
   return SYSTEM_PROMPT + extra;
 }
