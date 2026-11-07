@@ -8,7 +8,7 @@ require('dotenv').config();
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const DONATE_URL = process.env.DONATE_URL || '#donate';
 
 const ROOT = __dirname;
@@ -23,6 +23,7 @@ app.get('/api/config', (_req, res) => {
     hasKey: Boolean(GEMINI_API_KEY),
     donateUrl: DONATE_URL,
     brand: 'НутриКод',
+    model: GEMINI_MODEL,
   });
 });
 
@@ -74,6 +75,50 @@ function toGeminiContents(messages) {
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content.slice(0, 8000) }],
     }));
+}
+
+/** Strip API keys / long token-like blobs from logs. Never print secrets. */
+function redactSecrets(text) {
+  return String(text || '')
+    .replace(/key=[^&\s"']+/gi, 'key=[REDACTED]')
+    .replace(/AIza[0-9A-Za-z_-]{10,}/g, '[REDACTED_KEY]')
+    .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, 'Bearer [REDACTED]')
+    .slice(0, 280);
+}
+
+function summarizeGeminiError(status, rawBody) {
+  let code = '';
+  let message = '';
+  try {
+    const parsed = JSON.parse(rawBody);
+    code = parsed?.error?.status || parsed?.error?.code || '';
+    message = parsed?.error?.message || '';
+  } catch {
+    message = rawBody;
+  }
+
+  const safeMessage = redactSecrets(message).replace(/\s+/g, ' ').trim();
+  console.error(
+    `[gemini] upstream status=${status} model=${GEMINI_MODEL} code=${code || 'n/a'} msg=${safeMessage || '(empty)'}`
+  );
+
+  if (
+    status === 401 ||
+    status === 403 ||
+    /API[_\s-]?KEY|PERMISSION|UNAUTHENTICATED|not valid/i.test(`${code} ${message}`)
+  ) {
+    return 'Сейчас не удаётся связаться с моделью. Загляните позже — обычно это быстро проходит.';
+  }
+  if (status === 404 || /NOT_FOUND|model/i.test(`${code} ${message}`)) {
+    return 'Модель временно недоступна. Попробуйте чуть позже.';
+  }
+  if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate/i.test(`${code} ${message}`)) {
+    return 'Слишком много запросов. Подождите минуту и напишите снова.';
+  }
+  if (status >= 500) {
+    return 'У модели короткий перерыв. Напишите ещё раз через минуту.';
+  }
+  return 'Ответ пока не пришёл. Можно повторить через минуту.';
 }
 
 const MOCK_REPLY =
@@ -139,6 +184,7 @@ app.post('/api/chat', async (req, res) => {
   };
 
   try {
+    console.info(`[gemini] request model=${GEMINI_MODEL} turns=${messages.length} partner=${partner ? partner.id : 'none'}`);
     const upstream = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -147,13 +193,8 @@ app.post('/api/chat', async (req, res) => {
 
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => '');
-      console.error('Gemini error', upstream.status, errText.slice(0, 400));
-      res.write(
-        `data: ${JSON.stringify({
-          type: 'error',
-          text: 'Не удалось получить ответ от модели. Попробуйте ещё раз чуть позже.',
-        })}\n\n`
-      );
+      const calm = summarizeGeminiError(upstream.status, errText);
+      res.write(`data: ${JSON.stringify({ type: 'error', text: calm })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
       res.end();
       return;
@@ -162,6 +203,7 @@ app.post('/api/chat', async (req, res) => {
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let tokenCount = 0;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -177,8 +219,14 @@ app.post('/api/chat', async (req, res) => {
         if (!payload || payload === '[DONE]') continue;
         try {
           const json = JSON.parse(payload);
+          if (json?.error) {
+            const calm = summarizeGeminiError(json.error.code || 500, JSON.stringify(json));
+            res.write(`data: ${JSON.stringify({ type: 'error', text: calm })}\n\n`);
+            continue;
+          }
           const text = json?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
           if (text) {
+            tokenCount += 1;
             res.write(`data: ${JSON.stringify({ type: 'token', text })}\n\n`);
           }
         } catch {
@@ -202,14 +250,15 @@ app.post('/api/chat', async (req, res) => {
       );
     }
 
+    console.info(`[gemini] done model=${GEMINI_MODEL} chunks=${tokenCount}`);
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
-    console.error('chat stream failed', err?.message || err);
+    console.error('[gemini] stream failed', redactSecrets(err?.message || String(err)));
     res.write(
       `data: ${JSON.stringify({
         type: 'error',
-        text: 'Сбой соединения. Проверьте сеть и попробуйте снова.',
+        text: 'Связь прервалась. Проверьте сеть и напишите снова.',
       })}\n\n`
     );
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -222,5 +271,7 @@ app.get('*', (_req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`НутриКод на http://127.0.0.1:${PORT} (key: ${GEMINI_API_KEY ? 'yes' : 'mock'})`);
+  console.log(
+    `НутриКод на http://127.0.0.1:${PORT} (key: ${GEMINI_API_KEY ? 'yes' : 'mock'}, model: ${GEMINI_MODEL})`
+  );
 });

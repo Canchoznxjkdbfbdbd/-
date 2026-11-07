@@ -5,15 +5,12 @@
   const FIRST_QUESTION =
     'Расскажите коротко: как вы питаетесь сейчас, есть ли аллергии или ограничения, и какую цель хотите — энергия, лёгкость, набор, поддержка после нагрузок или что-то ещё?';
 
+  /** Show quiet donate strip only after this many user messages. */
+  const DONATE_AFTER_TURNS = 3;
+
   const DONATE_VARIANTS = [
-    {
-      id: 'a',
-      copy: 'Если совет пригодился — киньте на кофе автору. Сервис бесплатный, серверы — нет.',
-    },
-    {
-      id: 'b',
-      copy: 'НутриКод без рекламного крика. Донат — единственный «спасибо», которое реально помогает жить.',
-    },
+    { id: 'a', copy: 'Если помогло — можно поддержать автора.' },
+    { id: 'b', copy: 'Сервис бесплатный. Донат — по желанию.' },
   ];
 
   const messagesEl = document.getElementById('messages');
@@ -99,6 +96,8 @@
 
   function showDonateBanner() {
     if (sessionStorage.getItem('nutrikod_donate_hide') === '1') return;
+    if (userTurns < DONATE_AFTER_TURNS) return;
+    if (!donateBanner.hidden) return;
     const variant = Math.random() < 0.5 ? DONATE_VARIANTS[0] : DONATE_VARIANTS[1];
     donateCopy.textContent = variant.copy;
     donateBanner.hidden = false;
@@ -154,7 +153,7 @@
 
       if (!res.ok || !res.body) {
         ensureBubble();
-        bubble.textContent = 'Не удалось получить ответ. Попробуйте ещё раз.';
+        bubble.textContent = 'Ответ пока не пришёл. Можно повторить через минуту.';
         wrap.classList.add('error');
         return;
       }
@@ -197,7 +196,7 @@
           } else if (payload.type === 'error') {
             ensureBubble();
             if (!full) {
-              bubble.textContent = payload.text || 'Ошибка';
+              bubble.textContent = payload.text || 'Ответ пока не пришёл. Можно повторить через минуту.';
               wrap.classList.add('error');
             }
           }
@@ -207,20 +206,20 @@
       if (full) {
         history.push({ role: 'assistant', content: full });
       } else if (bubble && !bubble.textContent) {
-        bubble.textContent = 'Пустой ответ. Напишите ещё раз — иногда помогает.';
+        bubble.textContent = 'Пусто пока. Напишите ещё раз — иногда помогает.';
       } else if (!bubble) {
         ensureBubble();
-        bubble.textContent = 'Пустой ответ. Напишите ещё раз — иногда помогает.';
+        bubble.textContent = 'Пусто пока. Напишите ещё раз — иногда помогает.';
       }
     } catch {
       ensureBubble();
-      bubble.textContent = 'Сеть оборвалась. Проверьте соединение и повторите.';
+      bubble.textContent = 'Связь прервалась. Проверьте сеть и напишите снова.';
       wrap.classList.add('error');
     } finally {
       streaming = false;
       sendBtn.disabled = false;
       input.focus();
-      if (userTurns >= 1) showDonateBanner();
+      showDonateBanner();
     }
   }
 
