@@ -9,7 +9,8 @@
     "verify:overload": "node scripts/verify-gemini-overload.js",
     "verify:stream": "node scripts/verify-stream-complete.js",
     "verify:modes": "node scripts/verify-modes.js",
-    "verify:history": "node scripts/verify-chat-history.js"
+    "verify:history": "node scripts/verify-chat-history.js",
+    "verify:privacy": "node scripts/verify-privacy.js"
   },
   "engines": {
     "node": ">=18"

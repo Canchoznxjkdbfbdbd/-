@@ -552,6 +552,147 @@ body {
   line-height: 1.45;
 }
 
+.legal-link {
+  color: var(--leaf-deep);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  font-weight: 500;
+}
+
+.legal-link:hover {
+  color: var(--leaf);
+}
+
+.legal-link:focus-visible {
+  outline: 2px solid rgba(31, 107, 79, 0.45);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.brand-home {
+  color: inherit;
+  text-decoration: none;
+}
+
+.brand-home:hover .brand-word {
+  color: var(--leaf);
+}
+
+.brand-home:focus-visible {
+  outline: 2px solid rgba(31, 107, 79, 0.45);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.back-chat {
+  flex: 0 0 auto;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border: 1px solid rgba(23, 48, 40, 0.14);
+  border-radius: 10px;
+  padding: 0.35rem 0.7rem;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.back-chat:hover {
+  color: var(--leaf-deep);
+  border-color: rgba(31, 107, 79, 0.32);
+  background: rgba(31, 107, 79, 0.05);
+}
+
+.back-chat:focus-visible {
+  outline: 2px solid rgba(31, 107, 79, 0.45);
+  outline-offset: 2px;
+}
+
+.privacy-shell {
+  padding-top: 0.6rem;
+  padding-bottom: 1.5rem;
+}
+
+.privacy-card {
+  background: var(--mist);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.35rem 1.35rem 1.2rem;
+  backdrop-filter: blur(10px);
+  animation: rise 0.7s ease-out both;
+}
+
+.privacy-title {
+  margin: 0.15rem 0 0.55rem;
+  font-family: var(--font-brand);
+  font-weight: 600;
+  font-size: clamp(1.45rem, 4vw, 1.85rem);
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
+.privacy-lede {
+  margin: 0 0 1.15rem;
+  color: var(--ink-soft);
+  font-size: 0.98rem;
+  max-width: 36em;
+}
+
+.privacy-block {
+  padding: 0.85rem 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.privacy-block h2 {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-brand);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--leaf-deep);
+}
+
+.privacy-block p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.94rem;
+  max-width: 38em;
+}
+
+.privacy-close {
+  margin: 1.25rem 0 0;
+  padding-top: 0.95rem;
+  border-top: 1px solid var(--line);
+}
+
+.privacy-return {
+  display: inline-block;
+  color: var(--user-ink);
+  background: var(--leaf);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border-radius: 12px;
+  padding: 0.55rem 1rem;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.privacy-return:hover {
+  background: var(--leaf-deep);
+}
+
+.privacy-return:focus-visible {
+  outline: 2px solid rgba(31, 107, 79, 0.45);
+  outline-offset: 3px;
+}
+
+.page-privacy .hero,
+.page-privacy .chat {
+  display: none;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
