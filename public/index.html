@@ -44,6 +44,24 @@
       <section class="chat" aria-label="Чат с НутриКод">
         <div id="messages" class="messages" role="log" aria-live="polite"></div>
 
+        <div class="mode-bar" role="radiogroup" aria-label="Режим ответа">
+          <p class="mode-hint" id="mode-hint">Режим</p>
+          <div class="mode-chips">
+            <button type="button" class="mode-chip" role="radio" aria-checked="true" data-mode="normal">
+              Обычный
+            </button>
+            <button type="button" class="mode-chip" role="radio" aria-checked="false" data-mode="kids">
+              Детский стол
+            </button>
+            <button type="button" class="mode-chip" role="radio" aria-checked="false" data-mode="notime">
+              Нет времени
+            </button>
+            <button type="button" class="mode-chip" role="radio" aria-checked="false" data-mode="grocery">
+              Список покупок
+            </button>
+          </div>
+        </div>
+
         <form id="composer" class="composer" autocomplete="off">
           <label class="sr-only" for="input">Сообщение</label>
           <textarea

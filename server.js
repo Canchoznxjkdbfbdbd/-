@@ -69,6 +69,108 @@ const ROOT = __dirname;
 const SYSTEM_PROMPT = fs.readFileSync(path.join(ROOT, 'prompt.txt'), 'utf8');
 const PARTNERS = JSON.parse(fs.readFileSync(path.join(ROOT, 'partners.json'), 'utf8'));
 
+/**
+ * Quiet chat-mode overlays (надстройки). Same bot + short context block.
+ * Explicit UI choice is primary; keyword detect is only a fallback for «Обычный».
+ */
+const CHAT_MODES = {
+  normal: {
+    id: 'normal',
+    label: 'Обычный',
+    overlay: '',
+  },
+  kids: {
+    id: 'kids',
+    label: 'Детский стол',
+    overlay:
+      'Режим-надстройка: детский / семейный стол.\n' +
+      'Подстрой ответ: одно блюдо или набор на всех, мягкий вкус; без отдельного «детского меню» как диеты. ' +
+      'Для детей — общие принципы еды и коротко: это не замена педиатру или нутрициологу.',
+  },
+  notime: {
+    id: 'notime',
+    label: 'Нет времени',
+    overlay:
+      'Режим-надстройка: нет времени.\n' +
+      'Подстрой ответ: 2–4 готовых или почти готовых варианта на сегодня (15–20 мин или сборка без плиты): ' +
+      'что есть / что купить по пути, без длинных рецептов.',
+  },
+  grocery: {
+    id: 'grocery',
+    label: 'Список покупок',
+    overlay:
+      'Режим-надстройка: список покупок.\n' +
+      'Подстрой ответ: короткий список на 3–7 дней (или срок из запроса): группы продуктов, порции-ориентиры, ' +
+      'без брендов и выдуманных ссылок в магазины.',
+  },
+};
+
+const MODE_IDS = Object.keys(CHAT_MODES);
+
+/** Secondary auto-detect from Russian wording — never overrides an explicit non-normal mode. */
+const MODE_DETECT = [
+  {
+    id: 'kids',
+    re: /детск|реб[её]н|малыш|школьник|для\s+семьи|семейный\s+стол|на\s+всех/i,
+  },
+  {
+    id: 'notime',
+    re: /нет\s+времени|некогда|на\s+скорую|быстр(?:о|ый|ая|ое)\s+(?:ужин|обед|завтрак|еда)|15\s*мин|без\s+плиты/i,
+  },
+  {
+    id: 'grocery',
+    re: /список\s+покупок|что\s+купить|закупк|набрать\s+в\s+магазин|список\s+на\s+\d/i,
+  },
+];
+
+function normalizeModeId(raw) {
+  const id = String(raw || '')
+    .trim()
+    .toLowerCase();
+  return MODE_IDS.includes(id) ? id : 'normal';
+}
+
+function lastUserText(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && m.role === 'user' && typeof m.content === 'string') return m.content;
+  }
+  return '';
+}
+
+/**
+ * Resolve active mode: explicit UI id wins; if «normal», optionally detect from latest user text.
+ * @returns {{ id: string, label: string, overlay: string, source: 'explicit'|'detected'|'default' }}
+ */
+function resolveChatMode(rawMode, messages) {
+  const explicit = normalizeModeId(rawMode);
+  if (explicit !== 'normal') {
+    const mode = CHAT_MODES[explicit];
+    return { id: mode.id, label: mode.label, overlay: mode.overlay, source: 'explicit' };
+  }
+
+  const text = lastUserText(messages);
+  if (text) {
+    for (const rule of MODE_DETECT) {
+      if (rule.re.test(text)) {
+        const mode = CHAT_MODES[rule.id];
+        return { id: mode.id, label: mode.label, overlay: mode.overlay, source: 'detected' };
+      }
+    }
+  }
+
+  const mode = CHAT_MODES.normal;
+  return { id: mode.id, label: mode.label, overlay: mode.overlay, source: 'default' };
+}
+
+function modeOverlayBlock(mode) {
+  if (!mode?.overlay) return '';
+  return `
+
+Контекст режима (надстройка; характер тот же, только акцент ответа):
+${mode.overlay}`;
+}
+
 app.use(express.json({ limit: '256kb' }));
 app.use(express.static(path.join(ROOT, 'public')));
 
@@ -79,6 +181,7 @@ app.get('/api/config', (_req, res) => {
     brand: 'НутриКод',
     model: GEMINI_MODEL,
     modelChain: GEMINI_MODEL_CHAIN,
+    modes: MODE_IDS.map((id) => ({ id, label: CHAT_MODES[id].label })),
   });
 });
 
@@ -166,9 +269,9 @@ function donateUrlForPrompt() {
   return url;
 }
 
-/** System prompt only — partner offers are UI SSE events, not model copy. */
-function buildSystemInstruction() {
-  let extra = '';
+/** System prompt + optional mode overlay + donate context. Partner offers stay UI-only. */
+function buildSystemInstruction(mode = null) {
+  let extra = modeOverlayBlock(mode);
   const donateUrl = donateUrlForPrompt();
   if (donateUrl) {
     extra += `
@@ -428,6 +531,7 @@ async function streamMock(res, partner) {
 app.post('/api/chat', async (req, res) => {
   const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const allowPartner = Boolean(req.body?.allowPartner);
+  const mode = resolveChatMode(req.body?.mode, messages);
   const partner = pickPartner(messages, { allowPartner });
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -437,6 +541,9 @@ app.post('/api/chat', async (req, res) => {
   // Disable Nagle so each token write can leave the socket promptly.
   if (res.socket) res.socket.setNoDelay(true);
   res.flushHeaders?.();
+
+  // Tell the client which mode actually applied (explicit or quiet auto-detect).
+  writeEvent(res, { type: 'mode', mode: { id: mode.id, label: mode.label, source: mode.source } });
 
   if (!GEMINI_API_KEY) {
     writeEvent(res, {
@@ -449,7 +556,7 @@ app.post('/api/chat', async (req, res) => {
 
   writeEvent(res, { type: 'status', stage: 'thinking' });
 
-  const systemInstruction = { parts: [{ text: buildSystemInstruction() }] };
+  const systemInstruction = { parts: [{ text: buildSystemInstruction(mode) }] };
   let contents = toGeminiContents(messages);
   const generationConfig = {
     temperature: 0.7,
@@ -458,7 +565,7 @@ app.post('/api/chat', async (req, res) => {
 
   try {
     console.info(
-      `[gemini] chat turns=${messages.length} partner=${partner ? partner.id : 'none'} maxOutputTokens=${MAX_OUTPUT_TOKENS} chain=${GEMINI_MODEL_CHAIN.join(
+      `[gemini] chat turns=${messages.length} mode=${mode.id}/${mode.source} partner=${partner ? partner.id : 'none'} maxOutputTokens=${MAX_OUTPUT_TOKENS} chain=${GEMINI_MODEL_CHAIN.join(
         '→'
       )}`
     );
@@ -599,4 +706,10 @@ module.exports = {
   GEMINI_MODEL,
   GEMINI_MODEL_CHAIN,
   DEFAULT_FALLBACK_MODELS,
+  CHAT_MODES,
+  MODE_IDS,
+  normalizeModeId,
+  resolveChatMode,
+  modeOverlayBlock,
+  buildSystemInstruction,
 };

@@ -26,6 +26,9 @@
     return THINKING_STATUS.includes(t) || TYPING_STATUS.includes(t);
   }
 
+  const MODE_STORAGE_KEY = 'nutrikod_mode';
+  const MODE_IDS = ['normal', 'kids', 'notime', 'grocery'];
+
   const messagesEl = document.getElementById('messages');
   const form = document.getElementById('composer');
   const input = document.getElementById('input');
@@ -33,6 +36,7 @@
   const donateBanner = document.getElementById('donate-banner');
   const donateCopy = document.getElementById('donate-copy');
   const donateDismiss = document.getElementById('donate-dismiss');
+  const modeChips = Array.from(document.querySelectorAll('.mode-chip'));
 
   /** @type {{role: string, content: string}[]} */
   let history = [];
@@ -40,6 +44,44 @@
   let partnerShown = false;
   let donateUrl = '#donate';
   let userTurns = 0;
+  let selectedMode = 'normal';
+
+  function normalizeMode(id) {
+    const value = String(id || '').trim().toLowerCase();
+    return MODE_IDS.includes(value) ? value : 'normal';
+  }
+
+  function readStoredMode() {
+    try {
+      return normalizeMode(sessionStorage.getItem(MODE_STORAGE_KEY));
+    } catch {
+      return 'normal';
+    }
+  }
+
+  function persistMode(id) {
+    try {
+      sessionStorage.setItem(MODE_STORAGE_KEY, id);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function setMode(id, { persist = true } = {}) {
+    selectedMode = normalizeMode(id);
+    modeChips.forEach((chip) => {
+      const on = chip.dataset.mode === selectedMode;
+      chip.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    if (persist) persistMode(selectedMode);
+  }
+
+  modeChips.forEach((chip) => {
+    chip.addEventListener('click', () => {
+      if (streaming) return;
+      setMode(chip.dataset.mode);
+    });
+  });
 
   function autoGrow() {
     input.style.height = 'auto';
@@ -305,7 +347,7 @@
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-        body: JSON.stringify({ messages: history, allowPartner }),
+        body: JSON.stringify({ messages: history, allowPartner, mode: selectedMode }),
       });
 
       if (!res.ok || !res.body) {
@@ -388,6 +430,7 @@
 
   async function boot() {
     await loadConfig();
+    setMode(readStoredMode());
     // Hero already shows the greeting line; first AI turn asks the intake question.
     addMessage('assistant', FIRST_QUESTION, { feedback: true });
     history.push({ role: 'assistant', content: `${GREETING}\n\n${FIRST_QUESTION}` });

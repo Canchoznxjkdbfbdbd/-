@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "verify:overload": "node scripts/verify-gemini-overload.js",
-    "verify:stream": "node scripts/verify-stream-complete.js"
+    "verify:stream": "node scripts/verify-stream-complete.js",
+    "verify:modes": "node scripts/verify-modes.js"
   },
   "engines": {
     "node": ">=18"
