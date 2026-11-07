@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="НутриКод — анонимный ИИ-нутрициолог. Подберите рацион без регистрации." />
+    <title>НутриКод — анонимный нутрициолог</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true"></div>
+
+    <header class="top">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 40 40" width="28" height="28" fill="none">
+          <circle cx="20" cy="20" r="18" stroke="currentColor" stroke-width="1.5" opacity="0.35" />
+          <path
+            d="M20 8c-2.5 4-6 7.2-6 12a6 6 0 0012 0c0-4.8-3.5-8-6-12z"
+            fill="currentColor"
+            opacity="0.9"
+          />
+          <path d="M20 20v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.55" />
+        </svg>
+      </div>
+      <span class="brand-word">НутриКод</span>
+    </header>
+
+    <main class="shell">
+      <section class="hero" aria-labelledby="brand-title">
+        <p class="eyebrow">анонимный нутрициолог</p>
+        <h1 id="brand-title" class="brand-hero">НутриКод</h1>
+        <p class="lede">
+          Залог хорошего самочувствия — это сбалансированное питание. Иногда его нужно подбирать
+          индивидуально. Приступим...
+        </p>
+      </section>
+
+      <aside id="donate-banner" class="donate" hidden>
+        <p class="donate-copy" id="donate-copy"></p>
+        <div class="donate-amounts" role="group" aria-label="Сумма доната">
+          <a class="donate-btn" data-amount="100" href="#donate">100 ₽</a>
+          <a class="donate-btn" data-amount="300" href="#donate">300 ₽</a>
+          <a class="donate-btn preferred" data-amount="500" href="#donate">500 ₽</a>
+        </div>
+        <button type="button" class="donate-dismiss" id="donate-dismiss" aria-label="Скрыть">×</button>
+      </aside>
+
+      <section class="chat" aria-label="Чат с НутриКод">
+        <div id="messages" class="messages" role="log" aria-live="polite"></div>
+
+        <form id="composer" class="composer" autocomplete="off">
+          <label class="sr-only" for="input">Сообщение</label>
+          <textarea
+            id="input"
+            name="message"
+            rows="1"
+            maxlength="4000"
+            placeholder="Расскажите о питании, аллергиях, цели…"
+            required
+          ></textarea>
+          <button type="submit" id="send" class="send" aria-label="Отправить">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+              <path
+                d="M5 12h12M13 6l6 6-6 6"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </form>
+      </section>
+    </main>
+
+    <footer class="legal">
+      <p>
+        НутриКод — информационный сервис о питании, не медицинская услуга и не замена консультации врача
+        или диетолога. При заболеваниях, беременности и вопросах о детском рационе опирайтесь на очных
+        специалистов. История чата хранится только в вашем браузере; ответы формирует ИИ (Gemini).
+      </p>
+    </footer>
+
+    <script src="/script.js" defer></script>
+  </body>
+</html>
