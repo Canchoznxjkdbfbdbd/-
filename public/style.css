@@ -277,6 +277,23 @@ body {
   color: var(--ink);
 }
 
+.msg.assistant .bubble.typing {
+  color: var(--muted);
+  font-style: italic;
+  letter-spacing: 0.01em;
+  animation: typing-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes typing-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .msg.notice .bubble {
   background: rgba(184, 137, 45, 0.12);
   border: 1px solid rgba(184, 137, 45, 0.28);

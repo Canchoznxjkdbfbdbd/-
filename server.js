@@ -10,6 +10,12 @@ const PORT = Number(process.env.PORT) || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const DONATE_URL = process.env.DONATE_URL || '#donate';
+/** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
+const MAX_OUTPUT_TOKENS = Math.min(
+  Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 1024),
+  8192
+);
+const MAX_CONTINUES = 2;
 
 const ROOT = __dirname;
 const SYSTEM_PROMPT = fs.readFileSync(path.join(ROOT, 'prompt.txt'), 'utf8');
@@ -123,29 +129,107 @@ function summarizeGeminiError(status, rawBody) {
 
 const MOCK_REPLY =
   'Спасибо, что рассказали. Для старта держитесь простого каркаса: овощи или зелень в каждом приёме пищи, белок (рыба, яйца, бобовые, птица — что вам подходит), полезные жиры (орехи, авокадо, растительное масло) и привычные углеводы без жёстких запретов.\n\n' +
-  'Если есть аллергии или ограничения — напишите их, и я подстрою пример дня под вас. Это общий ориентир по рациону, не медицинская рекомендация.';
+  'Пример дня: завтрак — овсянка на воде или молоке с ягодами и горстью орехов; обед — гречка или киноа, запечённая рыба или тофу, большой салат; ужин — овощной суп или омлет с зеленью и цельнозерновой хлеб; перекус — йогурт без сахара, фрукты или хумус с морковью.\n\n' +
+  'Если есть аллергии или ограничения — напишите их, и я подстрою пример дня под вас. Это общий ориентир по рациону, не медицинская рекомендация. Готово.';
+
+function writeEvent(res, obj) {
+  res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  if (typeof res.flush === 'function') res.flush();
+}
+
+/**
+ * Parse one Gemini SSE `data:` JSON payload.
+ * @returns {{ text: string, finishReason: string, error?: object }}
+ */
+function parseGeminiSsePayload(payload) {
+  if (!payload || payload === '[DONE]') return { text: '', finishReason: '' };
+  const json = JSON.parse(payload);
+  if (json?.error) return { text: '', finishReason: '', error: json.error };
+  const candidate = json?.candidates?.[0];
+  const finishReason = candidate?.finishReason || '';
+  const text = candidate?.content?.parts?.map((p) => p.text || '').join('') || '';
+  return { text, finishReason, error: null };
+}
+
+/**
+ * Read Gemini upstream SSE to completion, flushing the leftover buffer
+ * (last event often arrives without a trailing blank line).
+ */
+async function readGeminiSse(upstreamBody, onText) {
+  const reader = upstreamBody.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let tokenCount = 0;
+  let finishReason = '';
+  let assembled = '';
+
+  const handleDataLine = (trimmed) => {
+    if (!trimmed.startsWith('data:')) return;
+    const payload = trimmed.slice(5).trim();
+    let parsed;
+    try {
+      parsed = parseGeminiSsePayload(payload);
+    } catch {
+      return;
+    }
+    if (parsed.error) {
+      const err = new Error('gemini_upstream_error');
+      err.geminiError = parsed.error;
+      throw err;
+    }
+    if (parsed.finishReason) finishReason = parsed.finishReason;
+    if (parsed.text) {
+      tokenCount += 1;
+      assembled += parsed.text;
+      onText(parsed.text);
+    }
+  };
+
+  const drain = (flushAll) => {
+    const parts = buffer.split(/\r?\n/);
+    if (!flushAll) {
+      buffer = parts.pop() || '';
+    } else {
+      buffer = '';
+    }
+    for (const line of parts) {
+      handleDataLine(line.trim());
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    drain(false);
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) drain(true);
+
+  return { tokenCount, finishReason, text: assembled };
+}
 
 async function streamMock(res, partner) {
+  // Brief pause so the client «Печатает…» state is visible in demo mode.
+  await new Promise((r) => setTimeout(r, 450));
   const chunks = MOCK_REPLY.match(/.{1,24}|[\s\S]/g) || [MOCK_REPLY];
   for (const chunk of chunks) {
-    res.write(`data: ${JSON.stringify({ type: 'token', text: chunk })}\n\n`);
+    writeEvent(res, { type: 'token', text: chunk });
     await new Promise((r) => setTimeout(r, 18));
   }
   if (partner) {
-    res.write(
-      `data: ${JSON.stringify({
-        type: 'partner',
-        partner: {
-          id: partner.id,
-          name: partner.name,
-          blurb: partner.blurb,
-          link: partner.link,
-          disclaimer: partner.disclaimer,
-        },
-      })}\n\n`
-    );
+    writeEvent(res, {
+      type: 'partner',
+      partner: {
+        id: partner.id,
+        name: partner.name,
+        blurb: partner.blurb,
+        link: partner.link,
+        disclaimer: partner.disclaimer,
+      },
+    });
   }
-  res.write(`data: ${JSON.stringify({ type: 'done', mock: true })}\n\n`);
+  writeEvent(res, { type: 'done', mock: true, finishReason: 'STOP' });
   res.end();
 }
 
@@ -157,15 +241,16 @@ app.post('/api/chat', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  // Disable Nagle so each token write can leave the socket promptly.
+  if (res.socket) res.socket.setNoDelay(true);
   res.flushHeaders?.();
 
   if (!GEMINI_API_KEY) {
-    res.write(
-      `data: ${JSON.stringify({
-        type: 'notice',
-        text: 'Ключ GEMINI_API_KEY не задан — показываю демо-ответ, чтобы можно было оценить интерфейс.',
-      })}\n\n`
-    );
+    writeEvent(res, {
+      type: 'notice',
+      text: 'Ключ GEMINI_API_KEY не задан — показываю демо-ответ, чтобы можно было оценить интерфейс.',
+    });
     await streamMock(res, partner);
     return;
   }
@@ -174,94 +259,116 @@ app.post('/api/chat', async (req, res) => {
     GEMINI_MODEL
   )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(GEMINI_API_KEY)}`;
 
-  const body = {
-    system_instruction: { parts: [{ text: buildSystemInstruction(partner) }] },
-    contents: toGeminiContents(messages),
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 1024,
-    },
+  const systemInstruction = { parts: [{ text: buildSystemInstruction(partner) }] };
+  let contents = toGeminiContents(messages);
+  const generationConfig = {
+    temperature: 0.7,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
   };
 
   try {
-    console.info(`[gemini] request model=${GEMINI_MODEL} turns=${messages.length} partner=${partner ? partner.id : 'none'}`);
-    const upstream = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    console.info(
+      `[gemini] request model=${GEMINI_MODEL} turns=${messages.length} partner=${
+        partner ? partner.id : 'none'
+      } maxOutputTokens=${MAX_OUTPUT_TOKENS}`
+    );
 
-    if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => '');
-      const calm = summarizeGeminiError(upstream.status, errText);
-      res.write(`data: ${JSON.stringify({ type: 'error', text: calm })}\n\n`);
-      res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-      res.end();
-      return;
-    }
-
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
     let tokenCount = 0;
+    let finishReason = '';
+    let assembled = '';
+    let continues = 0;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split('\n');
-      buffer = parts.pop() || '';
+    for (let attempt = 0; attempt <= MAX_CONTINUES; attempt++) {
+      const upstream = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: systemInstruction,
+          contents,
+          generationConfig,
+        }),
+      });
 
-      for (const line of parts) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const payload = trimmed.slice(5).trim();
-        if (!payload || payload === '[DONE]') continue;
-        try {
-          const json = JSON.parse(payload);
-          if (json?.error) {
-            const calm = summarizeGeminiError(json.error.code || 500, JSON.stringify(json));
-            res.write(`data: ${JSON.stringify({ type: 'error', text: calm })}\n\n`);
-            continue;
-          }
-          const text = json?.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-          if (text) {
-            tokenCount += 1;
-            res.write(`data: ${JSON.stringify({ type: 'token', text })}\n\n`);
-          }
-        } catch {
-          /* skip partial JSON */
-        }
+      if (!upstream.ok) {
+        const errText = await upstream.text().catch(() => '');
+        const calm = summarizeGeminiError(upstream.status, errText);
+        writeEvent(res, { type: 'error', text: calm });
+        writeEvent(res, { type: 'done', finishReason: finishReason || 'ERROR' });
+        res.end();
+        return;
       }
+
+      let segment;
+      try {
+        segment = await readGeminiSse(upstream.body, (text) => {
+          writeEvent(res, { type: 'token', text });
+        });
+      } catch (err) {
+        if (err?.geminiError) {
+          const calm = summarizeGeminiError(err.geminiError.code || 500, JSON.stringify({ error: err.geminiError }));
+          writeEvent(res, { type: 'error', text: calm });
+          writeEvent(res, { type: 'done', finishReason: 'ERROR' });
+          res.end();
+          return;
+        }
+        throw err;
+      }
+
+      tokenCount += segment.tokenCount;
+      finishReason = segment.finishReason || finishReason;
+      assembled += segment.text;
+
+      if (segment.finishReason !== 'MAX_TOKENS' || !segment.text || attempt === MAX_CONTINUES) {
+        break;
+      }
+
+      continues += 1;
+      console.info(
+        `[gemini] MAX_TOKENS — continue ${continues}/${MAX_CONTINUES} model=${GEMINI_MODEL} soFarChars=${assembled.length}`
+      );
+      contents = [
+        ...contents,
+        { role: 'model', parts: [{ text: assembled.slice(-12000) }] },
+        {
+          role: 'user',
+          parts: [
+            {
+              text: 'Продолжи ответ точно с того места, где оборвался. Не повторяй уже сказанное, без нового вступления.',
+            },
+          ],
+        },
+      ];
     }
 
     if (partner) {
-      res.write(
-        `data: ${JSON.stringify({
-          type: 'partner',
-          partner: {
-            id: partner.id,
-            name: partner.name,
-            blurb: partner.blurb,
-            link: partner.link,
-            disclaimer: partner.disclaimer,
-          },
-        })}\n\n`
-      );
+      writeEvent(res, {
+        type: 'partner',
+        partner: {
+          id: partner.id,
+          name: partner.name,
+          blurb: partner.blurb,
+          link: partner.link,
+          disclaimer: partner.disclaimer,
+        },
+      });
     }
 
-    console.info(`[gemini] done model=${GEMINI_MODEL} chunks=${tokenCount}`);
-    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    console.info(
+      `[gemini] done model=${GEMINI_MODEL} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length}`
+    );
+    writeEvent(res, {
+      type: 'done',
+      finishReason: finishReason || 'STOP',
+      truncated: finishReason === 'MAX_TOKENS',
+    });
     res.end();
   } catch (err) {
     console.error('[gemini] stream failed', redactSecrets(err?.message || String(err)));
-    res.write(
-      `data: ${JSON.stringify({
-        type: 'error',
-        text: 'Связь прервалась. Проверьте сеть и напишите снова.',
-      })}\n\n`
-    );
-    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    writeEvent(res, {
+      type: 'error',
+      text: 'Связь прервалась. Проверьте сеть и напишите снова.',
+    });
+    writeEvent(res, { type: 'done' });
     res.end();
   }
 });

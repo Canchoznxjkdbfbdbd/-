@@ -133,26 +133,85 @@
     streaming = true;
     sendBtn.disabled = true;
 
-    let wrap = null;
-    let bubble = null;
     let full = '';
+    let gotToken = false;
     const allowPartner = !partnerShown && userTurns >= 2;
 
-    const ensureBubble = () => {
-      if (!wrap) {
-        ({ wrap, bubble } = addMessage('assistant', '', { feedback: true }));
+    // Show a bubble immediately so the wait for Gemini is never a blank chat.
+    const { wrap, bubble } = addMessage('assistant', 'Печатает…', { feedback: true });
+    bubble.classList.add('typing');
+
+    const beginReply = () => {
+      if (gotToken) return;
+      gotToken = true;
+      bubble.classList.remove('typing');
+      // Only clear the placeholder once — never wipe accumulated tokens later.
+      bubble.textContent = '';
+    };
+
+    const paint = () => {
+      bubble.textContent = full;
+      scrollBottom();
+    };
+
+    const handlePayload = (payload) => {
+      if (!payload || typeof payload !== 'object') return;
+      if (payload.type === 'notice') {
+        addMessage('assistant', payload.text, { notice: true });
+      } else if (payload.type === 'token') {
+        beginReply();
+        full += payload.text || '';
+        paint();
+      } else if (payload.type === 'partner' && payload.partner) {
+        beginReply();
+        partnerShown = true;
+        attachPartner(wrap, payload.partner);
+      } else if (payload.type === 'error') {
+        bubble.classList.remove('typing');
+        if (!full) {
+          bubble.textContent = payload.text || 'Ответ пока не пришёл. Можно повторить через минуту.';
+          wrap.classList.add('error');
+        }
+      }
+      // type:done — keep whatever text we already painted (including after continues).
+    };
+
+    const consumeEventBlock = (raw) => {
+      const line = raw
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => l.startsWith('data:'));
+      if (!line) return;
+      try {
+        handlePayload(JSON.parse(line.slice(5).trim()));
+      } catch {
+        /* skip partial / non-JSON */
+      }
+    };
+
+    /** Drain complete SSE events; when flushAll, also accept a final data: without blank line. */
+    const drainBuffer = (state, flushAll) => {
+      let sep;
+      while ((sep = state.buffer.search(/\r?\n\r?\n/)) !== -1) {
+        const raw = state.buffer.slice(0, sep);
+        state.buffer = state.buffer.slice(sep).replace(/^\r?\n\r?\n/, '');
+        consumeEventBlock(raw);
+      }
+      if (flushAll && state.buffer.trim()) {
+        consumeEventBlock(state.buffer);
+        state.buffer = '';
       }
     };
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
         body: JSON.stringify({ messages: history, allowPartner }),
       });
 
       if (!res.ok || !res.body) {
-        ensureBubble();
+        bubble.classList.remove('typing');
         bubble.textContent = 'Ответ пока не пришёл. Можно повторить через минуту.';
         wrap.classList.add('error');
         return;
@@ -160,62 +219,35 @@
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
+      const state = { buffer: '' };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split('\n\n');
-        buffer = chunks.pop() || '';
-
-        for (const chunk of chunks) {
-          const line = chunk
-            .split('\n')
-            .map((l) => l.trim())
-            .find((l) => l.startsWith('data:'));
-          if (!line) continue;
-          let payload;
-          try {
-            payload = JSON.parse(line.slice(5).trim());
-          } catch {
-            continue;
-          }
-
-          if (payload.type === 'notice') {
-            addMessage('assistant', payload.text, { notice: true });
-          } else if (payload.type === 'token') {
-            ensureBubble();
-            full += payload.text || '';
-            bubble.textContent = full;
-            scrollBottom();
-          } else if (payload.type === 'partner' && payload.partner) {
-            ensureBubble();
-            partnerShown = true;
-            attachPartner(wrap, payload.partner);
-          } else if (payload.type === 'error') {
-            ensureBubble();
-            if (!full) {
-              bubble.textContent = payload.text || 'Ответ пока не пришёл. Можно повторить через минуту.';
-              wrap.classList.add('error');
-            }
-          }
-        }
+        state.buffer += decoder.decode(value, { stream: true });
+        drainBuffer(state, false);
       }
+      state.buffer += decoder.decode();
+      drainBuffer(state, true);
 
       if (full) {
         history.push({ role: 'assistant', content: full });
-      } else if (bubble && !bubble.textContent) {
-        bubble.textContent = 'Пусто пока. Напишите ещё раз — иногда помогает.';
-      } else if (!bubble) {
-        ensureBubble();
+        paint();
+      } else if (!gotToken) {
+        bubble.classList.remove('typing');
         bubble.textContent = 'Пусто пока. Напишите ещё раз — иногда помогает.';
       }
     } catch {
-      ensureBubble();
-      bubble.textContent = 'Связь прервалась. Проверьте сеть и напишите снова.';
-      wrap.classList.add('error');
+      bubble.classList.remove('typing');
+      if (!full) {
+        bubble.textContent = 'Связь прервалась. Проверьте сеть и напишите снова.';
+        wrap.classList.add('error');
+      } else {
+        // Keep partial answer visible if the connection dropped mid-stream.
+        paint();
+      }
     } finally {
+      bubble.classList.remove('typing');
       streaming = false;
       sendBtn.disabled = false;
       input.focus();
