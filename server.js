@@ -82,20 +82,58 @@ app.get('/api/config', (_req, res) => {
   });
 });
 
+/**
+ * Intent only: готовое / заказать / нет времени готовить.
+ * Avoid \\b — JS word boundaries ignore Cyrillic and break matches.
+ */
 const INTENT_RE =
-  /готов(ое|ый|ую)|заказ|доставк|нет времени|некогда|пп[- ]?рацион|купить|партн[её]р|магний|детск|малыш|школ|перекус|устал|стресс/i;
+  /готов(?:ое|ый|ую|ые|ого)|заказ(?:ать|аю|аем|ите)|заказы|нет времени(?:\s+готовить)?|некогда(?:\s+готовить)?/i;
 
-function pickPartner(messages) {
-  const text = messages
+/** Placeholder / demo hosts must never ship as live offers. */
+const PLACEHOLDER_LINK_RE = /^https?:\/\/(www\.)?example\.com(\/|$)/i;
+
+function isHttpUrl(value) {
+  return /^https?:\/\/\S+/i.test(String(value || '').trim());
+}
+
+/** Live partner = explicit live:true + real https URL (not example.com). */
+function isLivePartner(partner) {
+  if (!partner || partner.live !== true) return false;
+  const link = String(partner.link || '').trim();
+  if (!isHttpUrl(link)) return false;
+  if (PLACEHOLDER_LINK_RE.test(link)) return false;
+  return true;
+}
+
+function conversationText(messages) {
+  return messages
     .map((m) => (typeof m.content === 'string' ? m.content : ''))
     .join('\n')
     .toLowerCase();
+}
 
+function countUserTurns(messages) {
+  return messages.filter((m) => m && m.role === 'user' && typeof m.content === 'string').length;
+}
+
+/**
+ * Pick 0–1 live partner on intent. Never on first user turn.
+ * Demo rows (live:false / example.com) are skipped — no invented links.
+ */
+function pickPartner(messages, { allowPartner = false } = {}) {
+  if (!allowPartner) return null;
+  // Never first reply: need at least two user messages in the thread.
+  if (countUserTurns(messages) < 2) return null;
+
+  const live = PARTNERS.filter(isLivePartner);
+  if (!live.length) return null;
+
+  const text = conversationText(messages);
   if (!INTENT_RE.test(text)) return null;
 
   let best = null;
   let bestScore = 0;
-  for (const p of PARTNERS) {
+  for (const p of live) {
     let score = 0;
     for (const tag of p.tags || []) {
       if (text.includes(String(tag).toLowerCase())) score += 1;
@@ -105,7 +143,21 @@ function pickPartner(messages) {
       best = p;
     }
   }
-  return bestScore > 0 ? best : null;
+  // Intent matched and at least one live partner exists — prefer tag fit, else first live.
+  return bestScore > 0 ? best : live[0];
+}
+
+function partnerPayload(partner) {
+  if (!partner) return null;
+  return {
+    id: partner.id,
+    name: partner.name,
+    blurb: partner.blurb,
+    link: partner.link,
+    disclaimer: partner.disclaimer,
+    offer_type: partner.offer_type || null,
+    promo_code: partner.promo_code || null,
+  };
 }
 
 function donateUrlForPrompt() {
@@ -114,17 +166,9 @@ function donateUrlForPrompt() {
   return url;
 }
 
-function buildSystemInstruction(partner) {
+/** System prompt only — partner offers are UI SSE events, not model copy. */
+function buildSystemInstruction() {
   let extra = '';
-  if (partner) {
-    extra += `
-
-Контекст партнёра (упомяни мягко один раз, если уместно по теме пользователя; не навязывай):
-Название: ${partner.name}
-Суть: ${partner.blurb}
-Ссылка: ${partner.link}
-Оговорка: ${partner.disclaimer}`;
-  }
   const donateUrl = donateUrlForPrompt();
   if (donateUrl) {
     extra += `
@@ -375,16 +419,7 @@ async function streamMock(res, partner) {
     await new Promise((r) => setTimeout(r, 18));
   }
   if (partner) {
-    writeEvent(res, {
-      type: 'partner',
-      partner: {
-        id: partner.id,
-        name: partner.name,
-        blurb: partner.blurb,
-        link: partner.link,
-        disclaimer: partner.disclaimer,
-      },
-    });
+    writeEvent(res, { type: 'partner', partner: partnerPayload(partner) });
   }
   writeEvent(res, { type: 'done', mock: true, finishReason: 'STOP' });
   res.end();
@@ -393,7 +428,7 @@ async function streamMock(res, partner) {
 app.post('/api/chat', async (req, res) => {
   const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const allowPartner = Boolean(req.body?.allowPartner);
-  const partner = allowPartner ? pickPartner(messages) : null;
+  const partner = pickPartner(messages, { allowPartner });
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -414,7 +449,7 @@ app.post('/api/chat', async (req, res) => {
 
   writeEvent(res, { type: 'status', stage: 'thinking' });
 
-  const systemInstruction = { parts: [{ text: buildSystemInstruction(partner) }] };
+  const systemInstruction = { parts: [{ text: buildSystemInstruction() }] };
   let contents = toGeminiContents(messages);
   const generationConfig = {
     temperature: 0.7,
@@ -512,16 +547,7 @@ app.post('/api/chat', async (req, res) => {
     }
 
     if (partner) {
-      writeEvent(res, {
-        type: 'partner',
-        partner: {
-          id: partner.id,
-          name: partner.name,
-          blurb: partner.blurb,
-          link: partner.link,
-          disclaimer: partner.disclaimer,
-        },
-      });
+      writeEvent(res, { type: 'partner', partner: partnerPayload(partner) });
     }
 
     console.info(
@@ -565,6 +591,10 @@ module.exports = {
   isOverloadError,
   summarizeGeminiError,
   openGeminiStream,
+  pickPartner,
+  isLivePartner,
+  partnerPayload,
+  INTENT_RE,
   OVERLOAD_USER_MESSAGE,
   GEMINI_MODEL,
   GEMINI_MODEL_CHAIN,

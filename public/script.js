@@ -41,14 +41,6 @@
   let donateUrl = '#donate';
   let userTurns = 0;
 
-  function esc(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
   function autoGrow() {
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
@@ -94,15 +86,59 @@
     return { wrap, bubble };
   }
 
+  function isRealPartnerLink(link) {
+    const href = String(link || '').trim();
+    if (!/^https?:\/\/\S+/i.test(href)) return false;
+    // Never paint placeholder demo hosts even if a bad payload slips through.
+    if (/^https?:\/\/(www\.)?example\.com(\/|$)/i.test(href)) return false;
+    return true;
+  }
+
+  /** Quiet offer below the assistant bubble — not inside medical advice text. */
   function attachPartner(wrap, partner) {
     if (!partner || !wrap) return;
+    if (!isRealPartnerLink(partner.link)) return;
+
     const box = document.createElement('div');
     box.className = 'partner';
-    box.innerHTML =
-      `<strong>Вариант готового рациона</strong><br>` +
-      `${esc(partner.name)} — ${esc(partner.blurb)} ` +
-      `<a href="${esc(partner.link)}" target="_blank" rel="noopener noreferrer">открыть</a>` +
-      `<p class="tiny">${esc(partner.disclaimer || '')}</p>`;
+    box.setAttribute('role', 'complementary');
+    box.setAttribute('aria-label', 'Партнёрское предложение');
+
+    const title = document.createElement('div');
+    title.className = 'partner-title';
+    title.textContent =
+      partner.offer_type === 'promo' ? 'Промо от партнёра' : 'Вариант готового рациона';
+
+    const body = document.createElement('p');
+    body.className = 'partner-body';
+    body.append(document.createTextNode(`${partner.name} — ${partner.blurb} `));
+    const a = document.createElement('a');
+    a.href = partner.link;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = 'открыть';
+    body.appendChild(a);
+
+    box.appendChild(title);
+    box.appendChild(body);
+
+    if (partner.promo_code) {
+      const promo = document.createElement('p');
+      promo.className = 'partner-promo';
+      promo.append(document.createTextNode('Промокод: '));
+      const code = document.createElement('code');
+      code.textContent = String(partner.promo_code);
+      promo.appendChild(code);
+      box.appendChild(promo);
+    }
+
+    if (partner.disclaimer) {
+      const tip = document.createElement('p');
+      tip.className = 'tiny';
+      tip.textContent = partner.disclaimer;
+      box.appendChild(tip);
+    }
+
     wrap.appendChild(box);
     scrollBottom();
   }
