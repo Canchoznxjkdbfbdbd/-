@@ -284,6 +284,14 @@ body {
   animation: typing-pulse 1.2s ease-in-out infinite;
 }
 
+.msg.assistant .bubble.typing[data-stage='thinking'] {
+  animation-duration: 1.55s;
+}
+
+.msg.assistant .bubble.typing[data-stage='typing'] {
+  animation-duration: 1.05s;
+}
+
 @keyframes typing-pulse {
   0%,
   100% {

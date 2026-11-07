@@ -228,8 +228,11 @@ async function readGeminiSse(upstreamBody, onText) {
 }
 
 async function streamMock(res, partner) {
-  // Brief pause so the client «Печатает…» state is visible in demo mode.
-  await new Promise((r) => setTimeout(r, 450));
+  // Staged wait: thinking → typing → tokens (client also rotates calm Russian phrases).
+  writeEvent(res, { type: 'status', stage: 'thinking' });
+  await new Promise((r) => setTimeout(r, 1200));
+  writeEvent(res, { type: 'status', stage: 'typing' });
+  await new Promise((r) => setTimeout(r, 700));
   const chunks = MOCK_REPLY.match(/.{1,24}|[\s\S]/g) || [MOCK_REPLY];
   for (const chunk of chunks) {
     writeEvent(res, { type: 'token', text: chunk });
@@ -273,6 +276,8 @@ app.post('/api/chat', async (req, res) => {
     return;
   }
 
+  writeEvent(res, { type: 'status', stage: 'thinking' });
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     GEMINI_MODEL
   )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(GEMINI_API_KEY)}`;
@@ -295,6 +300,7 @@ app.post('/api/chat', async (req, res) => {
     let finishReason = '';
     let assembled = '';
     let continues = 0;
+    let signaledTyping = false;
 
     for (let attempt = 0; attempt <= MAX_CONTINUES; attempt++) {
       const upstream = await fetch(url, {
@@ -314,6 +320,11 @@ app.post('/api/chat', async (req, res) => {
         writeEvent(res, { type: 'done', finishReason: finishReason || 'ERROR' });
         res.end();
         return;
+      }
+
+      if (!signaledTyping) {
+        writeEvent(res, { type: 'status', stage: 'typing' });
+        signaledTyping = true;
       }
 
       let segment;

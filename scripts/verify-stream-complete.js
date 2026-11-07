@@ -151,9 +151,17 @@ async function testHttpMock() {
   let buffer = '';
   let full = '';
   let doneMeta = null;
+  const stages = [];
+  let firstTokenAt = -1;
+  let eventIndex = 0;
 
   const handle = (payload) => {
-    if (payload.type === 'token') full += payload.text || '';
+    eventIndex += 1;
+    if (payload.type === 'status' && payload.stage) stages.push(payload.stage);
+    if (payload.type === 'token') {
+      if (firstTokenAt < 0) firstTokenAt = eventIndex;
+      full += payload.text || '';
+    }
     if (payload.type === 'done') doneMeta = payload;
   };
 
@@ -166,6 +174,16 @@ async function testHttpMock() {
   buffer += decoder.decode();
   buffer = clientDrain(buffer, true, handle);
 
+  if (!stages.includes('thinking') || !stages.includes('typing')) {
+    throw new Error(`expected thinking+typing status stages, got ${JSON.stringify(stages)}`);
+  }
+  const thinkingIdx = stages.indexOf('thinking');
+  const typingIdx = stages.indexOf('typing');
+  if (!(thinkingIdx < typingIdx)) {
+    throw new Error(`stages out of order: ${JSON.stringify(stages)}`);
+  }
+  if (firstTokenAt < 0) throw new Error('no tokens received');
+
   const paragraphs = full.split(/\n\s*\n/).filter((p) => p.trim());
   if (paragraphs.length < 3) throw new Error(`expected 3+ paragraphs, got ${paragraphs.length}: ${full.slice(0, 200)}`);
   if (!full.includes('Готово')) throw new Error('missing completion marker Готово');
@@ -174,6 +192,7 @@ async function testHttpMock() {
     chars: full.length,
     paragraphs: paragraphs.length,
     endsWith: full.trim().slice(-20),
+    stages,
     doneMeta,
   });
 }

@@ -8,10 +8,23 @@
   /** Show quiet donate strip only after this many user messages. */
   const DONATE_AFTER_TURNS = 3;
 
+  /** Calm Russian wait stages — rotate short variants so it doesn’t feel canned. */
+  const THINKING_STATUS = ['Думает…', 'Что-то прикидывает…', 'Собирает мысли…'];
+  const TYPING_STATUS = ['Печатает…', 'Набирает ответ…', 'Подбирает слова…'];
+
   const DONATE_VARIANTS = [
     { id: 'a', copy: 'Если откликнулось — можно кинуть мелочь «админу на полезное».' },
     { id: 'b', copy: 'Сервис бесплатный. Поддержка — по желанию, кнопки ниже.' },
   ];
+
+  function pickStatus(list) {
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
+  function isStatusPhrase(text) {
+    const t = String(text || '');
+    return THINKING_STATUS.includes(t) || TYPING_STATUS.includes(t);
+  }
 
   const messagesEl = document.getElementById('messages');
   const form = document.getElementById('composer');
@@ -135,15 +148,37 @@
 
     let full = '';
     let gotToken = false;
+    /** @type {'thinking' | 'typing' | 'reply'} */
+    let stage = 'thinking';
+    let typingFallbackTimer = 0;
     const allowPartner = !partnerShown && userTurns >= 2;
 
-    // Show a bubble immediately so the wait for Gemini is never a blank chat.
-    const { wrap, bubble } = addMessage('assistant', 'Печатает…', { feedback: true });
+    // Stage 1: calm “thinking” so the wait never looks like a blank chat or fake typing.
+    const { wrap, bubble } = addMessage('assistant', pickStatus(THINKING_STATUS), { feedback: true });
     bubble.classList.add('typing');
+    bubble.dataset.stage = 'thinking';
+
+    const setStatus = (next, phrase) => {
+      if (gotToken || stage === 'reply') return;
+      // Only advance (or keep) — never flicker a new random phrase for the same stage.
+      if (next === 'thinking' && stage !== 'thinking') return;
+      if (stage === next) return;
+      stage = next;
+      bubble.dataset.stage = next;
+      bubble.textContent = phrase;
+      bubble.classList.add('typing');
+      scrollBottom();
+    };
 
     const beginReply = () => {
       if (gotToken) return;
       gotToken = true;
+      stage = 'reply';
+      bubble.dataset.stage = 'reply';
+      if (typingFallbackTimer) {
+        clearTimeout(typingFallbackTimer);
+        typingFallbackTimer = 0;
+      }
       bubble.classList.remove('typing');
       // Only clear the placeholder once — never wipe accumulated tokens later.
       bubble.textContent = '';
@@ -154,23 +189,50 @@
       scrollBottom();
     };
 
+    // If the server is slow to signal “typing”, still advance the stage locally.
+    typingFallbackTimer = window.setTimeout(() => {
+      setStatus('typing', pickStatus(TYPING_STATUS));
+    }, 1400);
+
     const handlePayload = (payload) => {
       if (!payload || typeof payload !== 'object') return;
-      if (payload.type === 'notice') {
-        addMessage('assistant', payload.text, { notice: true });
+      if (payload.type === 'status') {
+        if (payload.stage === 'thinking') {
+          setStatus('thinking', payload.text || pickStatus(THINKING_STATUS));
+        } else if (payload.stage === 'typing') {
+          if (typingFallbackTimer) {
+            clearTimeout(typingFallbackTimer);
+            typingFallbackTimer = 0;
+          }
+          setStatus('typing', payload.text || pickStatus(TYPING_STATUS));
+        }
+      } else if (payload.type === 'notice') {
+        const { wrap: noticeWrap } = addMessage('assistant', payload.text, { notice: true });
+        // Keep the live status/reply bubble last so stages stay in view.
+        if (wrap?.parentNode && noticeWrap) {
+          wrap.parentNode.insertBefore(noticeWrap, wrap);
+        }
       } else if (payload.type === 'token') {
+        // Ignore empty token frames so we never clear the status into a blank bubble.
+        if (!payload.text) return;
         beginReply();
-        full += payload.text || '';
+        full += payload.text;
         paint();
       } else if (payload.type === 'partner' && payload.partner) {
-        beginReply();
+        // Do not treat partner as the start of reply text — avoids wiping status into empty.
         partnerShown = true;
         attachPartner(wrap, payload.partner);
       } else if (payload.type === 'error') {
+        if (typingFallbackTimer) {
+          clearTimeout(typingFallbackTimer);
+          typingFallbackTimer = 0;
+        }
         bubble.classList.remove('typing');
         if (!full) {
           bubble.textContent = payload.text || 'Ответ пока не пришёл. Можно повторить через минуту.';
           wrap.classList.add('error');
+          stage = 'reply';
+          bubble.dataset.stage = 'reply';
         }
       }
       // type:done — keep whatever text we already painted (including after continues).
@@ -211,6 +273,10 @@
       });
 
       if (!res.ok || !res.body) {
+        if (typingFallbackTimer) {
+          clearTimeout(typingFallbackTimer);
+          typingFallbackTimer = 0;
+        }
         bubble.classList.remove('typing');
         bubble.textContent = 'Ответ пока не пришёл. Можно повторить через минуту.';
         wrap.classList.add('error');
@@ -233,9 +299,12 @@
       if (full) {
         history.push({ role: 'assistant', content: full });
         paint();
-      } else if (!gotToken) {
+      } else if (!wrap.classList.contains('error')) {
+        // Never leave a blank or stuck status bubble after the stream ends.
         bubble.classList.remove('typing');
-        bubble.textContent = 'Пусто пока. Напишите ещё раз — иногда помогает.';
+        if (!bubble.textContent || isStatusPhrase(bubble.textContent)) {
+          bubble.textContent = 'Пусто пока. Напишите ещё раз — иногда помогает.';
+        }
       }
     } catch {
       bubble.classList.remove('typing');
@@ -247,6 +316,10 @@
         paint();
       }
     } finally {
+      if (typingFallbackTimer) {
+        clearTimeout(typingFallbackTimer);
+        typingFallbackTimer = 0;
+      }
       bubble.classList.remove('typing');
       streaming = false;
       sendBtn.disabled = false;
