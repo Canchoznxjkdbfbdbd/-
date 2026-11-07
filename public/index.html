@@ -17,18 +17,23 @@
     <div class="atmosphere" aria-hidden="true"></div>
 
     <header class="top">
-      <div class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 40 40" width="28" height="28" fill="none">
-          <circle cx="20" cy="20" r="18" stroke="currentColor" stroke-width="1.5" opacity="0.35" />
-          <path
-            d="M20 8c-2.5 4-6 7.2-6 12a6 6 0 0012 0c0-4.8-3.5-8-6-12z"
-            fill="currentColor"
-            opacity="0.9"
-          />
-          <path d="M20 20v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.55" />
-        </svg>
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" width="28" height="28" fill="none">
+            <circle cx="20" cy="20" r="18" stroke="currentColor" stroke-width="1.5" opacity="0.35" />
+            <path
+              d="M20 8c-2.5 4-6 7.2-6 12a6 6 0 0012 0c0-4.8-3.5-8-6-12z"
+              fill="currentColor"
+              opacity="0.9"
+            />
+            <path d="M20 20v10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.55" />
+          </svg>
+        </div>
+        <span class="brand-word">НутриКод</span>
       </div>
-      <span class="brand-word">НутриКод</span>
+      <button type="button" id="clear-chat" class="clear-chat" hidden aria-expanded="false">
+        Очистить чат
+      </button>
     </header>
 
     <main class="shell">
@@ -101,10 +106,13 @@
       <p>
         НутриКод — информационный сервис о питании, не медицинская услуга и не замена консультации врача
         или диетолога. При заболеваниях, беременности и вопросах о детском рационе опирайтесь на очных
-        специалистов. История чата хранится только в вашем браузере; ответы формирует ИИ (Gemini).
+        специалистов. Аккаунтов нет: история чата лежит только в вашем браузере (кнопка «Очистить чат»).
+        На сервер уходит лишь текст сообщений, чтобы ИИ (Gemini) мог ответить — имя и прочие данные мы не
+        собираем и на сервере диалоги не храним.
       </p>
     </footer>
 
+    <script src="/history-store.js" defer></script>
     <script src="/script.js" defer></script>
   </body>
 </html>

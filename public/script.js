@@ -28,11 +28,13 @@
 
   const MODE_STORAGE_KEY = 'nutrikod_mode';
   const MODE_IDS = ['normal', 'kids', 'notime', 'grocery'];
+  const HistoryStore = window.NutriKodHistory;
 
   const messagesEl = document.getElementById('messages');
   const form = document.getElementById('composer');
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
+  const clearChatBtn = document.getElementById('clear-chat');
   const donateBanner = document.getElementById('donate-banner');
   const donateCopy = document.getElementById('donate-copy');
   const donateDismiss = document.getElementById('donate-dismiss');
@@ -45,6 +47,71 @@
   let donateUrl = '#donate';
   let userTurns = 0;
   let selectedMode = 'normal';
+
+  function persistChat() {
+    if (!HistoryStore) return;
+    // Keep localStorage empty until the person actually writes — greeting alone is not a session.
+    if (!history.some((m) => m.role === 'user')) {
+      HistoryStore.clear(window.localStorage);
+    } else {
+      HistoryStore.save(window.localStorage, { messages: history, partnerShown, userTurns });
+    }
+    syncClearButton();
+  }
+
+  let clearArmed = false;
+
+  function setClearArmed(on) {
+    clearArmed = Boolean(on);
+    if (!clearChatBtn) return;
+    clearChatBtn.textContent = clearArmed ? 'Точно очистить?' : 'Очистить чат';
+    clearChatBtn.classList.toggle('armed', clearArmed);
+    clearChatBtn.setAttribute('aria-expanded', clearArmed ? 'true' : 'false');
+  }
+
+  function syncClearButton() {
+    if (!clearChatBtn) return;
+    const hasUser = history.some((m) => m.role === 'user');
+    clearChatBtn.hidden = !hasUser;
+    clearChatBtn.disabled = streaming;
+    if (!hasUser || streaming) setClearArmed(false);
+  }
+
+  function resetToFreshChat() {
+    messagesEl.innerHTML = '';
+    history = [];
+    partnerShown = false;
+    userTurns = 0;
+    if (donateBanner) donateBanner.hidden = true;
+    addMessage('assistant', FIRST_QUESTION, { feedback: true });
+    history.push({ role: 'assistant', content: `${GREETING}\n\n${FIRST_QUESTION}` });
+    if (HistoryStore) HistoryStore.clear(window.localStorage);
+    syncClearButton();
+    input.focus();
+  }
+
+  function renderRestoredHistory(saved) {
+    messagesEl.innerHTML = '';
+    history = saved.messages.slice();
+    partnerShown = Boolean(saved.partnerShown);
+    userTurns =
+      typeof saved.userTurns === 'number' && saved.userTurns > 0
+        ? saved.userTurns
+        : history.filter((m) => m.role === 'user').length;
+
+    for (const msg of history) {
+      if (msg.role === 'user') {
+        addMessage('user', msg.content);
+      } else {
+        const text = HistoryStore
+          ? HistoryStore.displayAssistantText(GREETING, FIRST_QUESTION, msg.content)
+          : msg.content;
+        addMessage('assistant', text, { feedback: true });
+      }
+    }
+    syncClearButton();
+    showDonateBanner();
+  }
 
   function normalizeMode(id) {
     const value = String(id || '').trim().toLowerCase();
@@ -223,6 +290,7 @@
   async function streamReply() {
     streaming = true;
     sendBtn.disabled = true;
+    syncClearButton();
 
     let full = '';
     let gotToken = false;
@@ -376,6 +444,7 @@
 
       if (full) {
         history.push({ role: 'assistant', content: full });
+        persistChat();
         paint();
       } else if (!wrap.classList.contains('error')) {
         // Never leave a blank or stuck status bubble after the stream ends.
@@ -401,6 +470,7 @@
       bubble.classList.remove('typing');
       streaming = false;
       sendBtn.disabled = false;
+      syncClearButton();
       input.focus();
       showDonateBanner();
     }
@@ -415,9 +485,28 @@
     addMessage('user', text);
     history.push({ role: 'user', content: text });
     userTurns += 1;
+    persistChat();
     input.value = '';
     autoGrow();
     await streamReply();
+  });
+
+  clearChatBtn?.addEventListener('click', () => {
+    if (streaming) return;
+    if (!clearArmed) {
+      setClearArmed(true);
+      return;
+    }
+    if (HistoryStore) HistoryStore.clear(window.localStorage);
+    setClearArmed(false);
+    resetToFreshChat();
+  });
+
+  // Tap elsewhere cancels the armed clear — avoids accidental wipe.
+  document.addEventListener('click', (e) => {
+    if (!clearArmed || !clearChatBtn) return;
+    if (e.target === clearChatBtn || clearChatBtn.contains(e.target)) return;
+    setClearArmed(false);
   });
 
   input.addEventListener('input', autoGrow);
@@ -431,9 +520,17 @@
   async function boot() {
     await loadConfig();
     setMode(readStoredMode());
-    // Hero already shows the greeting line; first AI turn asks the intake question.
-    addMessage('assistant', FIRST_QUESTION, { feedback: true });
-    history.push({ role: 'assistant', content: `${GREETING}\n\n${FIRST_QUESTION}` });
+
+    const saved = HistoryStore ? HistoryStore.load(window.localStorage) : null;
+    if (saved && saved.messages.some((m) => m.role === 'user')) {
+      renderRestoredHistory(saved);
+    } else {
+      // Hero already shows the greeting line; first AI turn asks the intake question.
+      addMessage('assistant', FIRST_QUESTION, { feedback: true });
+      history.push({ role: 'assistant', content: `${GREETING}\n\n${FIRST_QUESTION}` });
+      // Fresh greeting alone is not persisted — only after the person writes.
+      syncClearButton();
+    }
     input.focus();
   }
 
