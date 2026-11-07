@@ -9,6 +9,8 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+/** Default chain after the primary model when Gemini returns 503 / UNAVAILABLE. */
+const DEFAULT_FALLBACK_MODELS = ['gemini-3.6-flash', 'gemini-3.5-flash-lite'];
 const DONATE_URL = process.env.DONATE_URL || '#donate';
 /** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
 const MAX_OUTPUT_TOKENS = Math.min(
@@ -16,6 +18,51 @@ const MAX_OUTPUT_TOKENS = Math.min(
   8192
 );
 const MAX_CONTINUES = 2;
+/** Retries per model on overload before switching to the next fallback. */
+const OVERLOAD_RETRIES = Math.min(
+  Math.max(Number(process.env.GEMINI_OVERLOAD_RETRIES) || 2, 0),
+  5
+);
+const OVERLOAD_BACKOFF_MS = Math.min(
+  Math.max(Number(process.env.GEMINI_OVERLOAD_BACKOFF_MS) || 800, 200),
+  8000
+);
+
+/** Primary + fallbacks. Override with GEMINI_MODEL_CHAIN=a,b,c or GEMINI_FALLBACK_MODELS=b,c */
+function parseModelChain() {
+  const split = (value) =>
+    String(value || '')
+      .split(/[,|]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  const fromChain = split(process.env.GEMINI_MODEL_CHAIN);
+  if (fromChain.length) return [...new Set(fromChain)];
+
+  const fallbacks = split(process.env.GEMINI_FALLBACK_MODELS);
+  const tail = fallbacks.length ? fallbacks : DEFAULT_FALLBACK_MODELS;
+  return [...new Set([GEMINI_MODEL, ...tail])];
+}
+
+const GEMINI_MODEL_CHAIN = parseModelChain();
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function geminiStreamUrl(model) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    model
+  )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(GEMINI_API_KEY)}`;
+}
+
+/** True for high-demand / capacity errors that may clear after backoff or a lighter model. */
+function isOverloadError(status, code, message) {
+  const blob = `${code || ''} ${message || ''}`;
+  if (status === 503) return true;
+  if (/UNAVAILABLE|high demand|overloaded|try again later/i.test(blob)) return true;
+  return false;
+}
 
 const ROOT = __dirname;
 const SYSTEM_PROMPT = fs.readFileSync(path.join(ROOT, 'prompt.txt'), 'utf8');
@@ -30,6 +77,7 @@ app.get('/api/config', (_req, res) => {
     donateUrl: DONATE_URL,
     brand: 'НутриКод',
     model: GEMINI_MODEL,
+    modelChain: GEMINI_MODEL_CHAIN,
   });
 });
 
@@ -110,22 +158,32 @@ function redactSecrets(text) {
     .slice(0, 280);
 }
 
-function summarizeGeminiError(status, rawBody) {
+const OVERLOAD_USER_MESSAGE =
+  'Сейчас у ИИ высокая нагрузка — это временно. Подождите минуту и напишите снова, обычно всё снова отвечает.';
+
+function parseGeminiErrorBody(rawBody) {
   let code = '';
   let message = '';
   try {
     const parsed = JSON.parse(rawBody);
-    code = parsed?.error?.status || parsed?.error?.code || '';
+    code = String(parsed?.error?.status || parsed?.error?.code || '');
     message = parsed?.error?.message || '';
   } catch {
     message = rawBody;
   }
+  return { code, message };
+}
 
+function summarizeGeminiError(status, rawBody, model = GEMINI_MODEL) {
+  const { code, message } = parseGeminiErrorBody(rawBody);
   const safeMessage = redactSecrets(message).replace(/\s+/g, ' ').trim();
   console.error(
-    `[gemini] upstream status=${status} model=${GEMINI_MODEL} code=${code || 'n/a'} msg=${safeMessage || '(empty)'}`
+    `[gemini] upstream status=${status} model=${model} code=${code || 'n/a'} msg=${safeMessage || '(empty)'}`
   );
 
+  if (isOverloadError(status, code, message)) {
+    return OVERLOAD_USER_MESSAGE;
+  }
   if (
     status === 401 ||
     status === 403 ||
@@ -143,6 +201,83 @@ function summarizeGeminiError(status, rawBody) {
     return 'У модели короткий перерыв. Напишите ещё раз через минуту.';
   }
   return 'Ответ пока не пришёл. Можно повторить через минуту.';
+}
+
+/**
+ * Open a Gemini SSE stream. On 503/UNAVAILABLE: backoff retries, then next model in chain.
+ * @param {object} body request JSON
+ * @param {string[]} [models] override chain (e.g. stick to one model on MAX_TOKENS continue)
+ * @returns {Promise<{ upstream: Response, model: string } | { errorText: string, status: number, model: string }>}
+ */
+async function openGeminiStream(body, models = GEMINI_MODEL_CHAIN) {
+  const chain = models.length ? models : GEMINI_MODEL_CHAIN;
+  let lastFailure = { errorText: OVERLOAD_USER_MESSAGE, status: 503, model: chain[0] };
+
+  for (let modelIndex = 0; modelIndex < chain.length; modelIndex++) {
+    const model = chain[modelIndex];
+    const attempts = OVERLOAD_RETRIES + 1;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      console.info(
+        `[gemini] request model=${model} attempt=${attempt + 1}/${attempts} chain=${modelIndex + 1}/${chain.length}`
+      );
+
+      let upstream;
+      try {
+        upstream = await fetch(geminiStreamUrl(model), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } catch (err) {
+        console.error(`[gemini] fetch failed model=${model}`, redactSecrets(err?.message || String(err)));
+        lastFailure = {
+          errorText: 'Связь прервалась. Проверьте сеть и напишите снова.',
+          status: 0,
+          model,
+        };
+        if (attempt < attempts - 1) {
+          await sleep(OVERLOAD_BACKOFF_MS * Math.pow(2, attempt));
+          continue;
+        }
+        break;
+      }
+
+      if (upstream.ok) {
+        if (model !== GEMINI_MODEL) {
+          console.info(`[gemini] fallback ok model=${model} (primary was ${GEMINI_MODEL})`);
+        }
+        return { upstream, model };
+      }
+
+      const errText = await upstream.text().catch(() => '');
+      const { code, message } = parseGeminiErrorBody(errText);
+      lastFailure = {
+        errorText: summarizeGeminiError(upstream.status, errText, model),
+        status: upstream.status,
+        model,
+      };
+
+      if (isOverloadError(upstream.status, code, message)) {
+        const canRetry = attempt < attempts - 1;
+        const canFallback = modelIndex < chain.length - 1;
+        console.warn(
+          `[gemini] overload model=${model} status=${upstream.status} code=${code || 'n/a'} retry=${canRetry} fallback=${canFallback}`
+        );
+        if (canRetry) {
+          await sleep(OVERLOAD_BACKOFF_MS * Math.pow(2, attempt));
+          continue;
+        }
+        // Exhausted retries on this model — try next in chain.
+        break;
+      }
+
+      // Non-overload failure: stop immediately (no fallback for auth/404/etc.).
+      return lastFailure;
+    }
+  }
+
+  return lastFailure;
 }
 
 const MOCK_REPLY =
@@ -278,10 +413,6 @@ app.post('/api/chat', async (req, res) => {
 
   writeEvent(res, { type: 'status', stage: 'thinking' });
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    GEMINI_MODEL
-  )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(GEMINI_API_KEY)}`;
-
   const systemInstruction = { parts: [{ text: buildSystemInstruction(partner) }] };
   let contents = toGeminiContents(messages);
   const generationConfig = {
@@ -291,9 +422,9 @@ app.post('/api/chat', async (req, res) => {
 
   try {
     console.info(
-      `[gemini] request model=${GEMINI_MODEL} turns=${messages.length} partner=${
-        partner ? partner.id : 'none'
-      } maxOutputTokens=${MAX_OUTPUT_TOKENS}`
+      `[gemini] chat turns=${messages.length} partner=${partner ? partner.id : 'none'} maxOutputTokens=${MAX_OUTPUT_TOKENS} chain=${GEMINI_MODEL_CHAIN.join(
+        '→'
+      )}`
     );
 
     let tokenCount = 0;
@@ -301,26 +432,32 @@ app.post('/api/chat', async (req, res) => {
     let assembled = '';
     let continues = 0;
     let signaledTyping = false;
+    let activeModel = GEMINI_MODEL;
 
     for (let attempt = 0; attempt <= MAX_CONTINUES; attempt++) {
-      const upstream = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: systemInstruction,
-          contents,
-          generationConfig,
-        }),
-      });
+      const requestBody = {
+        system_instruction: systemInstruction,
+        contents,
+        generationConfig,
+      };
 
-      if (!upstream.ok) {
-        const errText = await upstream.text().catch(() => '');
-        const calm = summarizeGeminiError(upstream.status, errText);
-        writeEvent(res, { type: 'error', text: calm });
+      // First segment: full retry + fallback chain. Continues stick to the model that worked.
+      const opened = await openGeminiStream(
+        requestBody,
+        attempt === 0 ? GEMINI_MODEL_CHAIN : [activeModel]
+      );
+
+      if (!opened?.upstream) {
+        writeEvent(res, {
+          type: 'error',
+          text: opened?.errorText || OVERLOAD_USER_MESSAGE,
+        });
         writeEvent(res, { type: 'done', finishReason: finishReason || 'ERROR' });
         res.end();
         return;
       }
+
+      activeModel = opened.model;
 
       if (!signaledTyping) {
         writeEvent(res, { type: 'status', stage: 'typing' });
@@ -329,12 +466,16 @@ app.post('/api/chat', async (req, res) => {
 
       let segment;
       try {
-        segment = await readGeminiSse(upstream.body, (text) => {
+        segment = await readGeminiSse(opened.upstream.body, (text) => {
           writeEvent(res, { type: 'token', text });
         });
       } catch (err) {
         if (err?.geminiError) {
-          const calm = summarizeGeminiError(err.geminiError.code || 500, JSON.stringify({ error: err.geminiError }));
+          const calm = summarizeGeminiError(
+            err.geminiError.code || 500,
+            JSON.stringify({ error: err.geminiError }),
+            activeModel
+          );
           writeEvent(res, { type: 'error', text: calm });
           writeEvent(res, { type: 'done', finishReason: 'ERROR' });
           res.end();
@@ -353,7 +494,7 @@ app.post('/api/chat', async (req, res) => {
 
       continues += 1;
       console.info(
-        `[gemini] MAX_TOKENS — continue ${continues}/${MAX_CONTINUES} model=${GEMINI_MODEL} soFarChars=${assembled.length}`
+        `[gemini] MAX_TOKENS — continue ${continues}/${MAX_CONTINUES} model=${activeModel} soFarChars=${assembled.length}`
       );
       contents = [
         ...contents,
@@ -383,12 +524,13 @@ app.post('/api/chat', async (req, res) => {
     }
 
     console.info(
-      `[gemini] done model=${GEMINI_MODEL} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length}`
+      `[gemini] done model=${activeModel} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length}`
     );
     writeEvent(res, {
       type: 'done',
       finishReason: finishReason || 'STOP',
       truncated: finishReason === 'MAX_TOKENS',
+      model: activeModel,
     });
     res.end();
   } catch (err) {
@@ -406,8 +548,23 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(ROOT, 'public', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(
-    `НутриКод на http://127.0.0.1:${PORT} (key: ${GEMINI_API_KEY ? 'yes' : 'mock'}, model: ${GEMINI_MODEL})`
-  );
-});
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(
+      `НутриКод на http://127.0.0.1:${PORT} (key: ${GEMINI_API_KEY ? 'yes' : 'mock'}, model: ${GEMINI_MODEL}, chain: ${GEMINI_MODEL_CHAIN.join(
+        '→'
+      )})`
+    );
+  });
+}
+
+module.exports = {
+  app,
+  parseModelChain,
+  isOverloadError,
+  summarizeGeminiError,
+  openGeminiStream,
+  OVERLOAD_USER_MESSAGE,
+  GEMINI_MODEL_CHAIN,
+  DEFAULT_FALLBACK_MODELS,
+};

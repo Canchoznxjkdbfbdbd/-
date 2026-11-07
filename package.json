@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "verify:overload": "node scripts/verify-gemini-overload.js",
+    "verify:stream": "node scripts/verify-stream-complete.js"
   },
   "engines": {
     "node": ">=18"
