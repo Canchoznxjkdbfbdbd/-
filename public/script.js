@@ -13,8 +13,8 @@
   const TYPING_STATUS = ['Печатает…', 'Набирает ответ…', 'Подбирает слова…'];
 
   const DONATE_VARIANTS = [
-    { id: 'a', copy: 'Если откликнулось — киньте мелочь админу на полезное, а то он на тостах.' },
-    { id: 'b', copy: 'Бесплатно, как совет про овощи. Поддержка — по желанию, кнопки ниже.' },
+    { id: 'a', copy: 'Если зашло — киньте админу на чай, а то он на тостах.' },
+    { id: 'b', copy: 'Бесплатно, как совет про овощи. Поддержка — если захочется, на сервер.' },
   ];
 
   function pickStatus(list) {
@@ -252,6 +252,13 @@
     scrollBottom();
   }
 
+  /** CloudTips pay pages accept optional ?amount= to prefill the tip. */
+  function donateHrefForAmount(amount) {
+    const base = donateUrl || '#donate';
+    if (base === '#donate' || base.startsWith('#')) return `#donate-${amount}`;
+    return base.includes('?') ? `${base}&amount=${amount}` : `${base}?amount=${amount}`;
+  }
+
   function showDonateBanner() {
     if (sessionStorage.getItem('nutrikod_donate_hide') === '1') return;
     if (userTurns < DONATE_AFTER_TURNS) return;
@@ -259,12 +266,17 @@
     const variant = Math.random() < 0.5 ? DONATE_VARIANTS[0] : DONATE_VARIANTS[1];
     donateCopy.textContent = variant.copy;
     donateBanner.hidden = false;
+    const base = donateUrl || '#donate';
+    const isPlaceholder = base === '#donate' || base.startsWith('#');
     donateBanner.querySelectorAll('.donate-btn').forEach((a) => {
       const amount = a.getAttribute('data-amount');
-      const base = donateUrl || '#donate';
-      a.href = base.includes('?') ? `${base}&amount=${amount}` : `${base}?amount=${amount}`;
-      if (base === '#donate' || base.startsWith('#')) {
-        a.href = `#donate-${amount}`;
+      a.href = donateHrefForAmount(amount);
+      if (isPlaceholder) {
+        a.removeAttribute('target');
+        a.removeAttribute('rel');
+      } else {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
       }
     });
   }
