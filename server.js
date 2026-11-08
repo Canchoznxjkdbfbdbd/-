@@ -177,6 +177,18 @@ ${mode.overlay}`;
 }
 
 app.use(express.json({ limit: '256kb' }));
+
+/** PWA: correct MIME + avoid stale service worker after deploys. */
+app.get('/manifest.webmanifest', (_req, res) => {
+  res.type('application/manifest+json');
+  res.sendFile(path.join(ROOT, 'public', 'manifest.webmanifest'));
+});
+app.get('/sw.js', (_req, res) => {
+  res.set('Cache-Control', 'no-cache, max-age=0, must-revalidate');
+  res.type('application/javascript');
+  res.sendFile(path.join(ROOT, 'public', 'sw.js'));
+});
+
 app.use(express.static(path.join(ROOT, 'public')));
 
 const CHAT_RATE_WINDOW_MS = 15 * 60 * 1000;
