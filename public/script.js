@@ -13,8 +13,8 @@
   const TYPING_STATUS = ['Печатает…', 'Набирает ответ…', 'Подбирает слова…'];
 
   const DONATE_VARIANTS = [
-    { id: 'a', copy: 'Если откликнулось — киньте мелочь админу на полезное, а то он на тостах.' },
-    { id: 'b', copy: 'Бесплатно, как совет про овощи. Поддержка — по желанию, кнопки ниже.' },
+    { id: 'a', copy: 'Если зашло — киньте админу на чай, а то он на тостах.', label: 'на чай' },
+    { id: 'b', copy: 'Бесплатно, как совет про овощи. Поддержка — если захочется, на сервер.', label: 'на сервер' },
   ];
 
   function pickStatus(list) {
@@ -259,14 +259,12 @@
     const variant = Math.random() < 0.5 ? DONATE_VARIANTS[0] : DONATE_VARIANTS[1];
     donateCopy.textContent = variant.copy;
     donateBanner.hidden = false;
-    donateBanner.querySelectorAll('.donate-btn').forEach((a) => {
-      const amount = a.getAttribute('data-amount');
+    const link = document.getElementById('donate-link');
+    if (link) {
       const base = donateUrl || '#donate';
-      a.href = base.includes('?') ? `${base}&amount=${amount}` : `${base}?amount=${amount}`;
-      if (base === '#donate' || base.startsWith('#')) {
-        a.href = `#donate-${amount}`;
-      }
-    });
+      link.textContent = variant.label;
+      link.href = base === '#donate' || base.startsWith('#') ? '#donate' : base;
+    }
   }
 
   donateDismiss?.addEventListener('click', () => {
