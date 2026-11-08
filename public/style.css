@@ -196,12 +196,12 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.45rem 0.75rem;
-  padding: 0.35rem 1.6rem 0.35rem 0.15rem;
+  gap: 0.5rem 0.85rem;
+  padding: 0.5rem 1.7rem 0.5rem 0.2rem;
   border: 0;
-  border-top: 1px solid rgba(23, 48, 40, 0.06);
+  border-top: 1px solid rgba(23, 48, 40, 0.08);
   border-radius: 0;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.35);
   box-shadow: none;
   animation: rise 0.55s ease-out both;
 }
@@ -216,35 +216,42 @@ body {
   flex: 1 1 auto;
   min-width: 10rem;
   padding-right: 0.25rem;
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
   line-height: 1.35;
 }
 
 .donate-amounts {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
+  gap: 0.4rem;
 }
 
 .donate-btn {
   appearance: none;
-  border: 1px solid rgba(23, 48, 40, 0.12);
-  background: transparent;
-  color: var(--muted);
+  border: 1px solid rgba(31, 107, 79, 0.28);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--leaf-deep);
   text-decoration: none;
-  border-radius: 8px;
-  padding: 0.18rem 0.48rem;
+  border-radius: 9px;
+  padding: 0.32rem 0.7rem;
   font: inherit;
-  font-weight: 500;
-  font-size: 0.72rem;
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.01em;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
 
 .donate-btn:hover {
   color: var(--leaf-deep);
-  border-color: rgba(31, 107, 79, 0.35);
-  background: rgba(31, 107, 79, 0.05);
+  border-color: rgba(31, 107, 79, 0.5);
+  background: rgba(31, 107, 79, 0.1);
+  transform: translateY(-1px);
+}
+
+.donate-btn:focus-visible {
+  outline: 2px solid rgba(31, 107, 79, 0.45);
+  outline-offset: 2px;
 }
 
 .donate-dismiss {
