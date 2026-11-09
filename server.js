@@ -320,11 +320,21 @@ app.get('/api/config', (_req, res) => {
 });
 
 /**
- * Generic ready-food / order intent.
+ * Clear fulfillment / brand intent — only then inject 0–1 live offer.
  * Avoid \\b — JS word boundaries ignore Cyrillic and break matches.
+ * Bare «покушать / продукты / магазин» is NOT enough (clarify first).
  */
-const INTENT_RE =
-  /готов(?:ое|ый|ую|ые|ого)|заказ(?:ать|аю|аем|ите)|заказы|нет времени(?:\s+готовить)?|некогда(?:\s+готовить)?|доставк|пицц|суши|ролл|лавк|магазин|продукт|перекр[её]сток|магнит|ёбидоёби|yobidoyobi|додо|\bdodo\b|яндекс\s*ед|яндекс\s*лавк/i;
+const CLEAR_INTENT_RE =
+  /заказ(?:ать|аю|аем|ите)|заказы|доставк|нет времени(?:\s+готовить)?|некогда(?:\s+готовить)?|готов(?:ое|ую|ые|ой)\s+(?:ед|блюд)|заказ(?:ать)?\s+готов|пицц|суши|ролл|лавк|перекр[её]сток|магнит|ёбидоёби|yobidoyobi|додо|\bdodo\b|яндекс\s*ед|яндекс\s*лавк|вод[аыуе]|гидрат|питьев|купить\s+продукт|заказать\s+продукт|доставк\w*\s+продукт/i;
+
+/** @deprecated alias — kept for older verify scripts / exports */
+const INTENT_RE = CLEAR_INTENT_RE;
+
+/**
+ * Soft default when intent is clear but no brand won.
+ * Prefer wide delivery over local grocery chains (Перекрёсток).
+ */
+const WIDE_DEFAULT_IDS = ['yandex-eda', 'yandex-lavka', 'dodo-pizza', 'yobidoyobi', 'foodband'];
 
 /** Low-signal tags shared by many partners — brand/specific tags weigh more. */
 const GENERIC_PARTNER_TAGS = new Set([
@@ -378,45 +388,97 @@ function hasOwnerCodeword(messages) {
   );
 }
 
+/** Tag hit with light Cyrillic inflection (лавка/лавку, пицца/пиццу). */
+function textHasTag(text, tag) {
+  const t = String(tag || '').toLowerCase().trim();
+  if (!t) return false;
+  if (text.includes(t)) return true;
+  // Soft stem for longer tags only — avoid short false positives (вода→вод).
+  if (t.length >= 5) {
+    const stem = t.slice(0, -1);
+    if (stem.length >= 4 && text.includes(stem)) return true;
+  }
+  return false;
+}
+
 function partnerTagScore(partner, text) {
-  let score = 0;
+  let brand = 0;
+  let generic = 0;
   for (const tag of partner.tags || []) {
     const t = String(tag).toLowerCase();
-    if (!t || !text.includes(t)) continue;
-    score += GENERIC_PARTNER_TAGS.has(t) ? 1 : 3;
+    if (!textHasTag(text, t)) continue;
+    if (GENERIC_PARTNER_TAGS.has(t)) generic += 1;
+    else brand += 3;
   }
-  return score;
+  return { brand, generic, total: brand + generic };
+}
+
+/** Skip partners whose geo_deny substrings appear in the conversation. */
+function partnerDeniedByGeo(partner, text) {
+  const denies = Array.isArray(partner?.geo_deny) ? partner.geo_deny : [];
+  for (const d of denies) {
+    const needle = String(d || '')
+      .toLowerCase()
+      .trim();
+    if (needle && text.includes(needle)) return true;
+  }
+  return false;
+}
+
+function isWideCoveragePartner(partner) {
+  if (!partner) return false;
+  if (partner.coverage === 'wide') return true;
+  return WIDE_DEFAULT_IDS.includes(partner.id);
+}
+
+/**
+ * Soft default among live partners: wide delivery first, never force a geo-limited chain.
+ */
+function pickWideDefault(live) {
+  for (const id of WIDE_DEFAULT_IDS) {
+    const hit = live.find((p) => p.id === id);
+    if (hit) return hit;
+  }
+  const wide = live.find((p) => isWideCoveragePartner(p));
+  if (wide) return wide;
+  // Last resort: partner without geo_deny, else first remaining.
+  return live.find((p) => !Array.isArray(p.geo_deny) || !p.geo_deny.length) || live[0] || null;
 }
 
 /**
  * Pick 0–1 live partner. Never on first user turn.
- * Matches generic INTENT_RE or brand/tag hits (Лавка / Еда / Додо / Магнит…).
- * Demo rows (live:false / example.com) are skipped — no invented links.
+ * Only when intent is clear (order/delivery/no-time/brand/water…) OR a brand tag hits.
+ * Vague «покушать» → null (model clarifies). Demo rows skipped.
+ * Path: UI card owns URL/promo; model gets soft context only (see partnerContextBlock).
  */
 function pickPartner(messages, { allowPartner = false } = {}) {
   if (!allowPartner) return null;
   // Never first reply: need at least two user messages in the thread.
   if (countUserTurns(messages) < 2) return null;
 
-  const live = PARTNERS.filter(isLivePartner);
+  const text = conversationText(messages);
+  const live = PARTNERS.filter(isLivePartner).filter((p) => !partnerDeniedByGeo(p, text));
   if (!live.length) return null;
 
-  const text = conversationText(messages);
-
   let best = null;
-  let bestScore = 0;
+  let bestBrand = 0;
+  let bestTotal = 0;
   for (const p of live) {
     const score = partnerTagScore(p, text);
-    if (score > bestScore) {
-      bestScore = score;
+    if (score.brand > bestBrand || (score.brand === bestBrand && score.total > bestTotal)) {
+      bestBrand = score.brand;
+      bestTotal = score.total;
       best = p;
     }
   }
 
-  // Brand/tag hit is enough (e.g. «пицца додо») — do not require generic INTENT_RE.
-  if (bestScore > 0) return best;
-  // Generic ready-food intent without brand → first live as soft default.
-  if (INTENT_RE.test(text)) return live[0];
+  // Brand/specific tag hit (e.g. «пицца додо», «яндекс лавка», «вода»).
+  if (bestBrand > 0) return best;
+
+  // Clear fulfillment intent without brand → wide delivery default (not Перекрёсток).
+  if (CLEAR_INTENT_RE.test(text)) return pickWideDefault(live);
+
+  // Vague / unclear hunger or small talk → no offer; prompt asks clarify + city if needed.
   return null;
 }
 
@@ -433,26 +495,28 @@ function partnerPayload(partner) {
   };
 }
 
-/** Compact 0–1 live offer for the model — URL/promo only from this block. */
+/**
+ * Compact 0–1 live offer for the model.
+ * Dedup path (documented): UI SSE partner card owns URL + promo;
+ * model gets name/blurb only and must NOT print raw link/code.
+ */
 function partnerContextBlock(partner) {
   if (!partner) return '';
   const payload = partnerPayload(partner);
   const lines = [
-    'Контекст партнёрского оффера (ровно 0–1 live на ответ; URL и промокод только отсюда, по правилу 7):',
+    'Контекст партнёрского оффера (ровно 0–1; ссылка и промокод уйдут в UI-карточку под ответом — не дублируй их в тексте):',
     `id: ${payload.id}`,
     `name: ${payload.name}`,
     `blurb: ${payload.blurb || ''}`,
-    `link: ${payload.link}`,
-    `promo_code: ${payload.promo_code || 'нет'}`,
     `offer_type: ${payload.offer_type || 'affiliate'}`,
-    `disclaimer: ${payload.disclaimer || ''}`,
+    'Можно один раз мягко упомянуть бренд/выгоду и сказать, что удобный вариант — в карточке ниже. Не печатай сырой URL и не печатай промокод. Не ври, что офферов нет.',
   ];
   return `\n\n${lines.join('\n')}`;
 }
 
 /**
  * Owner strategy catalog: live ids/names only — never URLs/promo here.
- * Full offer still comes only from partnerContextBlock (0–1).
+ * User-facing offer is the UI card (0–1), not raw links in model text.
  */
 function ownerPartnersCatalogBlock(messages) {
   if (!hasOwnerCodeword(messages)) return '';
@@ -460,13 +524,13 @@ function ownerPartnersCatalogBlock(messages) {
   if (!live.length) return '';
   const lines = live.map((p) => {
     const promo = p.promo_code ? 'promo:да' : 'promo:нет';
-    return `- ${p.id} — ${p.name} (${promo})`;
+    const cover = isWideCoveragePartner(p) ? 'wide' : 'geo';
+    return `- ${p.id} — ${p.name} (${promo}, ${cover})`;
   });
   return (
-
     '\n\nКаталог live-партнёров для владельца (только id/name, без URL и без промокодов):\n' +
     lines.join('\n') +
-    '\nПул живой; в пользовательский ответ с ссылкой кладётся максимум один оффер из блока «Контекст партнёрского оффера». ' +
+    '\nПул живой; пользователю уходит максимум одна UI-карточка (SSE partner) + мягкий намёк из блока «Контекст партнёрского оффера» без сырого URL. ' +
     'Владельцу для стратегии можно кратко перечислить эти id/названия без ссылок.'
   );
 }
@@ -930,9 +994,14 @@ module.exports = {
   isLivePartner,
   partnerPayload,
   partnerTagScore,
+  partnerDeniedByGeo,
+  isWideCoveragePartner,
+  pickWideDefault,
   hasOwnerCodeword,
   ownerPartnersCatalogBlock,
+  CLEAR_INTENT_RE,
   INTENT_RE,
+  WIDE_DEFAULT_IDS,
   OVERLOAD_USER_MESSAGE,
   GEMINI_MODEL,
   GEMINI_MODEL_CHAIN,
