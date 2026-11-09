@@ -13,8 +13,8 @@
   const TYPING_STATUS = ['Печатает…', 'Набирает ответ…', 'Подбирает слова…'];
 
   const DONATE_VARIANTS = [
-    { id: 'a', copy: 'Если откликнулось — киньте мелочь админу на полезное, а то он на тостах.' },
-    { id: 'b', copy: 'Бесплатно, как совет про овощи. Поддержка — по желанию, кнопки ниже.' },
+    { id: 'a', copy: 'Если зашло — киньте админу на чай, а то он на тостах.' },
+    { id: 'b', copy: 'Бесплатно, как совет про овощи. Поддержка — если захочется, на сервер.' },
   ];
 
   function pickStatus(list) {
@@ -164,7 +164,11 @@
     wrap.className = `msg ${role}${opts.notice ? ' notice' : ''}${opts.error ? ' error' : ''}`;
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    bubble.textContent = text;
+    if (role === 'assistant' && !opts.notice && !opts.error) {
+      fillAssistantBubble(bubble, text);
+    } else {
+      bubble.textContent = text;
+    }
     wrap.appendChild(bubble);
 
     if (role === 'assistant' && opts.feedback) {
@@ -203,7 +207,188 @@
     return true;
   }
 
-  /** Quiet offer below the assistant bubble — not inside medical advice text. */
+  /** Strip hidden model mark [[partner:id]] from visible bubble text. */
+  function stripPartnerMark(text) {
+    return String(text || '')
+      .replace(/\[\[\s*partner\s*:\s*[a-z0-9_-]+\s*\]\]/gi, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trimEnd();
+  }
+
+  function isSafeHttpUrl(url) {
+    return /^https?:\/\/[^\s<>"']+$/i.test(String(url || '').trim());
+  }
+
+  /**
+   * Fill assistant bubble: keep plain text + clickable markdown links [label](https://…).
+   * Also turns a bare DONATE_URL into «Поддержать НутриКод» if the model still dumps it.
+   */
+  function fillAssistantBubble(bubble, text) {
+    const cleaned = stripPartnerMark(text);
+    bubble.replaceChildren();
+
+    const mdRe = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+    /** @type {{start:number,end:number,label:string,href:string}[]} */
+    const hits = [];
+    let m;
+    while ((m = mdRe.exec(cleaned))) {
+      const href = m[2].trim();
+      if (!isSafeHttpUrl(href)) continue;
+      hits.push({ start: m.index, end: m.index + m[0].length, label: m[1], href });
+    }
+
+    // Defensive: bare donate URL → friendly link (only exact match of configured URL).
+    const bareDonate = String(donateUrl || '').trim();
+    if (bareDonate && isSafeHttpUrl(bareDonate) && !bareDonate.startsWith('#')) {
+      let from = 0;
+      while (from < cleaned.length) {
+        const idx = cleaned.indexOf(bareDonate, from);
+        if (idx === -1) break;
+        const end = idx + bareDonate.length;
+        const covered = hits.some((h) => idx < h.end && end > h.start);
+        if (!covered) {
+          hits.push({
+            start: idx,
+            end,
+            label: 'Поддержать НутриКод',
+            href: bareDonate,
+          });
+        }
+        from = end;
+      }
+      hits.sort((a, b) => a.start - b.start || b.end - a.end);
+    }
+
+    if (!hits.length) {
+      bubble.textContent = cleaned;
+      return;
+    }
+
+    let cursor = 0;
+    for (const hit of hits) {
+      if (hit.start < cursor) continue;
+      if (hit.start > cursor) {
+        bubble.appendChild(document.createTextNode(cleaned.slice(cursor, hit.start)));
+      }
+      const a = document.createElement('a');
+      a.className = 'bubble-link';
+      a.href = hit.href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = hit.label;
+      bubble.appendChild(a);
+      cursor = hit.end;
+    }
+    if (cursor < cleaned.length) {
+      bubble.appendChild(document.createTextNode(cleaned.slice(cursor)));
+    }
+  }
+
+  function escapeRegExp(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /** Blurb without secondary «Также/Другие» promo lists. */
+  function partnerBlurbPrimary(partner) {
+    let blurb = String((partner && partner.blurb) || '').trim();
+    // Avoid \\b — JS word boundaries break on Cyrillic.
+    return blurb
+      .replace(/\.\s*(?:Также|Другие)(?:\s.*)?$/i, '')
+      .replace(/\s+(?:Также|Другие)\s*:.*$/i, '')
+      .trim();
+  }
+
+  /** Product lead for the plaque (what it is) — not the promo conditions. */
+  function partnerOfferLine(partner) {
+    const code = partner && partner.promo_code ? String(partner.promo_code).trim() : '';
+    const blurb = partnerBlurbPrimary(partner);
+
+    let clean = blurb
+      .replace(/Промокод\s+\S+(?:\s*[—\-]\s*)?.*$/i, '')
+      .replace(/(?:^|[\s.])Реклама\.?(?=\s|$)/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/^[.\s]+|[.\s]+$/g, '')
+      .trim();
+    if (clean) return clean;
+
+    if (code) return 'Скидка по промокоду';
+    if (partner && partner.offer_type === 'promo') return 'Партнёрское предложение';
+    return 'Готовый вариант рядом';
+  }
+
+  /**
+   * Short promo conditions under the code row: min order, %/₽, deadline, first order.
+   * Prefer partners.json promo_terms; else extract from blurb (not the whole blurb).
+   */
+  function partnerPromoTerms(partner) {
+    const explicit = partner && partner.promo_terms != null
+      ? String(partner.promo_terms).trim()
+      : '';
+    if (explicit) return explicit;
+
+    const code = partner && partner.promo_code ? String(partner.promo_code).trim() : '';
+    if (!code) return '';
+
+    const blurb = partnerBlurbPrimary(partner);
+    const promoPat = new RegExp(
+      `Промокод\\s+${escapeRegExp(code)}\\s*(?:[—\\-]\\s*)?(.+)$`,
+      'i'
+    );
+    const hit = blurb.match(promoPat);
+    if (!hit || !hit[1]) return '';
+
+    let cond = hit[1].replace(/\.$/, '').trim().replace(/\s+/g, ' ');
+    // Skip if extraction collapsed to the whole remaining blurb-ish product lead.
+    // Human phrases are longer than «25% · дата»; keep a soft cap so we never dump the whole blurb.
+    if (!cond || cond.length > 120) return '';
+    return cond;
+  }
+
+  function copyPartnerPromo(code, button) {
+    const value = String(code || '');
+    if (!value || !button) return;
+
+    const done = () => {
+      const prev = button.textContent;
+      button.textContent = 'Скопировано';
+      button.classList.add('is-copied');
+      button.disabled = true;
+      window.setTimeout(() => {
+        button.textContent = prev || 'Скопировать';
+        button.classList.remove('is-copied');
+        button.disabled = false;
+      }, 1600);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(done).catch(() => {
+        // Fallback below.
+        fallbackCopy(value, done);
+      });
+      return;
+    }
+    fallbackCopy(value, done);
+  }
+
+  function fallbackCopy(value, onDone) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = value;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      onDone();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  /** Quiet structural offer below the assistant bubble — owns URL + promo. */
   function attachPartner(wrap, partner) {
     if (!partner || !wrap) return;
     if (!isRealPartnerLink(partner.link)) return;
@@ -213,43 +398,70 @@
     box.setAttribute('role', 'complementary');
     box.setAttribute('aria-label', 'Партнёрское предложение');
 
-    const title = document.createElement('div');
-    title.className = 'partner-title';
-    title.textContent =
-      partner.offer_type === 'promo' ? 'Промо от партнёра' : 'Вариант готового рациона';
+    const brand = document.createElement('div');
+    brand.className = 'partner-brand';
+    brand.textContent = String(partner.name || 'Партнёр');
 
-    const body = document.createElement('p');
-    body.className = 'partner-body';
-    body.append(document.createTextNode(`${partner.name} — ${partner.blurb} `));
-    const a = document.createElement('a');
-    a.href = partner.link;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.textContent = 'открыть';
-    body.appendChild(a);
+    const offer = document.createElement('p');
+    offer.className = 'partner-offer';
+    offer.textContent = partnerOfferLine(partner);
 
-    box.appendChild(title);
-    box.appendChild(body);
+    box.appendChild(brand);
+    box.appendChild(offer);
 
-    if (partner.promo_code) {
-      const promo = document.createElement('p');
-      promo.className = 'partner-promo';
-      promo.append(document.createTextNode('Промокод: '));
+    const promoCode = partner.promo_code ? String(partner.promo_code).trim() : '';
+    if (promoCode) {
+      const row = document.createElement('div');
+      row.className = 'partner-promo-row';
+
       const code = document.createElement('code');
-      code.textContent = String(partner.promo_code);
-      promo.appendChild(code);
-      box.appendChild(promo);
+      code.className = 'partner-code';
+      code.textContent = promoCode;
+
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'partner-copy';
+      copyBtn.textContent = 'Скопировать';
+      copyBtn.setAttribute('aria-label', `Скопировать промокод ${promoCode}`);
+      copyBtn.addEventListener('click', () => copyPartnerPromo(promoCode, copyBtn));
+
+      row.appendChild(code);
+      row.appendChild(copyBtn);
+      box.appendChild(row);
     }
+
+    const termsText = partnerPromoTerms(partner);
+    if (termsText) {
+      const terms = document.createElement('p');
+      terms.className = 'partner-terms';
+      terms.textContent = termsText;
+      box.appendChild(terms);
+    }
+
+    const cta = document.createElement('a');
+    cta.className = 'partner-cta';
+    cta.href = partner.link;
+    cta.target = '_blank';
+    cta.rel = 'noopener noreferrer';
+    cta.textContent = 'Открыть';
+    box.appendChild(cta);
 
     if (partner.disclaimer) {
       const tip = document.createElement('p');
-      tip.className = 'tiny';
+      tip.className = 'partner-legal';
       tip.textContent = partner.disclaimer;
       box.appendChild(tip);
     }
 
     wrap.appendChild(box);
     scrollBottom();
+  }
+
+  /** CloudTips pay pages accept optional ?amount= to prefill the tip. */
+  function donateHrefForAmount(amount) {
+    const base = donateUrl || '#donate';
+    if (base === '#donate' || base.startsWith('#')) return `#donate-${amount}`;
+    return base.includes('?') ? `${base}&amount=${amount}` : `${base}?amount=${amount}`;
   }
 
   function showDonateBanner() {
@@ -259,12 +471,17 @@
     const variant = Math.random() < 0.5 ? DONATE_VARIANTS[0] : DONATE_VARIANTS[1];
     donateCopy.textContent = variant.copy;
     donateBanner.hidden = false;
+    const base = donateUrl || '#donate';
+    const isPlaceholder = base === '#donate' || base.startsWith('#');
     donateBanner.querySelectorAll('.donate-btn').forEach((a) => {
       const amount = a.getAttribute('data-amount');
-      const base = donateUrl || '#donate';
-      a.href = base.includes('?') ? `${base}&amount=${amount}` : `${base}?amount=${amount}`;
-      if (base === '#donate' || base.startsWith('#')) {
-        a.href = `#donate-${amount}`;
+      a.href = donateHrefForAmount(amount);
+      if (isPlaceholder) {
+        a.removeAttribute('target');
+        a.removeAttribute('rel');
+      } else {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
       }
     });
   }
@@ -331,7 +548,7 @@
     };
 
     const paint = () => {
-      bubble.textContent = full;
+      fillAssistantBubble(bubble, full);
       scrollBottom();
     };
 
@@ -443,7 +660,9 @@
       drainBuffer(state, true);
 
       if (full) {
-        history.push({ role: 'assistant', content: full });
+        const cleaned = stripPartnerMark(full);
+        history.push({ role: 'assistant', content: cleaned });
+        full = cleaned;
         persistChat();
         paint();
       } else if (!wrap.classList.contains('error')) {
