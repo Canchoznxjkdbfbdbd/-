@@ -785,12 +785,13 @@ function buildSystemInstruction(mode = null, poolOrPartner = null, messages = nu
     extra += `
 
 Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
-DONATE_URL: ${donateUrl}`;
+DONATE_URL: ${donateUrl}
+Не вставляй голый URL доната. Если даёшь ссылку — только markdown: [Поддержать НутриКод](${donateUrl}). Иначе без ссылки: «кнопка поддержки ниже» (кнопки 50/100/150 уже в UI).`;
   } else {
     extra += `
 
 Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
-DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже».`;
+DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже» (кнопки 50/100/150 уже в UI), без URL.`;
   }
   // Accept either a pool array or a legacy single partner object.
   const pool = Array.isArray(poolOrPartner)

@@ -164,7 +164,11 @@
     wrap.className = `msg ${role}${opts.notice ? ' notice' : ''}${opts.error ? ' error' : ''}`;
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    bubble.textContent = text;
+    if (role === 'assistant' && !opts.notice && !opts.error) {
+      fillAssistantBubble(bubble, text);
+    } else {
+      bubble.textContent = text;
+    }
     wrap.appendChild(bubble);
 
     if (role === 'assistant' && opts.feedback) {
@@ -210,6 +214,75 @@
       .replace(/[ \t]+\n/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
       .trimEnd();
+  }
+
+  function isSafeHttpUrl(url) {
+    return /^https?:\/\/[^\s<>"']+$/i.test(String(url || '').trim());
+  }
+
+  /**
+   * Fill assistant bubble: keep plain text + clickable markdown links [label](https://…).
+   * Also turns a bare DONATE_URL into «Поддержать НутриКод» if the model still dumps it.
+   */
+  function fillAssistantBubble(bubble, text) {
+    const cleaned = stripPartnerMark(text);
+    bubble.replaceChildren();
+
+    const mdRe = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+    /** @type {{start:number,end:number,label:string,href:string}[]} */
+    const hits = [];
+    let m;
+    while ((m = mdRe.exec(cleaned))) {
+      const href = m[2].trim();
+      if (!isSafeHttpUrl(href)) continue;
+      hits.push({ start: m.index, end: m.index + m[0].length, label: m[1], href });
+    }
+
+    // Defensive: bare donate URL → friendly link (only exact match of configured URL).
+    const bareDonate = String(donateUrl || '').trim();
+    if (bareDonate && isSafeHttpUrl(bareDonate) && !bareDonate.startsWith('#')) {
+      let from = 0;
+      while (from < cleaned.length) {
+        const idx = cleaned.indexOf(bareDonate, from);
+        if (idx === -1) break;
+        const end = idx + bareDonate.length;
+        const covered = hits.some((h) => idx < h.end && end > h.start);
+        if (!covered) {
+          hits.push({
+            start: idx,
+            end,
+            label: 'Поддержать НутриКод',
+            href: bareDonate,
+          });
+        }
+        from = end;
+      }
+      hits.sort((a, b) => a.start - b.start || b.end - a.end);
+    }
+
+    if (!hits.length) {
+      bubble.textContent = cleaned;
+      return;
+    }
+
+    let cursor = 0;
+    for (const hit of hits) {
+      if (hit.start < cursor) continue;
+      if (hit.start > cursor) {
+        bubble.appendChild(document.createTextNode(cleaned.slice(cursor, hit.start)));
+      }
+      const a = document.createElement('a');
+      a.className = 'bubble-link';
+      a.href = hit.href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = hit.label;
+      bubble.appendChild(a);
+      cursor = hit.end;
+    }
+    if (cursor < cleaned.length) {
+      bubble.appendChild(document.createTextNode(cleaned.slice(cursor)));
+    }
   }
 
   function escapeRegExp(s) {
@@ -267,7 +340,8 @@
 
     let cond = hit[1].replace(/\.$/, '').trim().replace(/\s+/g, ' ');
     // Skip if extraction collapsed to the whole remaining blurb-ish product lead.
-    if (!cond || cond.length > 90) return '';
+    // Human phrases are longer than «25% · дата»; keep a soft cap so we never dump the whole blurb.
+    if (!cond || cond.length > 120) return '';
     return cond;
   }
 
@@ -474,7 +548,7 @@
     };
 
     const paint = () => {
-      bubble.textContent = stripPartnerMark(full);
+      fillAssistantBubble(bubble, full);
       scrollBottom();
     };
 

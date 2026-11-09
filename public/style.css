@@ -330,6 +330,19 @@ body {
   color: var(--ink);
 }
 
+.msg.assistant .bubble a.bubble-link {
+  color: var(--leaf-deep);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+  word-break: break-word;
+}
+
+.msg.assistant .bubble a.bubble-link:hover {
+  color: var(--leaf);
+}
+
 .msg.assistant .bubble.typing {
   color: var(--muted);
   font-style: italic;
