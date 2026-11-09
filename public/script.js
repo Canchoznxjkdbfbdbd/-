@@ -203,6 +203,15 @@
     return true;
   }
 
+  /** Strip hidden model mark [[partner:id]] from visible bubble text. */
+  function stripPartnerMark(text) {
+    return String(text || '')
+      .replace(/\[\[\s*partner\s*:\s*[a-z0-9_-]+\s*\]\]/gi, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trimEnd();
+  }
+
   /** Quiet offer below the assistant bubble — not inside medical advice text. */
   function attachPartner(wrap, partner) {
     if (!partner || !wrap) return;
@@ -215,8 +224,14 @@
 
     const title = document.createElement('div');
     title.className = 'partner-title';
-    title.textContent =
-      partner.offer_type === 'promo' ? 'Промо от партнёра' : 'Вариант готового рациона';
+    // Promo code goes into the badge when present (plank copy).
+    if (partner.promo_code) {
+      title.textContent = `Промо: ${String(partner.promo_code)}`;
+    } else if (partner.offer_type === 'promo') {
+      title.textContent = 'Промо от партнёра';
+    } else {
+      title.textContent = 'Вариант готового рациона';
+    }
 
     const body = document.createElement('p');
     body.className = 'partner-body';
@@ -331,7 +346,7 @@
     };
 
     const paint = () => {
-      bubble.textContent = full;
+      bubble.textContent = stripPartnerMark(full);
       scrollBottom();
     };
 
@@ -443,7 +458,9 @@
       drainBuffer(state, true);
 
       if (full) {
-        history.push({ role: 'assistant', content: full });
+        const cleaned = stripPartnerMark(full);
+        history.push({ role: 'assistant', content: cleaned });
+        full = cleaned;
         persistChat();
         paint();
       } else if (!wrap.classList.contains('error')) {

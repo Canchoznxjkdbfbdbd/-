@@ -570,6 +570,7 @@ function isWideCoveragePartner(partner) {
 
 /**
  * Soft default among geo-allowed live partners: nationwide wide delivery first.
+ * Kept for mock / heuristic fallback when the model does not mark an id.
  */
 function pickWideDefault(live) {
   for (const id of WIDE_DEFAULT_IDS) {
@@ -582,29 +583,50 @@ function pickWideDefault(live) {
   return live[0] || null;
 }
 
+/** Hidden end-of-reply mark: model selects 0–1 offer from the city pool. */
+const PARTNER_MARK_RE = /\[\[\s*partner\s*:\s*([a-z0-9_-]+)\s*\]\]/gi;
+
+function stripPartnerMark(text) {
+  return String(text || '')
+    .replace(PARTNER_MARK_RE, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /**
- * Pick 0–1 live partner. Never on first user turn.
- * Only when intent is clear (order/delivery/no-time/brand/water…) OR a brand tag hits.
- * Vague «покушать» → null (model clarifies). Demo rows skipped.
- * Geo: cities whitelist must contain detected city; unknown city → skip city-only nets.
- * Path: UI card owns URL/promo; model gets soft context only (see partnerContextBlock).
+ * All live partners available in the detected city.
+ * City unknown → empty pool (soft clarify; do not push offers).
+ * Never on first user turn / when allowPartner is false.
+ * Geo lists (geo_mode + cities / nationwide) are the source of truth.
  */
-function pickPartner(messages, { allowPartner = false } = {}) {
-  if (!allowPartner) return null;
-  // Never first reply: need at least two user messages in the thread.
-  if (countUserTurns(messages) < 2) return null;
+function collectPartnerPool(messages, { allowPartner = false } = {}) {
+  if (!allowPartner) return [];
+  if (countUserTurns(messages) < 2) return [];
 
   const text = conversationText(messages);
   const city = detectCity(text);
-  const live = PARTNERS.filter(isLivePartner)
+  // Owner rule: without a city, do not inject offers (nationwide included).
+  if (!city) return [];
+
+  return PARTNERS.filter(isLivePartner)
     .filter((p) => !partnerDeniedByGeo(p, text))
     .filter((p) => partnerAllowedByGeo(p, city));
-  if (!live.length) return null;
+}
 
+/**
+ * Legacy single-pick helper (brand → wide default) over the city pool.
+ * Prefer collectPartnerPool + model choice; this remains for mock/heuristic.
+ */
+function pickPartner(messages, { allowPartner = false } = {}) {
+  const pool = collectPartnerPool(messages, { allowPartner });
+  if (!pool.length) return null;
+
+  const text = conversationText(messages);
   let best = null;
   let bestBrand = 0;
   let bestTotal = 0;
-  for (const p of live) {
+  for (const p of pool) {
     const score = partnerTagScore(p, text);
     if (score.brand > bestBrand || (score.brand === bestBrand && score.total > bestTotal)) {
       bestBrand = score.brand;
@@ -612,14 +634,8 @@ function pickPartner(messages, { allowPartner = false } = {}) {
       best = p;
     }
   }
-
-  // Brand/specific tag hit (e.g. «пицца додо», «яндекс лавка», «вода») — already geo-filtered.
   if (bestBrand > 0) return best;
-
-  // Clear fulfillment intent without brand → nationwide/wide default among geo-allowed.
-  if (CLEAR_INTENT_RE.test(text)) return pickWideDefault(live);
-
-  // Vague / unclear hunger or small talk → no offer; prompt asks clarify + city if needed.
+  if (CLEAR_INTENT_RE.test(text)) return pickWideDefault(pool);
   return null;
 }
 
@@ -636,28 +652,104 @@ function partnerPayload(partner) {
   };
 }
 
-/**
- * Compact 0–1 live offer for the model.
- * Dedup path (documented): UI SSE partner card owns URL + promo;
- * model gets name/blurb only and must NOT print raw link/code.
- */
-function partnerContextBlock(partner) {
-  if (!partner) return '';
+function partnerExcludeIds(partner) {
+  return (Array.isArray(partner?.exclude_partners) ? partner.exclude_partners : [])
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+}
+
+/** Full pool row for Gemini (link + promo + disclaimer + exclusives). */
+function partnerPoolRow(partner) {
   const payload = partnerPayload(partner);
-  const lines = [
-    'Контекст партнёрского оффера (ровно 0–1; ссылка и промокод уйдут в UI-карточку под ответом — не дублируй их в тексте):',
-    `id: ${payload.id}`,
-    `name: ${payload.name}`,
-    `blurb: ${payload.blurb || ''}`,
-    `offer_type: ${payload.offer_type || 'affiliate'}`,
-    'Можно один раз мягко упомянуть бренд/выгоду и сказать, что удобный вариант — в карточке ниже. Не печатай сырой URL и не печатай промокод. Не ври, что офферов нет.',
-  ];
-  return `\n\n${lines.join('\n')}`;
+  const excludes = partnerExcludeIds(partner);
+  return [
+    `- id: ${payload.id}`,
+    `  name: ${payload.name}`,
+    `  blurb: ${payload.blurb || ''}`,
+    `  link: ${payload.link}`,
+    `  promo_code: ${payload.promo_code || ''}`,
+    `  offer_type: ${payload.offer_type || 'affiliate'}`,
+    `  disclaimer: ${payload.disclaimer || ''}`,
+    `  exclude_partners: ${excludes.length ? excludes.join(', ') : '—'}`,
+    `  tags: ${(partner.tags || []).join(', ')}`,
+  ].join('\n');
+}
+
+function partnerGeoHintBlock(messages) {
+  const text = conversationText(messages || []);
+  const city = detectCity(text);
+  if (!city) {
+    return (
+      '\n\nКонтекст гео: город пользователя ещё не определён. Партнёрский пул пуст — ' +
+      'не предлагай бренды доставки и чужие ссылки; если уместен заказ/доставка — мягко спроси город одной фразой.'
+    );
+  }
+  return `\n\nКонтекст гео: город пользователя ≈ «${city}».`;
+}
+
+/**
+ * Inject the full city-local live pool into the system instruction.
+ * Model chooses 0–1 offer; UI card follows [[partner:id]] (or URL/brand heuristic).
+ */
+function partnerPoolContextBlock(pool, messages = null) {
+  const list = Array.isArray(pool) ? pool : [];
+  let block = partnerGeoHintBlock(messages);
+  if (!list.length) {
+    block +=
+      '\nПул live-партнёров для этого ответа: пуст. Молчи про партнёрские бренды и ссылки; общие советы без брендов — ок. Не ври, что «бэкенд не настроен».';
+    return block;
+  }
+  const rows = list.map(partnerPoolRow).join('\n');
+  block += `
+Пул доступных live-партнёров в этом городе (ты сама выбираешь 0 или 1 по намерению пользователя):
+${rows}
+Правила выбора из пула:
+• Максимум один оффер в ответе; можно выбрать ноль, если оффер не к месту.
+• Учитывай exclude_partners и эксклюзивы из системных правил (ЁбиДоёби ≠ Важная рыба/Тануки/Farfor; Додо ≠ Еаптека).
+• URL и промокоды — ТОЛЬКО из этого пула, ничего не выдумывай.
+• Предпочтение: мягко упомяни бренд/выгоду после пользы по рациону и в самом конце ответа поставь скрытую метку ровно одного выбранного id: [[partner:ID]] (например [[partner:dodo-pizza]]). Тогда UI нарисует карточку со ссылкой и промо — сырой URL и промокод в текст НЕ копируй.
+• Если метку поставить нельзя — допустима одна ссылка из пула без дубля карточки.
+• Не говори, что офферов/ссылок нет или что «нужно настраивать бэкенд».`;
+  return block;
+}
+
+/**
+ * Resolve 0–1 partner after the model reply: mark → URL from pool → brand heuristic.
+ */
+function resolveSelectedPartner(assembledText, pool) {
+  const list = Array.isArray(pool) ? pool : [];
+  if (!list.length) return null;
+  const text = String(assembledText || '');
+  const markRe = /\[\[\s*partner\s*:\s*([a-z0-9_-]+)\s*\]\]/i;
+  const mark = text.match(markRe);
+  if (mark) {
+    const id = mark[1].toLowerCase();
+    const hit = list.find((p) => p.id === id);
+    if (hit) return hit;
+  }
+  for (const p of list) {
+    const link = String(p.link || '').trim();
+    if (link && text.includes(link)) return p;
+  }
+  const lower = text.toLowerCase();
+  let best = null;
+  let bestBrand = 0;
+  for (const p of list) {
+    const score = partnerTagScore(p, lower);
+    const name = String(p.name || '').toLowerCase();
+    const nameHit = name && lower.includes(name);
+    const brand = score.brand + (nameHit ? 3 : 0);
+    if (brand > bestBrand) {
+      bestBrand = brand;
+      best = p;
+    }
+  }
+  return bestBrand > 0 ? best : null;
 }
 
 /**
  * Owner strategy catalog: live ids/names only — never URLs/promo here.
- * User-facing offer is the UI card (0–1), not raw links in model text.
+ * User-facing offer is at most one UI card from the city pool.
  */
 function ownerPartnersCatalogBlock(messages) {
   if (!hasOwnerCodeword(messages)) return '';
@@ -671,7 +763,7 @@ function ownerPartnersCatalogBlock(messages) {
   return (
     '\n\nКаталог live-партнёров для владельца (только id/name, без URL и без промокодов):\n' +
     lines.join('\n') +
-    '\nПул живой; пользователю уходит максимум одна UI-карточка (SSE partner) + мягкий намёк из блока «Контекст партнёрского оффера» без сырого URL. ' +
+    '\nПул живой; пользователю — максимум одна UI-карточка из городского пула (метка [[partner:id]] или эвристика). ' +
     'Владельцу для стратегии можно кратко перечислить эти id/названия без ссылок.'
   );
 }
@@ -682,8 +774,8 @@ function donateUrlForPrompt() {
   return url;
 }
 
-/** System prompt + mode overlay + donate + optional 0–1 offer + owner catalog. */
-function buildSystemInstruction(mode = null, partner = null, messages = null) {
+/** System prompt + mode overlay + donate + city partner pool + owner catalog. */
+function buildSystemInstruction(mode = null, poolOrPartner = null, messages = null) {
   let extra = modeOverlayBlock(mode);
   const donateUrl = donateUrlForPrompt();
   if (donateUrl) {
@@ -697,7 +789,13 @@ DONATE_URL: ${donateUrl}`;
 Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
 DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже».`;
   }
-  extra += partnerContextBlock(partner);
+  // Accept either a pool array or a legacy single partner object.
+  const pool = Array.isArray(poolOrPartner)
+    ? poolOrPartner
+    : poolOrPartner
+      ? [poolOrPartner]
+      : [];
+  extra += partnerPoolContextBlock(pool, messages);
   extra += ownerPartnersCatalogBlock(messages);
   return SYSTEM_PROMPT + extra;
 }
@@ -947,7 +1045,9 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
   const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const allowPartner = Boolean(req.body?.allowPartner);
   const mode = resolveChatMode(req.body?.mode, messages);
-  const partner = pickPartner(messages, { allowPartner });
+  const partnerPool = collectPartnerPool(messages, { allowPartner });
+  // Mock / no-key path still needs a single heuristic card from the city pool.
+  const mockPartner = pickPartner(messages, { allowPartner });
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -965,14 +1065,14 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       type: 'notice',
       text: 'Ключ GEMINI_API_KEY не задан — показываю демо-ответ, чтобы можно было оценить интерфейс.',
     });
-    await streamMock(res, partner);
+    await streamMock(res, mockPartner);
     return;
   }
 
   writeEvent(res, { type: 'status', stage: 'thinking' });
 
   const systemInstruction = {
-    parts: [{ text: buildSystemInstruction(mode, partner, messages) }],
+    parts: [{ text: buildSystemInstruction(mode, partnerPool, messages) }],
   };
   let contents = toGeminiContents(messages);
   const generationConfig = {
@@ -982,7 +1082,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 
   try {
     console.info(
-      `[gemini] chat turns=${messages.length} mode=${mode.id}/${mode.source} partner=${partner ? partner.id : 'none'} maxOutputTokens=${MAX_OUTPUT_TOKENS} chain=${GEMINI_MODEL_CHAIN.join(
+      `[gemini] chat turns=${messages.length} mode=${mode.id}/${mode.source} pool=${partnerPool.map((p) => p.id).join(',') || 'none'} maxOutputTokens=${MAX_OUTPUT_TOKENS} chain=${GEMINI_MODEL_CHAIN.join(
         '→'
       )}`
     );
@@ -1070,12 +1170,13 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       ];
     }
 
-    if (partner) {
-      writeEvent(res, { type: 'partner', partner: partnerPayload(partner) });
+    const selected = resolveSelectedPartner(assembled, partnerPool);
+    if (selected) {
+      writeEvent(res, { type: 'partner', partner: partnerPayload(selected) });
     }
 
     console.info(
-      `[gemini] done model=${activeModel} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length}`
+      `[gemini] done model=${activeModel} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length} selected=${selected ? selected.id : 'none'}`
     );
     writeEvent(res, {
       type: 'done',
@@ -1132,6 +1233,10 @@ module.exports = {
   summarizeGeminiError,
   openGeminiStream,
   pickPartner,
+  collectPartnerPool,
+  resolveSelectedPartner,
+  stripPartnerMark,
+  partnerPoolContextBlock,
   isLivePartner,
   partnerPayload,
   partnerTagScore,
@@ -1145,6 +1250,7 @@ module.exports = {
   ownerPartnersCatalogBlock,
   CLEAR_INTENT_RE,
   INTENT_RE,
+  PARTNER_MARK_RE,
   WIDE_DEFAULT_IDS,
   OVERLOAD_USER_MESSAGE,
   GEMINI_MODEL,
