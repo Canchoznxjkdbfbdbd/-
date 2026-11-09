@@ -413,7 +413,7 @@ function partnerTagScore(partner, text) {
   return { brand, generic, total: brand + generic };
 }
 
-/** Skip partners whose geo_deny substrings appear in the conversation. */
+/** Legacy deny-list (belt-and-suspenders; cities whitelist is source of truth). */
 function partnerDeniedByGeo(partner, text) {
   const denies = Array.isArray(partner?.geo_deny) ? partner.geo_deny : [];
   for (const d of denies) {
@@ -425,14 +425,151 @@ function partnerDeniedByGeo(partner, text) {
   return false;
 }
 
-function isWideCoveragePartner(partner) {
-  if (!partner) return false;
-  if (partner.coverage === 'wide') return true;
-  return WIDE_DEFAULT_IDS.includes(partner.id);
+/** Canonical city id → extra substrings that map to it (simple RU match). */
+const CITY_ALIASES = {
+  москва: ['мск', 'москве', 'москвы', 'москву', 'москов'],
+  'санкт-петербург': ['спб', 'питер', 'питере', 'петербург', 'петербурге'],
+  'комсомольск-на-амуре': ['комсомольск', 'комсомольске', 'комсе'],
+  'нижний новгород': ['нижнем новгород', 'нижегород'],
+  'ростов-на-дону': ['ростове-на-дону', 'ростов на дону', 'ростов', 'ростове'],
+  'великий новгород': ['великом новгород'],
+  'южно-сахалинск': ['сахалинск'],
+  'петропавловск-камчатский': ['петропавловск'],
+  'набережные челны': ['челны'],
+};
+
+/** Cheap RU case/stem variants for substring match (не морфология, а эвристика). */
+function cityFormNeedles(city) {
+  const c = String(city || '').toLowerCase().trim();
+  if (!c) return [];
+  const out = new Set([c]);
+  const add = (x) => {
+    if (x && x.length >= 3) out.add(x);
+  };
+  // казань → казани / казане; тула → туле / тулу
+  if (c.endsWith('ь')) {
+    const stem = c.slice(0, -1);
+    add(stem + 'и');
+    add(stem + 'е');
+    add(stem + 'ю');
+  } else if (c.endsWith('а')) {
+    const stem = c.slice(0, -1);
+    add(stem + 'е');
+    add(stem + 'у');
+    add(stem + 'ы');
+    add(stem + 'ой');
+  } else if (c.endsWith('я')) {
+    const stem = c.slice(0, -1);
+    add(stem + 'и');
+    add(stem + 'е');
+    add(stem + 'ю');
+  } else if (c.endsWith('ий') || c.endsWith('ый')) {
+    const stem = c.slice(0, -2);
+    add(stem + 'ом');
+    add(stem + 'ому');
+    add(stem + 'ого');
+  } else {
+    // екатеринбург → екатеринбурге; краснодар → краснодаре
+    add(c + 'е');
+    add(c + 'а');
+    add(c + 'у');
+  }
+  // multi-word: «нижний новгород» → «нижнем новгороде»
+  if (c.includes(' ')) {
+    const parts = c.split(/\s+/);
+    if (parts.length === 2) {
+      const [a, b] = parts;
+      for (const fa of cityFormNeedles(a)) {
+        for (const fb of cityFormNeedles(b)) add(`${fa} ${fb}`);
+      }
+    }
+  }
+  // hyphenated: ростов-на-дону already exact; комсомольск-на-амуре handled via aliases
+  return [...out];
+}
+
+function partnerGeoMode(partner) {
+  const mode = String(partner?.geo_mode || '').toLowerCase();
+  if (mode === 'nationwide' || mode === 'cities') return mode;
+  // Legacy fallback from coverage / empty cities.
+  if (partner?.coverage === 'wide') return 'nationwide';
+  if (Array.isArray(partner?.cities) && partner.cities.length) return 'cities';
+  return 'nationwide';
+}
+
+function partnerCities(partner) {
+  return (Array.isArray(partner?.cities) ? partner.cities : [])
+    .map((c) => String(c || '').toLowerCase().trim())
+    .filter(Boolean);
+}
+
+/** All known city needles from partners + aliases, longest first. */
+function buildCityIndex(partners = PARTNERS) {
+  const canonical = new Map(); // needle → canonical city
+  const add = (canon, needle) => {
+    const c = String(canon || '').toLowerCase().trim();
+    const n = String(needle || '').toLowerCase().trim();
+    if (!c || !n || n.length < 3) return;
+    // Prefer longer / more specific mapping when collisions arise.
+    if (!canonical.has(n) || n.length > [...canonical.keys()].find((k) => k === n)?.length) {
+      canonical.set(n, c);
+    }
+  };
+  const register = (city) => {
+    add(city, city);
+    for (const form of cityFormNeedles(city)) add(city, form);
+    for (const ex of CITY_ALIASES[city] || []) {
+      add(city, ex);
+      for (const form of cityFormNeedles(ex)) add(city, form);
+    }
+  };
+  for (const p of partners || []) {
+    for (const city of partnerCities(p)) register(city);
+  }
+  // Aliases for cities we care about even if no partner lists them yet.
+  for (const city of Object.keys(CITY_ALIASES)) register(city);
+  const needles = [...canonical.keys()].sort((a, b) => b.length - a.length);
+  return { canonical, needles };
+}
+
+const CITY_INDEX = buildCityIndex(PARTNERS);
+
+/** Detect first matching city mention in conversation text (lowercase). */
+function detectCity(text, index = CITY_INDEX) {
+  const t = String(text || '').toLowerCase();
+  if (!t) return null;
+  for (const needle of index.needles) {
+    if (t.includes(needle)) return index.canonical.get(needle) || needle;
+  }
+  return null;
 }
 
 /**
- * Soft default among live partners: wide delivery first, never force a geo-limited chain.
+ * Geo allow: nationwide always OK; cities — only if detected city ∈ whitelist.
+ * Unknown city + cities mode → not allowed (clarify / skip; no guessing).
+ */
+function partnerAllowedByGeo(partner, city) {
+  if (!partner) return false;
+  const mode = partnerGeoMode(partner);
+  if (mode === 'nationwide') return true;
+  if (mode === 'cities') {
+    if (!city) return false;
+    const list = partnerCities(partner);
+    if (!list.length) return false;
+    return list.some((c) => city === c || city.includes(c) || c.includes(city));
+  }
+  return true;
+}
+
+function isWideCoveragePartner(partner) {
+  if (!partner) return false;
+  if (partnerGeoMode(partner) === 'nationwide') return true;
+  if (partner.coverage === 'wide') return true;
+  return WIDE_DEFAULT_IDS.includes(partner.id) && partnerGeoMode(partner) === 'nationwide';
+}
+
+/**
+ * Soft default among geo-allowed live partners: nationwide wide delivery first.
  */
 function pickWideDefault(live) {
   for (const id of WIDE_DEFAULT_IDS) {
@@ -441,14 +578,15 @@ function pickWideDefault(live) {
   }
   const wide = live.find((p) => isWideCoveragePartner(p));
   if (wide) return wide;
-  // Last resort: partner without geo_deny, else first remaining.
-  return live.find((p) => !Array.isArray(p.geo_deny) || !p.geo_deny.length) || live[0] || null;
+  // Last resort among already geo-filtered live list.
+  return live[0] || null;
 }
 
 /**
  * Pick 0–1 live partner. Never on first user turn.
  * Only when intent is clear (order/delivery/no-time/brand/water…) OR a brand tag hits.
  * Vague «покушать» → null (model clarifies). Demo rows skipped.
+ * Geo: cities whitelist must contain detected city; unknown city → skip city-only nets.
  * Path: UI card owns URL/promo; model gets soft context only (see partnerContextBlock).
  */
 function pickPartner(messages, { allowPartner = false } = {}) {
@@ -457,7 +595,10 @@ function pickPartner(messages, { allowPartner = false } = {}) {
   if (countUserTurns(messages) < 2) return null;
 
   const text = conversationText(messages);
-  const live = PARTNERS.filter(isLivePartner).filter((p) => !partnerDeniedByGeo(p, text));
+  const city = detectCity(text);
+  const live = PARTNERS.filter(isLivePartner)
+    .filter((p) => !partnerDeniedByGeo(p, text))
+    .filter((p) => partnerAllowedByGeo(p, city));
   if (!live.length) return null;
 
   let best = null;
@@ -472,10 +613,10 @@ function pickPartner(messages, { allowPartner = false } = {}) {
     }
   }
 
-  // Brand/specific tag hit (e.g. «пицца додо», «яндекс лавка», «вода»).
+  // Brand/specific tag hit (e.g. «пицца додо», «яндекс лавка», «вода») — already geo-filtered.
   if (bestBrand > 0) return best;
 
-  // Clear fulfillment intent without brand → wide delivery default (not Перекрёсток).
+  // Clear fulfillment intent without brand → nationwide/wide default among geo-allowed.
   if (CLEAR_INTENT_RE.test(text)) return pickWideDefault(live);
 
   // Vague / unclear hunger or small talk → no offer; prompt asks clarify + city if needed.
@@ -995,6 +1136,9 @@ module.exports = {
   partnerPayload,
   partnerTagScore,
   partnerDeniedByGeo,
+  partnerAllowedByGeo,
+  partnerGeoMode,
+  detectCity,
   isWideCoveragePartner,
   pickWideDefault,
   hasOwnerCodeword,
