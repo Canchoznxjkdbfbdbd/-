@@ -13,8 +13,8 @@
   const TYPING_STATUS = ['Печатает…', 'Набирает ответ…', 'Подбирает слова…'];
 
   const DONATE_VARIANTS = [
-    { id: 'a', copy: 'Если откликнулось — киньте мелочь админу на полезное, а то он на тостах.' },
-    { id: 'b', copy: 'Бесплатно, как совет про овощи. Поддержка — по желанию, кнопки ниже.' },
+    { id: 'a', copy: 'Если зашло — киньте админу на чай, а то он на тостах.' },
+    { id: 'b', copy: 'Бесплатно, как совет про овощи. Поддержка — если захочется, на сервер.' },
   ];
 
   function pickStatus(list) {
@@ -212,7 +212,96 @@
       .trimEnd();
   }
 
-  /** Quiet offer below the assistant bubble — not inside medical advice text. */
+  /**
+   * One short offer line for the plaque: discount/condition from blurb,
+   * without repeating the promo code or secondary “Также/Другие” codes.
+   */
+  function partnerOfferLine(partner) {
+    const code = partner && partner.promo_code ? String(partner.promo_code).trim() : '';
+    let blurb = String((partner && partner.blurb) || '').trim();
+    // Drop secondary promo lists; keep dates like 30.11.2026 intact.
+    // Avoid \\b — JS word boundaries break on Cyrillic.
+    blurb = blurb
+      .replace(/\.\s*(?:Также|Другие)(?:\s.*)?$/i, '')
+      .replace(/\s+(?:Также|Другие)\s*:.*$/i, '')
+      .trim();
+
+    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const promoPat = code
+      ? new RegExp(`Промокод\\s+${escapeRe(code)}\\s*(?:[—\\-]\\s*)?(.+)$`, 'i')
+      : /Промокод\s+\S+\s*(?:[—\-]\s*)?(.+)$/i;
+    const hit = blurb.match(promoPat);
+    if (hit && hit[1]) {
+      let cond = hit[1].replace(/\.$/, '').trim().replace(/\s+/g, ' ');
+      // If condition is only a date clause, keep a short lead from blurb.
+      if (/^до\s+\d/i.test(cond)) {
+        const lead = blurb
+          .split(/Промокод/i)[0]
+          .replace(/(?:^|[\s.])Реклама\.?(?=\s|$)/gi, '')
+          .replace(/[.\s]+$/g, '')
+          .trim();
+        if (lead) cond = `${lead} · ${cond}`;
+      }
+      return cond;
+    }
+
+    let clean = blurb
+      .replace(/Промокод\s+\S+(?:\s*[—\-]\s*)?.*$/i, '')
+      .replace(/(?:^|[\s.])Реклама\.?(?=\s|$)/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/^[.\s]+|[.\s]+$/g, '')
+      .trim();
+    if (clean) return clean;
+
+    if (code) return 'Скидка по промокоду';
+    if (partner && partner.offer_type === 'promo') return 'Партнёрское предложение';
+    return 'Готовый вариант рядом';
+  }
+
+  function copyPartnerPromo(code, button) {
+    const value = String(code || '');
+    if (!value || !button) return;
+
+    const done = () => {
+      const prev = button.textContent;
+      button.textContent = 'Скопировано';
+      button.classList.add('is-copied');
+      button.disabled = true;
+      window.setTimeout(() => {
+        button.textContent = prev || 'Скопировать';
+        button.classList.remove('is-copied');
+        button.disabled = false;
+      }, 1600);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(done).catch(() => {
+        // Fallback below.
+        fallbackCopy(value, done);
+      });
+      return;
+    }
+    fallbackCopy(value, done);
+  }
+
+  function fallbackCopy(value, onDone) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = value;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      onDone();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  /** Quiet structural offer below the assistant bubble — owns URL + promo. */
   function attachPartner(wrap, partner) {
     if (!partner || !wrap) return;
     if (!isRealPartnerLink(partner.link)) return;
@@ -222,49 +311,62 @@
     box.setAttribute('role', 'complementary');
     box.setAttribute('aria-label', 'Партнёрское предложение');
 
-    const title = document.createElement('div');
-    title.className = 'partner-title';
-    // Promo code goes into the badge when present (plank copy).
-    if (partner.promo_code) {
-      title.textContent = `Промо: ${String(partner.promo_code)}`;
-    } else if (partner.offer_type === 'promo') {
-      title.textContent = 'Промо от партнёра';
-    } else {
-      title.textContent = 'Вариант готового рациона';
-    }
+    const brand = document.createElement('div');
+    brand.className = 'partner-brand';
+    brand.textContent = String(partner.name || 'Партнёр');
 
-    const body = document.createElement('p');
-    body.className = 'partner-body';
-    body.append(document.createTextNode(`${partner.name} — ${partner.blurb} `));
-    const a = document.createElement('a');
-    a.href = partner.link;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.textContent = 'открыть';
-    body.appendChild(a);
+    const offer = document.createElement('p');
+    offer.className = 'partner-offer';
+    offer.textContent = partnerOfferLine(partner);
 
-    box.appendChild(title);
-    box.appendChild(body);
+    box.appendChild(brand);
+    box.appendChild(offer);
 
-    if (partner.promo_code) {
-      const promo = document.createElement('p');
-      promo.className = 'partner-promo';
-      promo.append(document.createTextNode('Промокод: '));
+    const promoCode = partner.promo_code ? String(partner.promo_code).trim() : '';
+    if (promoCode) {
+      const row = document.createElement('div');
+      row.className = 'partner-promo-row';
+
       const code = document.createElement('code');
-      code.textContent = String(partner.promo_code);
-      promo.appendChild(code);
-      box.appendChild(promo);
+      code.className = 'partner-code';
+      code.textContent = promoCode;
+
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'partner-copy';
+      copyBtn.textContent = 'Скопировать';
+      copyBtn.setAttribute('aria-label', `Скопировать промокод ${promoCode}`);
+      copyBtn.addEventListener('click', () => copyPartnerPromo(promoCode, copyBtn));
+
+      row.appendChild(code);
+      row.appendChild(copyBtn);
+      box.appendChild(row);
     }
+
+    const cta = document.createElement('a');
+    cta.className = 'partner-cta';
+    cta.href = partner.link;
+    cta.target = '_blank';
+    cta.rel = 'noopener noreferrer';
+    cta.textContent = 'Открыть';
+    box.appendChild(cta);
 
     if (partner.disclaimer) {
       const tip = document.createElement('p');
-      tip.className = 'tiny';
+      tip.className = 'partner-legal';
       tip.textContent = partner.disclaimer;
       box.appendChild(tip);
     }
 
     wrap.appendChild(box);
     scrollBottom();
+  }
+
+  /** CloudTips pay pages accept optional ?amount= to prefill the tip. */
+  function donateHrefForAmount(amount) {
+    const base = donateUrl || '#donate';
+    if (base === '#donate' || base.startsWith('#')) return `#donate-${amount}`;
+    return base.includes('?') ? `${base}&amount=${amount}` : `${base}?amount=${amount}`;
   }
 
   function showDonateBanner() {
@@ -274,12 +376,17 @@
     const variant = Math.random() < 0.5 ? DONATE_VARIANTS[0] : DONATE_VARIANTS[1];
     donateCopy.textContent = variant.copy;
     donateBanner.hidden = false;
+    const base = donateUrl || '#donate';
+    const isPlaceholder = base === '#donate' || base.startsWith('#');
     donateBanner.querySelectorAll('.donate-btn').forEach((a) => {
       const amount = a.getAttribute('data-amount');
-      const base = donateUrl || '#donate';
-      a.href = base.includes('?') ? `${base}&amount=${amount}` : `${base}?amount=${amount}`;
-      if (base === '#donate' || base.startsWith('#')) {
-        a.href = `#donate-${amount}`;
+      a.href = donateHrefForAmount(amount);
+      if (isPlaceholder) {
+        a.removeAttribute('target');
+        a.removeAttribute('rel');
+      } else {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
       }
     });
   }
