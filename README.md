@@ -101,7 +101,7 @@ README.md
 
 1. Откройте `partners.json`.
 2. Замените `link` на настоящий `https://…` URL (affiliate / лендинг).
-3. При желании задайте `promo_code` (строка) и `offer_type` (`meal_plan` или `promo`).
+3. При желании задайте `promo_code` (строка), короткое `promo_terms` (мин. заказ / % / срок) и `offer_type` (`meal_plan` или `promo`).
 4. Поставьте `"live": true` только для проверенной записи.
 5. Сохраните файл и перезапустите: `npm start`.
 

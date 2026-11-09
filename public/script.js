@@ -212,38 +212,24 @@
       .trimEnd();
   }
 
-  /**
-   * One short offer line for the plaque: discount/condition from blurb,
-   * without repeating the promo code or secondary “Также/Другие” codes.
-   */
-  function partnerOfferLine(partner) {
-    const code = partner && partner.promo_code ? String(partner.promo_code).trim() : '';
+  function escapeRegExp(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /** Blurb without secondary «Также/Другие» promo lists. */
+  function partnerBlurbPrimary(partner) {
     let blurb = String((partner && partner.blurb) || '').trim();
-    // Drop secondary promo lists; keep dates like 30.11.2026 intact.
     // Avoid \\b — JS word boundaries break on Cyrillic.
-    blurb = blurb
+    return blurb
       .replace(/\.\s*(?:Также|Другие)(?:\s.*)?$/i, '')
       .replace(/\s+(?:Также|Другие)\s*:.*$/i, '')
       .trim();
+  }
 
-    const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const promoPat = code
-      ? new RegExp(`Промокод\\s+${escapeRe(code)}\\s*(?:[—\\-]\\s*)?(.+)$`, 'i')
-      : /Промокод\s+\S+\s*(?:[—\-]\s*)?(.+)$/i;
-    const hit = blurb.match(promoPat);
-    if (hit && hit[1]) {
-      let cond = hit[1].replace(/\.$/, '').trim().replace(/\s+/g, ' ');
-      // If condition is only a date clause, keep a short lead from blurb.
-      if (/^до\s+\d/i.test(cond)) {
-        const lead = blurb
-          .split(/Промокод/i)[0]
-          .replace(/(?:^|[\s.])Реклама\.?(?=\s|$)/gi, '')
-          .replace(/[.\s]+$/g, '')
-          .trim();
-        if (lead) cond = `${lead} · ${cond}`;
-      }
-      return cond;
-    }
+  /** Product lead for the plaque (what it is) — not the promo conditions. */
+  function partnerOfferLine(partner) {
+    const code = partner && partner.promo_code ? String(partner.promo_code).trim() : '';
+    const blurb = partnerBlurbPrimary(partner);
 
     let clean = blurb
       .replace(/Промокод\s+\S+(?:\s*[—\-]\s*)?.*$/i, '')
@@ -256,6 +242,33 @@
     if (code) return 'Скидка по промокоду';
     if (partner && partner.offer_type === 'promo') return 'Партнёрское предложение';
     return 'Готовый вариант рядом';
+  }
+
+  /**
+   * Short promo conditions under the code row: min order, %/₽, deadline, first order.
+   * Prefer partners.json promo_terms; else extract from blurb (not the whole blurb).
+   */
+  function partnerPromoTerms(partner) {
+    const explicit = partner && partner.promo_terms != null
+      ? String(partner.promo_terms).trim()
+      : '';
+    if (explicit) return explicit;
+
+    const code = partner && partner.promo_code ? String(partner.promo_code).trim() : '';
+    if (!code) return '';
+
+    const blurb = partnerBlurbPrimary(partner);
+    const promoPat = new RegExp(
+      `Промокод\\s+${escapeRegExp(code)}\\s*(?:[—\\-]\\s*)?(.+)$`,
+      'i'
+    );
+    const hit = blurb.match(promoPat);
+    if (!hit || !hit[1]) return '';
+
+    let cond = hit[1].replace(/\.$/, '').trim().replace(/\s+/g, ' ');
+    // Skip if extraction collapsed to the whole remaining blurb-ish product lead.
+    if (!cond || cond.length > 90) return '';
+    return cond;
   }
 
   function copyPartnerPromo(code, button) {
@@ -341,6 +354,14 @@
       row.appendChild(code);
       row.appendChild(copyBtn);
       box.appendChild(row);
+    }
+
+    const termsText = partnerPromoTerms(partner);
+    if (termsText) {
+      const terms = document.createElement('p');
+      terms.className = 'partner-terms';
+      terms.textContent = termsText;
+      box.appendChild(terms);
     }
 
     const cta = document.createElement('a');

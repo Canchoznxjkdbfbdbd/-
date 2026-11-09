@@ -641,6 +641,7 @@ function pickPartner(messages, { allowPartner = false } = {}) {
 
 function partnerPayload(partner) {
   if (!partner) return null;
+  const promoTerms = partner.promo_terms != null ? String(partner.promo_terms).trim() : '';
   return {
     id: partner.id,
     name: partner.name,
@@ -649,6 +650,7 @@ function partnerPayload(partner) {
     disclaimer: partner.disclaimer,
     offer_type: partner.offer_type || null,
     promo_code: partner.promo_code || null,
+    promo_terms: promoTerms || null,
   };
 }
 
@@ -668,6 +670,7 @@ function partnerPoolRow(partner) {
     `  blurb: ${payload.blurb || ''}`,
     `  link: ${payload.link}`,
     `  promo_code: ${payload.promo_code || ''}`,
+    `  promo_terms: ${payload.promo_terms || ''}`,
     `  offer_type: ${payload.offer_type || 'affiliate'}`,
     `  disclaimer: ${payload.disclaimer || ''}`,
     `  exclude_partners: ${excludes.length ? excludes.join(', ') : '—'}`,
