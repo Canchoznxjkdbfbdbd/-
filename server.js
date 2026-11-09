@@ -320,11 +320,30 @@ app.get('/api/config', (_req, res) => {
 });
 
 /**
- * Intent only: готовое / заказать / нет времени готовить.
+ * Generic ready-food / order intent.
  * Avoid \\b — JS word boundaries ignore Cyrillic and break matches.
  */
 const INTENT_RE =
-  /готов(?:ое|ый|ую|ые|ого)|заказ(?:ать|аю|аем|ите)|заказы|нет времени(?:\s+готовить)?|некогда(?:\s+готовить)?/i;
+  /готов(?:ое|ый|ую|ые|ого)|заказ(?:ать|аю|аем|ите)|заказы|нет времени(?:\s+готовить)?|некогда(?:\s+готовить)?|доставк|пицц|суши|ролл|лавк|магазин|продукт|перекр[её]сток|магнит|ёбидоёби|yobidoyobi|додо|\bdodo\b|яндекс\s*ед|яндекс\s*лавк/i;
+
+/** Low-signal tags shared by many partners — brand/specific tags weigh more. */
+const GENERIC_PARTNER_TAGS = new Set([
+  'готовое',
+  'готовая еда',
+  'нет времени',
+  'доставка',
+  'быстрая доставка',
+  'обед',
+  'ужин',
+  'заказать',
+  'продукты',
+  'grocery',
+  'ready-meals',
+  'еда',
+  'пп',
+]);
+
+const OWNER_CODEWORD_RE = /михалыч/i;
 
 /** Placeholder / demo hosts must never ship as live offers. */
 const PLACEHOLDER_LINK_RE = /^https?:\/\/(www\.)?example\.com(\/|$)/i;
@@ -353,8 +372,25 @@ function countUserTurns(messages) {
   return messages.filter((m) => m && m.role === 'user' && typeof m.content === 'string').length;
 }
 
+function hasOwnerCodeword(messages) {
+  return (messages || []).some(
+    (m) => m && m.role === 'user' && typeof m.content === 'string' && OWNER_CODEWORD_RE.test(m.content)
+  );
+}
+
+function partnerTagScore(partner, text) {
+  let score = 0;
+  for (const tag of partner.tags || []) {
+    const t = String(tag).toLowerCase();
+    if (!t || !text.includes(t)) continue;
+    score += GENERIC_PARTNER_TAGS.has(t) ? 1 : 3;
+  }
+  return score;
+}
+
 /**
- * Pick 0–1 live partner on intent. Never on first user turn.
+ * Pick 0–1 live partner. Never on first user turn.
+ * Matches generic INTENT_RE or brand/tag hits (Лавка / Еда / Додо / Магнит…).
  * Demo rows (live:false / example.com) are skipped — no invented links.
  */
 function pickPartner(messages, { allowPartner = false } = {}) {
@@ -366,22 +402,22 @@ function pickPartner(messages, { allowPartner = false } = {}) {
   if (!live.length) return null;
 
   const text = conversationText(messages);
-  if (!INTENT_RE.test(text)) return null;
 
   let best = null;
   let bestScore = 0;
   for (const p of live) {
-    let score = 0;
-    for (const tag of p.tags || []) {
-      if (text.includes(String(tag).toLowerCase())) score += 1;
-    }
+    const score = partnerTagScore(p, text);
     if (score > bestScore) {
       bestScore = score;
       best = p;
     }
   }
-  // Intent matched and at least one live partner exists — prefer tag fit, else first live.
-  return bestScore > 0 ? best : live[0];
+
+  // Brand/tag hit is enough (e.g. «пицца додо») — do not require generic INTENT_RE.
+  if (bestScore > 0) return best;
+  // Generic ready-food intent without brand → first live as soft default.
+  if (INTENT_RE.test(text)) return live[0];
+  return null;
 }
 
 function partnerPayload(partner) {
@@ -402,7 +438,7 @@ function partnerContextBlock(partner) {
   if (!partner) return '';
   const payload = partnerPayload(partner);
   const lines = [
-    'Контекст партнёрского оффера (0–1 live; URL и промокод только отсюда, по правилу 7):',
+    'Контекст партнёрского оффера (ровно 0–1 live на ответ; URL и промокод только отсюда, по правилу 7):',
     `id: ${payload.id}`,
     `name: ${payload.name}`,
     `blurb: ${payload.blurb || ''}`,
@@ -414,14 +450,35 @@ function partnerContextBlock(partner) {
   return `\n\n${lines.join('\n')}`;
 }
 
+/**
+ * Owner strategy catalog: live ids/names only — never URLs/promo here.
+ * Full offer still comes only from partnerContextBlock (0–1).
+ */
+function ownerPartnersCatalogBlock(messages) {
+  if (!hasOwnerCodeword(messages)) return '';
+  const live = PARTNERS.filter(isLivePartner);
+  if (!live.length) return '';
+  const lines = live.map((p) => {
+    const promo = p.promo_code ? 'promo:да' : 'promo:нет';
+    return `- ${p.id} — ${p.name} (${promo})`;
+  });
+  return (
+
+    '\n\nКаталог live-партнёров для владельца (только id/name, без URL и без промокодов):\n' +
+    lines.join('\n') +
+    '\nПул живой; в пользовательский ответ с ссылкой кладётся максимум один оффер из блока «Контекст партнёрского оффера». ' +
+    'Владельцу для стратегии можно кратко перечислить эти id/названия без ссылок.'
+  );
+}
+
 function donateUrlForPrompt() {
   const url = String(DONATE_URL || '').trim();
   if (!url || url === '#donate' || url.startsWith('#')) return null;
   return url;
 }
 
-/** System prompt + optional mode overlay + donate + optional live partner offer. */
-function buildSystemInstruction(mode = null, partner = null) {
+/** System prompt + mode overlay + donate + optional 0–1 offer + owner catalog. */
+function buildSystemInstruction(mode = null, partner = null, messages = null) {
   let extra = modeOverlayBlock(mode);
   const donateUrl = donateUrlForPrompt();
   if (donateUrl) {
@@ -436,6 +493,7 @@ DONATE_URL: ${donateUrl}`;
 DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже».`;
   }
   extra += partnerContextBlock(partner);
+  extra += ownerPartnersCatalogBlock(messages);
   return SYSTEM_PROMPT + extra;
 }
 
@@ -708,7 +766,9 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 
   writeEvent(res, { type: 'status', stage: 'thinking' });
 
-  const systemInstruction = { parts: [{ text: buildSystemInstruction(mode, partner) }] };
+  const systemInstruction = {
+    parts: [{ text: buildSystemInstruction(mode, partner, messages) }],
+  };
   let contents = toGeminiContents(messages);
   const generationConfig = {
     temperature: 0.7,
@@ -869,6 +929,9 @@ module.exports = {
   pickPartner,
   isLivePartner,
   partnerPayload,
+  partnerTagScore,
+  hasOwnerCodeword,
+  ownerPartnersCatalogBlock,
   INTENT_RE,
   OVERLOAD_USER_MESSAGE,
   GEMINI_MODEL,
