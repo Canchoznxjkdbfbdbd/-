@@ -13,6 +13,7 @@ const PORT = Number(process.env.PORT) || 3000;
 /** Behind nginx / Beget / Timeweb proxy — rate-limit must see real client IP. */
 app.set('trust proxy', 1);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_API_ORIGIN = (process.env.GEMINI_API_ORIGIN || 'https://generativelanguage.googleapis.com').replace(/\/$/, '');
 /** Prefer lean/fast models first under free-tier load; gemini-3.8-flash is opt-in via env. */
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 /** Default chain after the primary model when Gemini returns 503 / UNAVAILABLE. */
@@ -57,7 +58,7 @@ function sleep(ms) {
 }
 
 function geminiStreamUrl(model) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+  return `${GEMINI_API_ORIGIN}/v1beta/models/${encodeURIComponent(
     model
   )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(GEMINI_API_KEY)}`;
 }
@@ -396,14 +397,31 @@ function partnerPayload(partner) {
   };
 }
 
+/** Compact 0–1 live offer for the model — URL/promo only from this block. */
+function partnerContextBlock(partner) {
+  if (!partner) return '';
+  const payload = partnerPayload(partner);
+  const lines = [
+    'Контекст партнёрского оффера (0–1 live; URL и промокод только отсюда, по правилу 7):',
+    `id: ${payload.id}`,
+    `name: ${payload.name}`,
+    `blurb: ${payload.blurb || ''}`,
+    `link: ${payload.link}`,
+    `promo_code: ${payload.promo_code || 'нет'}`,
+    `offer_type: ${payload.offer_type || 'affiliate'}`,
+    `disclaimer: ${payload.disclaimer || ''}`,
+  ];
+  return `\n\n${lines.join('\n')}`;
+}
+
 function donateUrlForPrompt() {
   const url = String(DONATE_URL || '').trim();
   if (!url || url === '#donate' || url.startsWith('#')) return null;
   return url;
 }
 
-/** System prompt + optional mode overlay + donate context. Partner offers stay UI-only. */
-function buildSystemInstruction(mode = null) {
+/** System prompt + optional mode overlay + donate + optional live partner offer. */
+function buildSystemInstruction(mode = null, partner = null) {
   let extra = modeOverlayBlock(mode);
   const donateUrl = donateUrlForPrompt();
   if (donateUrl) {
@@ -417,6 +435,7 @@ DONATE_URL: ${donateUrl}`;
 Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
 DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже».`;
   }
+  extra += partnerContextBlock(partner);
   return SYSTEM_PROMPT + extra;
 }
 
@@ -689,7 +708,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 
   writeEvent(res, { type: 'status', stage: 'thinking' });
 
-  const systemInstruction = { parts: [{ text: buildSystemInstruction(mode) }] };
+  const systemInstruction = { parts: [{ text: buildSystemInstruction(mode, partner) }] };
   let contents = toGeminiContents(messages);
   const generationConfig = {
     temperature: 0.7,

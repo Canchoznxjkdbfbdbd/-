@@ -2,8 +2,18 @@
   {
     "id": "zelenaya-tarelka",
     "name": "Зелёная Тарелка",
-    "geo": ["Комсомольск-на-Амуре", "Хабаровск"],
-    "tags": ["готовое", "пп", "обед", "ужин", "нет времени", "сбалансированное"],
+    "geo": [
+      "Комсомольск-на-Амуре",
+      "Хабаровск"
+    ],
+    "tags": [
+      "готовое",
+      "пп",
+      "обед",
+      "ужин",
+      "нет времени",
+      "сбалансированное"
+    ],
     "offer_type": "meal_plan",
     "promo_code": null,
     "live": false,
@@ -14,8 +24,18 @@
   {
     "id": "magniy-box",
     "name": "МагнийБокс",
-    "geo": ["Дальний Восток", "онлайн"],
-    "tags": ["магний", "усталость", "стресс", "восстановление", "микронутриенты", "готовое"],
+    "geo": [
+      "Дальний Восток",
+      "онлайн"
+    ],
+    "tags": [
+      "магний",
+      "усталость",
+      "стресс",
+      "восстановление",
+      "микронутриенты",
+      "готовое"
+    ],
     "offer_type": "meal_plan",
     "promo_code": null,
     "live": false,
@@ -26,13 +46,244 @@
   {
     "id": "malysh-menu",
     "name": "МалышМеню",
-    "geo": ["Комсомольск-на-Амуре"],
-    "tags": ["дети", "детское", "школа", "перекус", "семья", "готовое"],
+    "geo": [
+      "Комсомольск-на-Амуре"
+    ],
+    "tags": [
+      "дети",
+      "детское",
+      "школа",
+      "перекус",
+      "семья",
+      "готовое"
+    ],
     "offer_type": "meal_plan",
     "promo_code": null,
     "live": false,
     "link": "https://example.com/malysh-menu",
     "blurb": "Мягкие семейные рационы и перекусы без острых специй.",
     "disclaimer": "Партнёрская ссылка (демо). Не заменяет консультацию педиатра."
+  },
+  {
+    "id": "hvalovskie-vody",
+    "name": "Хваловские воды",
+    "geo": [
+      "РФ",
+      "онлайн"
+    ],
+    "tags": [
+      "вода",
+      "питьевая",
+      "гидратация",
+      "напитки",
+      "доставка"
+    ],
+    "offer_type": "grocery",
+    "promo_code": null,
+    "live": true,
+    "link": "https://xmknb.com/g/b0173jl262268e100ca000dcac28d3/?erid=2bL9aMPo2e49hMef4pfVDKbKSL",
+    "blurb": "Питьевая вода с доставкой. Реклама.",
+    "disclaimer": "Реклама. erid: 2bL9aMPo2e49hMef4pfVDKbKSL. Партнёрская ссылка Admitad."
+  },
+  {
+    "id": "vazhnaya-ryba",
+    "name": "Важная рыба",
+    "geo": [
+      "РФ",
+      "онлайн"
+    ],
+    "tags": [
+      "рыба",
+      "морепродукты",
+      "белок",
+      "ужин",
+      "обед",
+      "пп",
+      "доставка"
+    ],
+    "offer_type": "grocery",
+    "promo_code": null,
+    "live": true,
+    "link": "https://dorinebeaumont.com/g/lqb6l7197z268e100ca094cf89477e/?erid=2bL9aMPo2e49hMef4peVndVUPr",
+    "blurb": "Рыба и морепродукты с доставкой. Реклама.",
+    "disclaimer": "Реклама. erid: 2bL9aMPo2e49hMef4peVndVUPr. Партнёрская ссылка Admitad."
+  },
+  {
+    "id": "foodband",
+    "name": "Foodband",
+    "geo": [
+      "РФ",
+      "онлайн"
+    ],
+    "tags": [
+      "готовое",
+      "пицца",
+      "доставка",
+      "обед",
+      "ужин",
+      "нет времени"
+    ],
+    "offer_type": "meal_plan",
+    "promo_code": null,
+    "live": true,
+    "link": "https://kdbov.com/g/6i8z56w6fx268e100ca02e77510c9d/?erid=MvGzQC98w3Z1gMq1mwqgji5D",
+    "blurb": "Доставка еды. Реклама.",
+    "disclaimer": "Реклама. erid: MvGzQC98w3Z1gMq1mwqgji5D. Партнёрская ссылка Admitad."
+  },
+  {
+    "id": "perekrestok",
+    "name": "Перекрёсток",
+    "geo": [
+      "Россия",
+      "онлайн"
+    ],
+    "tags": [
+      "grocery",
+      "готовое",
+      "готовая еда",
+      "доставка",
+      "продукты",
+      "заказать",
+      "нет времени",
+      "ready-meals",
+      "перекрёсток"
+    ],
+    "offer_type": "promo",
+    "promo_code": "196WA72QR",
+    "live": true,
+    "link": "https://perekrestok.prfl.me/sites/dqrm7a?erid=2Ranym6S7Nt",
+    "blurb": "Доставка продуктов и готовой еды. Промокод 196WA72QR — 300 ₽ на первый заказ от 1200 ₽ (до 30.11.2026). Другие: 198RMVZPG (−750 ₽ от 1500 ₽), 19576AT6Q (−40% от 1500 ₽), 197E9EMC6 (−99% «Готовая еда» от 1000 ₽ в приложении).",
+    "disclaimer": "Реклама. ООО \"ИКС 5 ДИДЖИТАЛ\", ИНН 9722010808 erid: 2Ranym6S7Nt"
+  },
+  {
+    "id": "yandex-lavka",
+    "name": "Яндекс Лавка",
+    "geo": [
+      "Россия",
+      "онлайн"
+    ],
+    "tags": [
+      "grocery",
+      "лавка",
+      "доставка",
+      "продукты",
+      "заказать",
+      "нет времени",
+      "готовое",
+      "быстрая доставка"
+    ],
+    "offer_type": "promo",
+    "promo_code": "300SOK495",
+    "live": true,
+    "link": "https://yalavka.prfl.me/sites/k9mdkk?erid=2RanykE3YEx",
+    "blurb": "Быстрая доставка продуктов. Промокод 300SOK495 — 300 ₽ (до 31.12.2026). Другие: 50SUP455 (−50%), 40ARU495 (−40%).",
+    "disclaimer": "Реклама. ООО \"Яндекс.Лавка\", ИНН 9718101499. erid: 2RanykE3YEx"
+  },
+  {
+    "id": "yobidoyobi",
+    "name": "ЁбиДоёби",
+    "geo": [
+      "Россия",
+      "онлайн"
+    ],
+    "tags": [
+      "суши",
+      "роллы",
+      "японская",
+      "доставка",
+      "обед",
+      "ужин",
+      "готовое",
+      "нет времени",
+      "ёбидоёби",
+      "yobidoyobi"
+    ],
+    "offer_type": "promo",
+    "promo_code": "IBDZB",
+    "live": true,
+    "link": "https://yobidoyobi1.prfl.me/sites/nozpxf?erid=2RanykWN5Jc",
+    "blurb": "Суши и роллы с доставкой. Промокод IBDZB — 20% до 31.01.2027. Также HPSGL до 31.01.2027.",
+    "disclaimer": "Реклама. ООО \"Вкусные технологии\". ИНН 2465359759 erid: 2RanykWN5Jc",
+    "exclude_partners": [
+      "vazhnaya-ryba",
+      "tanuki",
+      "farfor"
+    ]
+  },
+  {
+    "id": "magnit",
+    "name": "Магнит",
+    "geo": [
+      "Россия",
+      "онлайн"
+    ],
+    "tags": [
+      "grocery",
+      "магнит",
+      "продукты",
+      "доставка",
+      "заказать",
+      "нет времени",
+      "готовое",
+      "магазин"
+    ],
+    "offer_type": "promo",
+    "promo_code": "25GFD95HN",
+    "live": true,
+    "link": "https://mgntgm.prfl.me/sites/wjguzk?erid=2Ranym4yoWC",
+    "blurb": "Продукты и доставка. Промокод 25GFD95HN — 31% до 30.11.2026. Также SGPF12ULLH1 (26%), «Ноябрь» до 10.11.2026.",
+    "disclaimer": "Реклама. АО \"Тандер\", ИНН 2310031475. erid: 2Ranym4yoWC"
+  },
+  {
+    "id": "dodo-pizza",
+    "name": "Додо Пицца",
+    "geo": [
+      "Россия",
+      "онлайн"
+    ],
+    "tags": [
+      "пицца",
+      "додо",
+      "доставка",
+      "обед",
+      "ужин",
+      "готовое",
+      "нет времени",
+      "dodo"
+    ],
+    "offer_type": "promo",
+    "promo_code": "A563Z",
+    "live": true,
+    "link": "https://dodo1.prfl.me/sites/0bw42g?erid=2RanymnVTPr",
+    "blurb": "Пицца с доставкой. Промокод A563Z — 25% до 30.11.2026. Также 6ZP9E, 8N9OS2, 81JVX.",
+    "disclaimer": "Реклама. Индивидуальный предприниматель Гринев Денис Петрович, ИНН 615400951595. erid: 2RanymnVTPr",
+    "exclude_partners": [
+      "eapteka"
+    ]
+  },
+  {
+    "id": "yandex-eda",
+    "name": "Яндекс Еда",
+    "geo": [
+      "Россия",
+      "онлайн"
+    ],
+    "tags": [
+      "еда",
+      "доставка",
+      "яндекс еда",
+      "ресторан",
+      "обед",
+      "ужин",
+      "готовое",
+      "нет времени",
+      "заказать"
+    ],
+    "offer_type": "promo",
+    "promo_code": "fps856",
+    "live": true,
+    "link": "https://edayandex.prfl.me/sites/d7aso4?erid=2RanyoLvhat",
+    "blurb": "Доставка из ресторанов. Промокод fps856 до 31.12.2026.",
+    "disclaimer": "Реклама. ООО \"ЯНДЕКС.ЕДА\", ИНН 9705114405. erid: 2RanyoLvhat"
   }
 ]
