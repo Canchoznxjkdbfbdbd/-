@@ -130,6 +130,7 @@
         <div class="metric"><strong id="uptime">—</strong><span>Аптайм сайта</span></div>
         <div class="metric"><strong id="ok-today">—</strong><span>Успешные ответы ИИ сегодня</span></div>
         <div class="metric"><strong id="err-today">—</strong><span>Ошибки Gemini сегодня</span></div>
+        <div class="metric"><strong id="keys">—</strong><span>Ключи Gemini (без значений)</span></div>
       </div>
       <div id="warn" class="warn" role="alert"></div>
     </section>
@@ -186,6 +187,11 @@
       el('uptime').textContent = fmtUptime(s.uptimeSec);
       el('ok-today').textContent = String(s.successToday ?? 0);
       el('err-today').textContent = String(s.errorsToday ?? 0);
+      const gk = s.geminiKeys || {};
+      const k1 = gk.key1 === 'configured' ? '1✓' : '1✗';
+      const k2 = gk.key2 === 'configured' ? '2✓' : '2✗';
+      const active = gk.activeKey ? ('active ' + gk.activeKey) : 'нет';
+      el('keys').textContent = k1 + ' · ' + k2 + ' · ' + active;
       if (s.warning && s.warning.active) {
         warn.textContent = s.warning.message || 'Проблема с Gemini API';
         warn.classList.add('on');
