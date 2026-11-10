@@ -177,6 +177,13 @@ ${mode.overlay}`;
 }
 
 app.use(express.json({ limit: '256kb' }));
+
+/** PWA manifest: correct MIME for Chromium install / home-screen icons. */
+app.get('/manifest.webmanifest', (_req, res) => {
+  res.type('application/manifest+json');
+  res.sendFile(path.join(ROOT, 'public', 'manifest.webmanifest'));
+});
+
 app.use(express.static(path.join(ROOT, 'public')));
 
 const CHAT_RATE_WINDOW_MS = 15 * 60 * 1000;
