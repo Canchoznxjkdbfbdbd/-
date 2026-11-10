@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>НутриКод — админ</title>
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --ink: #1c1a16;
+      --muted: #5c574e;
+      --line: #d4cdc0;
+      --panel: #fffdf8;
+      --accent: #2f6f4e;
+      --danger: #9b2c2c;
+      --danger-bg: #fde8e8;
+      --ok: #1f6b3a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PT Sans", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #e7f2ea 0%, transparent 55%),
+        linear-gradient(180deg, #efe8da 0%, var(--bg) 40%, #ebe4d6 100%);
+      min-height: 100vh;
+    }
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 3rem;
+    }
+    h1 {
+      font-size: 1.35rem;
+      margin: 0 0 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    h2 {
+      font-size: 1.05rem;
+      margin: 1.4rem 0 0.5rem;
+    }
+    .pulse {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      padding: 0.9rem 1rem;
+    }
+    .pulse-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.65rem;
+    }
+    .metric strong {
+      display: block;
+      font-size: 1.15rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .metric span {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    .warn {
+      display: none;
+      margin-top: 0.75rem;
+      padding: 0.65rem 0.75rem;
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid #f0b4b4;
+      font-weight: 600;
+    }
+    .warn.on { display: block; }
+    label {
+      display: block;
+      font-weight: 600;
+      margin: 0.35rem 0;
+    }
+    textarea {
+      width: 100%;
+      min-height: 220px;
+      font: 0.85rem/1.4 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+      padding: 0.75rem;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      resize: vertical;
+    }
+    #prompt { min-height: 320px; }
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+    button {
+      appearance: none;
+      border: 0;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-weight: 600;
+      padding: 0.7rem 1.2rem;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .status {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .status.ok { color: var(--ok); }
+    .status.err { color: var(--danger); }
+    .hint {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin: 0.25rem 0 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>НутриКод — админ</h1>
+
+    <section class="pulse" aria-labelledby="pulse-title">
+      <h2 id="pulse-title" style="margin-top:0">Пульс системы</h2>
+      <div class="pulse-grid">
+        <div class="metric"><strong id="cpu">—</strong><span>CPU load (1m)</span></div>
+        <div class="metric"><strong id="ram">—</strong><span>Свободная RAM</span></div>
+        <div class="metric"><strong id="uptime">—</strong><span>Аптайм сайта</span></div>
+        <div class="metric"><strong id="ok-today">—</strong><span>Успешные ответы ИИ сегодня</span></div>
+        <div class="metric"><strong id="err-today">—</strong><span>Ошибки Gemini сегодня</span></div>
+      </div>
+      <div id="warn" class="warn" role="alert"></div>
+    </section>
+
+    <p class="hint">Сохранение сразу пишет файлы на диск. Node не нужно перезапускать — чат подхватит новое содержимое при следующем запросе.</p>
+
+    <label for="partners">partners.json</label>
+    <textarea id="partners" spellcheck="false"></textarea>
+
+    <label for="prompt">prompt.txt</label>
+    <textarea id="prompt" spellcheck="false"></textarea>
+
+    <div class="actions">
+      <button type="button" id="save">Сохранить</button>
+      <span id="status" class="status" aria-live="polite"></span>
+    </div>
+  </main>
+  <script>
+    const el = (id) => document.getElementById(id);
+    const status = el('status');
+    const warn = el('warn');
+
+    function fmtBytes(n) {
+      const gb = n / (1024 * 1024 * 1024);
+      if (gb >= 1) return gb.toFixed(2) + ' ГБ';
+      const mb = n / (1024 * 1024);
+      return mb.toFixed(0) + ' МБ';
+    }
+
+    function fmtUptime(sec) {
+      const s = Math.max(0, Math.floor(Number(sec) || 0));
+      const days = Math.floor(s / 86400);
+      const hours = Math.floor((s % 86400) / 3600);
+      const mins = Math.floor((s % 3600) / 60);
+      if (days > 0) return days + ' д ' + hours + ' ч';
+      if (hours > 0) return hours + ' ч ' + mins + ' мин';
+      return mins + ' мин';
+    }
+
+    async function loadFiles() {
+      const res = await fetch('/api/admin/files', { credentials: 'same-origin' });
+      if (!res.ok) throw new Error('Не удалось загрузить файлы (' + res.status + ')');
+      const data = await res.json();
+      el('partners').value = data.partners || '';
+      el('prompt').value = data.prompt || '';
+    }
+
+    async function refreshStats() {
+      const res = await fetch('/api/admin/stats', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const s = await res.json();
+      el('cpu').textContent = Number(s.load1).toFixed(2);
+      el('ram').textContent = fmtBytes(s.freeMem) + ' / ' + fmtBytes(s.totalMem);
+      el('uptime').textContent = fmtUptime(s.uptimeSec);
+      el('ok-today').textContent = String(s.successToday ?? 0);
+      el('err-today').textContent = String(s.errorsToday ?? 0);
+      if (s.warning && s.warning.active) {
+        warn.textContent = s.warning.message || 'Проблема с Gemini API';
+        warn.classList.add('on');
+      } else {
+        warn.textContent = '';
+        warn.classList.remove('on');
+      }
+    }
+
+    el('save').addEventListener('click', async () => {
+      const btn = el('save');
+      btn.disabled = true;
+      status.className = 'status';
+      status.textContent = 'Сохраняю…';
+      try {
+        const res = await fetch('/api/admin/save', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            partners: el('partners').value,
+            prompt: el('prompt').value,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('Ошибка ' + res.status));
+        status.className = 'status ok';
+        status.textContent = 'Сохранено. Hot-reload: чат уже читает новые файлы с диска.';
+      } catch (err) {
+        status.className = 'status err';
+        status.textContent = err.message || 'Не удалось сохранить';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    loadFiles().catch((err) => {
+      status.className = 'status err';
+      status.textContent = err.message || 'Ошибка загрузки';
+    });
+    refreshStats();
+    setInterval(refreshStats, 4000);
+  </script>
+</body>
+</html>
