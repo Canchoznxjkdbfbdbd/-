@@ -13,6 +13,7 @@ const PORT = Number(process.env.PORT) || 3000;
 /** Behind nginx / Beget / Timeweb proxy — rate-limit must see real client IP. */
 app.set('trust proxy', 1);
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_API_ORIGIN = (process.env.GEMINI_API_ORIGIN || 'https://generativelanguage.googleapis.com').replace(/\/$/, '');
 /** Prefer lean/fast models first under free-tier load; gemini-3.8-flash is opt-in via env. */
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 /** Default chain after the primary model when Gemini returns 503 / UNAVAILABLE. */
@@ -57,7 +58,7 @@ function sleep(ms) {
 }
 
 function geminiStreamUrl(model) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+  return `${GEMINI_API_ORIGIN}/v1beta/models/${encodeURIComponent(
     model
   )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(GEMINI_API_KEY)}`;
 }
@@ -319,11 +320,40 @@ app.get('/api/config', (_req, res) => {
 });
 
 /**
- * Intent only: готовое / заказать / нет времени готовить.
+ * Clear fulfillment / brand intent — only then inject 0–1 live offer.
  * Avoid \\b — JS word boundaries ignore Cyrillic and break matches.
+ * Bare «покушать / продукты / магазин» is NOT enough (clarify first).
  */
-const INTENT_RE =
-  /готов(?:ое|ый|ую|ые|ого)|заказ(?:ать|аю|аем|ите)|заказы|нет времени(?:\s+готовить)?|некогда(?:\s+готовить)?/i;
+const CLEAR_INTENT_RE =
+  /заказ(?:ать|аю|аем|ите)|заказы|доставк|нет времени(?:\s+готовить)?|некогда(?:\s+готовить)?|готов(?:ое|ую|ые|ой)\s+(?:ед|блюд)|заказ(?:ать)?\s+готов|пицц|суши|ролл|лавк|перекр[её]сток|магнит|ёбидоёби|yobidoyobi|додо|\bdodo\b|яндекс\s*ед|яндекс\s*лавк|вод[аыуе]|гидрат|питьев|купить\s+продукт|заказать\s+продукт|доставк\w*\s+продукт/i;
+
+/** @deprecated alias — kept for older verify scripts / exports */
+const INTENT_RE = CLEAR_INTENT_RE;
+
+/**
+ * Soft default when intent is clear but no brand won.
+ * Prefer wide delivery over local grocery chains (Перекрёсток).
+ */
+const WIDE_DEFAULT_IDS = ['yandex-eda', 'yandex-lavka', 'dodo-pizza', 'yobidoyobi', 'foodband'];
+
+/** Low-signal tags shared by many partners — brand/specific tags weigh more. */
+const GENERIC_PARTNER_TAGS = new Set([
+  'готовое',
+  'готовая еда',
+  'нет времени',
+  'доставка',
+  'быстрая доставка',
+  'обед',
+  'ужин',
+  'заказать',
+  'продукты',
+  'grocery',
+  'ready-meals',
+  'еда',
+  'пп',
+]);
+
+const OWNER_CODEWORD_RE = /михалыч/i;
 
 /** Placeholder / demo hosts must never ship as live offers. */
 const PLACEHOLDER_LINK_RE = /^https?:\/\/(www\.)?example\.com(\/|$)/i;
@@ -352,39 +382,266 @@ function countUserTurns(messages) {
   return messages.filter((m) => m && m.role === 'user' && typeof m.content === 'string').length;
 }
 
-/**
- * Pick 0–1 live partner on intent. Never on first user turn.
- * Demo rows (live:false / example.com) are skipped — no invented links.
- */
-function pickPartner(messages, { allowPartner = false } = {}) {
-  if (!allowPartner) return null;
-  // Never first reply: need at least two user messages in the thread.
-  if (countUserTurns(messages) < 2) return null;
+function hasOwnerCodeword(messages) {
+  return (messages || []).some(
+    (m) => m && m.role === 'user' && typeof m.content === 'string' && OWNER_CODEWORD_RE.test(m.content)
+  );
+}
 
-  const live = PARTNERS.filter(isLivePartner);
-  if (!live.length) return null;
+/** Tag hit with light Cyrillic inflection (лавка/лавку, пицца/пиццу). */
+function textHasTag(text, tag) {
+  const t = String(tag || '').toLowerCase().trim();
+  if (!t) return false;
+  if (text.includes(t)) return true;
+  // Soft stem for longer tags only — avoid short false positives (вода→вод).
+  if (t.length >= 5) {
+    const stem = t.slice(0, -1);
+    if (stem.length >= 4 && text.includes(stem)) return true;
+  }
+  return false;
+}
+
+function partnerTagScore(partner, text) {
+  let brand = 0;
+  let generic = 0;
+  for (const tag of partner.tags || []) {
+    const t = String(tag).toLowerCase();
+    if (!textHasTag(text, t)) continue;
+    if (GENERIC_PARTNER_TAGS.has(t)) generic += 1;
+    else brand += 3;
+  }
+  return { brand, generic, total: brand + generic };
+}
+
+/** Legacy deny-list (belt-and-suspenders; cities whitelist is source of truth). */
+function partnerDeniedByGeo(partner, text) {
+  const denies = Array.isArray(partner?.geo_deny) ? partner.geo_deny : [];
+  for (const d of denies) {
+    const needle = String(d || '')
+      .toLowerCase()
+      .trim();
+    if (needle && text.includes(needle)) return true;
+  }
+  return false;
+}
+
+/** Canonical city id → extra substrings that map to it (simple RU match). */
+const CITY_ALIASES = {
+  москва: ['мск', 'москве', 'москвы', 'москву', 'москов'],
+  'санкт-петербург': ['спб', 'питер', 'питере', 'петербург', 'петербурге'],
+  'комсомольск-на-амуре': ['комсомольск', 'комсомольске', 'комсе'],
+  'нижний новгород': ['нижнем новгород', 'нижегород'],
+  'ростов-на-дону': ['ростове-на-дону', 'ростов на дону', 'ростов', 'ростове'],
+  'великий новгород': ['великом новгород'],
+  'южно-сахалинск': ['сахалинск'],
+  'петропавловск-камчатский': ['петропавловск'],
+  'набережные челны': ['челны'],
+};
+
+/** Cheap RU case/stem variants for substring match (не морфология, а эвристика). */
+function cityFormNeedles(city) {
+  const c = String(city || '').toLowerCase().trim();
+  if (!c) return [];
+  const out = new Set([c]);
+  const add = (x) => {
+    if (x && x.length >= 3) out.add(x);
+  };
+  // казань → казани / казане; тула → туле / тулу
+  if (c.endsWith('ь')) {
+    const stem = c.slice(0, -1);
+    add(stem + 'и');
+    add(stem + 'е');
+    add(stem + 'ю');
+  } else if (c.endsWith('а')) {
+    const stem = c.slice(0, -1);
+    add(stem + 'е');
+    add(stem + 'у');
+    add(stem + 'ы');
+    add(stem + 'ой');
+  } else if (c.endsWith('я')) {
+    const stem = c.slice(0, -1);
+    add(stem + 'и');
+    add(stem + 'е');
+    add(stem + 'ю');
+  } else if (c.endsWith('ий') || c.endsWith('ый')) {
+    const stem = c.slice(0, -2);
+    add(stem + 'ом');
+    add(stem + 'ому');
+    add(stem + 'ого');
+  } else {
+    // екатеринбург → екатеринбурге; краснодар → краснодаре
+    add(c + 'е');
+    add(c + 'а');
+    add(c + 'у');
+  }
+  // multi-word: «нижний новгород» → «нижнем новгороде»
+  if (c.includes(' ')) {
+    const parts = c.split(/\s+/);
+    if (parts.length === 2) {
+      const [a, b] = parts;
+      for (const fa of cityFormNeedles(a)) {
+        for (const fb of cityFormNeedles(b)) add(`${fa} ${fb}`);
+      }
+    }
+  }
+  // hyphenated: ростов-на-дону already exact; комсомольск-на-амуре handled via aliases
+  return [...out];
+}
+
+function partnerGeoMode(partner) {
+  const mode = String(partner?.geo_mode || '').toLowerCase();
+  if (mode === 'nationwide' || mode === 'cities') return mode;
+  // Legacy fallback from coverage / empty cities.
+  if (partner?.coverage === 'wide') return 'nationwide';
+  if (Array.isArray(partner?.cities) && partner.cities.length) return 'cities';
+  return 'nationwide';
+}
+
+function partnerCities(partner) {
+  return (Array.isArray(partner?.cities) ? partner.cities : [])
+    .map((c) => String(c || '').toLowerCase().trim())
+    .filter(Boolean);
+}
+
+/** All known city needles from partners + aliases, longest first. */
+function buildCityIndex(partners = PARTNERS) {
+  const canonical = new Map(); // needle → canonical city
+  const add = (canon, needle) => {
+    const c = String(canon || '').toLowerCase().trim();
+    const n = String(needle || '').toLowerCase().trim();
+    if (!c || !n || n.length < 3) return;
+    // Prefer longer / more specific mapping when collisions arise.
+    if (!canonical.has(n) || n.length > [...canonical.keys()].find((k) => k === n)?.length) {
+      canonical.set(n, c);
+    }
+  };
+  const register = (city) => {
+    add(city, city);
+    for (const form of cityFormNeedles(city)) add(city, form);
+    for (const ex of CITY_ALIASES[city] || []) {
+      add(city, ex);
+      for (const form of cityFormNeedles(ex)) add(city, form);
+    }
+  };
+  for (const p of partners || []) {
+    for (const city of partnerCities(p)) register(city);
+  }
+  // Aliases for cities we care about even if no partner lists them yet.
+  for (const city of Object.keys(CITY_ALIASES)) register(city);
+  const needles = [...canonical.keys()].sort((a, b) => b.length - a.length);
+  return { canonical, needles };
+}
+
+const CITY_INDEX = buildCityIndex(PARTNERS);
+
+/** Detect first matching city mention in conversation text (lowercase). */
+function detectCity(text, index = CITY_INDEX) {
+  const t = String(text || '').toLowerCase();
+  if (!t) return null;
+  for (const needle of index.needles) {
+    if (t.includes(needle)) return index.canonical.get(needle) || needle;
+  }
+  return null;
+}
+
+/**
+ * Geo allow: nationwide always OK; cities — only if detected city ∈ whitelist.
+ * Unknown city + cities mode → not allowed (clarify / skip; no guessing).
+ */
+function partnerAllowedByGeo(partner, city) {
+  if (!partner) return false;
+  const mode = partnerGeoMode(partner);
+  if (mode === 'nationwide') return true;
+  if (mode === 'cities') {
+    if (!city) return false;
+    const list = partnerCities(partner);
+    if (!list.length) return false;
+    return list.some((c) => city === c || city.includes(c) || c.includes(city));
+  }
+  return true;
+}
+
+function isWideCoveragePartner(partner) {
+  if (!partner) return false;
+  if (partnerGeoMode(partner) === 'nationwide') return true;
+  if (partner.coverage === 'wide') return true;
+  return WIDE_DEFAULT_IDS.includes(partner.id) && partnerGeoMode(partner) === 'nationwide';
+}
+
+/**
+ * Soft default among geo-allowed live partners: nationwide wide delivery first.
+ * Kept for mock / heuristic fallback when the model does not mark an id.
+ */
+function pickWideDefault(live) {
+  for (const id of WIDE_DEFAULT_IDS) {
+    const hit = live.find((p) => p.id === id);
+    if (hit) return hit;
+  }
+  const wide = live.find((p) => isWideCoveragePartner(p));
+  if (wide) return wide;
+  // Last resort among already geo-filtered live list.
+  return live[0] || null;
+}
+
+/** Hidden end-of-reply mark: model selects 0–1 offer from the city pool. */
+const PARTNER_MARK_RE = /\[\[\s*partner\s*:\s*([a-z0-9_-]+)\s*\]\]/gi;
+
+function stripPartnerMark(text) {
+  return String(text || '')
+    .replace(PARTNER_MARK_RE, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * All live partners available in the detected city.
+ * City unknown → empty pool (soft clarify; do not push offers).
+ * Never on first user turn / when allowPartner is false.
+ * Geo lists (geo_mode + cities / nationwide) are the source of truth.
+ */
+function collectPartnerPool(messages, { allowPartner = false } = {}) {
+  if (!allowPartner) return [];
+  if (countUserTurns(messages) < 2) return [];
 
   const text = conversationText(messages);
-  if (!INTENT_RE.test(text)) return null;
+  const city = detectCity(text);
+  // Owner rule: without a city, do not inject offers (nationwide included).
+  if (!city) return [];
 
+  return PARTNERS.filter(isLivePartner)
+    .filter((p) => !partnerDeniedByGeo(p, text))
+    .filter((p) => partnerAllowedByGeo(p, city));
+}
+
+/**
+ * Legacy single-pick helper (brand → wide default) over the city pool.
+ * Prefer collectPartnerPool + model choice; this remains for mock/heuristic.
+ */
+function pickPartner(messages, { allowPartner = false } = {}) {
+  const pool = collectPartnerPool(messages, { allowPartner });
+  if (!pool.length) return null;
+
+  const text = conversationText(messages);
   let best = null;
-  let bestScore = 0;
-  for (const p of live) {
-    let score = 0;
-    for (const tag of p.tags || []) {
-      if (text.includes(String(tag).toLowerCase())) score += 1;
-    }
-    if (score > bestScore) {
-      bestScore = score;
+  let bestBrand = 0;
+  let bestTotal = 0;
+  for (const p of pool) {
+    const score = partnerTagScore(p, text);
+    if (score.brand > bestBrand || (score.brand === bestBrand && score.total > bestTotal)) {
+      bestBrand = score.brand;
+      bestTotal = score.total;
       best = p;
     }
   }
-  // Intent matched and at least one live partner exists — prefer tag fit, else first live.
-  return bestScore > 0 ? best : live[0];
+  if (bestBrand > 0) return best;
+  if (CLEAR_INTENT_RE.test(text)) return pickWideDefault(pool);
+  return null;
 }
 
 function partnerPayload(partner) {
   if (!partner) return null;
+  const promoTerms = partner.promo_terms != null ? String(partner.promo_terms).trim() : '';
   return {
     id: partner.id,
     name: partner.name,
@@ -393,7 +650,125 @@ function partnerPayload(partner) {
     disclaimer: partner.disclaimer,
     offer_type: partner.offer_type || null,
     promo_code: partner.promo_code || null,
+    promo_terms: promoTerms || null,
   };
+}
+
+function partnerExcludeIds(partner) {
+  return (Array.isArray(partner?.exclude_partners) ? partner.exclude_partners : [])
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+}
+
+/** Full pool row for Gemini (link + promo + disclaimer + exclusives). */
+function partnerPoolRow(partner) {
+  const payload = partnerPayload(partner);
+  const excludes = partnerExcludeIds(partner);
+  return [
+    `- id: ${payload.id}`,
+    `  name: ${payload.name}`,
+    `  blurb: ${payload.blurb || ''}`,
+    `  link: ${payload.link}`,
+    `  promo_code: ${payload.promo_code || ''}`,
+    `  promo_terms: ${payload.promo_terms || ''}`,
+    `  offer_type: ${payload.offer_type || 'affiliate'}`,
+    `  disclaimer: ${payload.disclaimer || ''}`,
+    `  exclude_partners: ${excludes.length ? excludes.join(', ') : '—'}`,
+    `  tags: ${(partner.tags || []).join(', ')}`,
+  ].join('\n');
+}
+
+function partnerGeoHintBlock(messages) {
+  const text = conversationText(messages || []);
+  const city = detectCity(text);
+  if (!city) {
+    return (
+      '\n\nКонтекст гео: город пользователя ещё не определён. Партнёрский пул пуст — ' +
+      'не предлагай бренды доставки и чужие ссылки; если уместен заказ/доставка — мягко спроси город одной фразой.'
+    );
+  }
+  return `\n\nКонтекст гео: город пользователя ≈ «${city}».`;
+}
+
+/**
+ * Inject the full city-local live pool into the system instruction.
+ * Model chooses 0–1 offer; UI card follows [[partner:id]] (or URL/brand heuristic).
+ */
+function partnerPoolContextBlock(pool, messages = null) {
+  const list = Array.isArray(pool) ? pool : [];
+  let block = partnerGeoHintBlock(messages);
+  if (!list.length) {
+    block +=
+      '\nПул live-партнёров для этого ответа: пуст. Молчи про партнёрские бренды и ссылки; общие советы без брендов — ок. Не ври, что «бэкенд не настроен».';
+    return block;
+  }
+  const rows = list.map(partnerPoolRow).join('\n');
+  block += `
+Пул доступных live-партнёров в этом городе (ты сама выбираешь 0 или 1 по намерению пользователя):
+${rows}
+Правила выбора из пула:
+• Максимум один оффер в ответе; можно выбрать ноль, если оффер не к месту.
+• Учитывай exclude_partners и эксклюзивы из системных правил (ЁбиДоёби ≠ Важная рыба/Тануки/Farfor; Додо ≠ Еаптека).
+• URL и промокоды — ТОЛЬКО из этого пула, ничего не выдумывай.
+• Предпочтение: мягко упомяни бренд/выгоду после пользы по рациону и в самом конце ответа поставь скрытую метку ровно одного выбранного id: [[partner:ID]] (например [[partner:dodo-pizza]]). Тогда UI нарисует карточку со ссылкой и промо — сырой URL и промокод в текст НЕ копируй.
+• Если метку поставить нельзя — допустима одна ссылка из пула без дубля карточки.
+• Не говори, что офферов/ссылок нет или что «нужно настраивать бэкенд».`;
+  return block;
+}
+
+/**
+ * Resolve 0–1 partner after the model reply: mark → URL from pool → brand heuristic.
+ */
+function resolveSelectedPartner(assembledText, pool) {
+  const list = Array.isArray(pool) ? pool : [];
+  if (!list.length) return null;
+  const text = String(assembledText || '');
+  const markRe = /\[\[\s*partner\s*:\s*([a-z0-9_-]+)\s*\]\]/i;
+  const mark = text.match(markRe);
+  if (mark) {
+    const id = mark[1].toLowerCase();
+    const hit = list.find((p) => p.id === id);
+    if (hit) return hit;
+  }
+  for (const p of list) {
+    const link = String(p.link || '').trim();
+    if (link && text.includes(link)) return p;
+  }
+  const lower = text.toLowerCase();
+  let best = null;
+  let bestBrand = 0;
+  for (const p of list) {
+    const score = partnerTagScore(p, lower);
+    const name = String(p.name || '').toLowerCase();
+    const nameHit = name && lower.includes(name);
+    const brand = score.brand + (nameHit ? 3 : 0);
+    if (brand > bestBrand) {
+      bestBrand = brand;
+      best = p;
+    }
+  }
+  return bestBrand > 0 ? best : null;
+}
+
+/**
+ * Owner strategy catalog: live ids/names only — never URLs/promo here.
+ * User-facing offer is at most one UI card from the city pool.
+ */
+function ownerPartnersCatalogBlock(messages) {
+  if (!hasOwnerCodeword(messages)) return '';
+  const live = PARTNERS.filter(isLivePartner);
+  if (!live.length) return '';
+  const lines = live.map((p) => {
+    const promo = p.promo_code ? 'promo:да' : 'promo:нет';
+    const cover = isWideCoveragePartner(p) ? 'wide' : 'geo';
+    return `- ${p.id} — ${p.name} (${promo}, ${cover})`;
+  });
+  return (
+    '\n\nКаталог live-партнёров для владельца (только id/name, без URL и без промокодов):\n' +
+    lines.join('\n') +
+    '\nПул живой; пользователю — максимум одна UI-карточка из городского пула (метка [[partner:id]] или эвристика). ' +
+    'Владельцу для стратегии можно кратко перечислить эти id/названия без ссылок.'
+  );
 }
 
 function donateUrlForPrompt() {
@@ -402,21 +777,30 @@ function donateUrlForPrompt() {
   return url;
 }
 
-/** System prompt + optional mode overlay + donate context. Partner offers stay UI-only. */
-function buildSystemInstruction(mode = null) {
+/** System prompt + mode overlay + donate + city partner pool + owner catalog. */
+function buildSystemInstruction(mode = null, poolOrPartner = null, messages = null) {
   let extra = modeOverlayBlock(mode);
   const donateUrl = donateUrlForPrompt();
   if (donateUrl) {
     extra += `
 
 Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
-DONATE_URL: ${donateUrl}`;
+DONATE_URL: ${donateUrl}
+Не вставляй голый URL доната. Если даёшь ссылку — только markdown: [Поддержать НутриКод](${donateUrl}). Иначе без ссылки: «кнопка поддержки ниже» (кнопки 50/100/150 уже в UI).`;
   } else {
     extra += `
 
 Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
-DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже».`;
+DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже» (кнопки 50/100/150 уже в UI), без URL.`;
   }
+  // Accept either a pool array or a legacy single partner object.
+  const pool = Array.isArray(poolOrPartner)
+    ? poolOrPartner
+    : poolOrPartner
+      ? [poolOrPartner]
+      : [];
+  extra += partnerPoolContextBlock(pool, messages);
+  extra += ownerPartnersCatalogBlock(messages);
   return SYSTEM_PROMPT + extra;
 }
 
@@ -665,7 +1049,9 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
   const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const allowPartner = Boolean(req.body?.allowPartner);
   const mode = resolveChatMode(req.body?.mode, messages);
-  const partner = pickPartner(messages, { allowPartner });
+  const partnerPool = collectPartnerPool(messages, { allowPartner });
+  // Mock / no-key path still needs a single heuristic card from the city pool.
+  const mockPartner = pickPartner(messages, { allowPartner });
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -683,13 +1069,15 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       type: 'notice',
       text: 'Ключ GEMINI_API_KEY не задан — показываю демо-ответ, чтобы можно было оценить интерфейс.',
     });
-    await streamMock(res, partner);
+    await streamMock(res, mockPartner);
     return;
   }
 
   writeEvent(res, { type: 'status', stage: 'thinking' });
 
-  const systemInstruction = { parts: [{ text: buildSystemInstruction(mode) }] };
+  const systemInstruction = {
+    parts: [{ text: buildSystemInstruction(mode, partnerPool, messages) }],
+  };
   let contents = toGeminiContents(messages);
   const generationConfig = {
     temperature: 0.7,
@@ -698,7 +1086,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 
   try {
     console.info(
-      `[gemini] chat turns=${messages.length} mode=${mode.id}/${mode.source} partner=${partner ? partner.id : 'none'} maxOutputTokens=${MAX_OUTPUT_TOKENS} chain=${GEMINI_MODEL_CHAIN.join(
+      `[gemini] chat turns=${messages.length} mode=${mode.id}/${mode.source} pool=${partnerPool.map((p) => p.id).join(',') || 'none'} maxOutputTokens=${MAX_OUTPUT_TOKENS} chain=${GEMINI_MODEL_CHAIN.join(
         '→'
       )}`
     );
@@ -786,12 +1174,13 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       ];
     }
 
-    if (partner) {
-      writeEvent(res, { type: 'partner', partner: partnerPayload(partner) });
+    const selected = resolveSelectedPartner(assembled, partnerPool);
+    if (selected) {
+      writeEvent(res, { type: 'partner', partner: partnerPayload(selected) });
     }
 
     console.info(
-      `[gemini] done model=${activeModel} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length}`
+      `[gemini] done model=${activeModel} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length} selected=${selected ? selected.id : 'none'}`
     );
     writeEvent(res, {
       type: 'done',
@@ -848,9 +1237,25 @@ module.exports = {
   summarizeGeminiError,
   openGeminiStream,
   pickPartner,
+  collectPartnerPool,
+  resolveSelectedPartner,
+  stripPartnerMark,
+  partnerPoolContextBlock,
   isLivePartner,
   partnerPayload,
+  partnerTagScore,
+  partnerDeniedByGeo,
+  partnerAllowedByGeo,
+  partnerGeoMode,
+  detectCity,
+  isWideCoveragePartner,
+  pickWideDefault,
+  hasOwnerCodeword,
+  ownerPartnersCatalogBlock,
+  CLEAR_INTENT_RE,
   INTENT_RE,
+  PARTNER_MARK_RE,
+  WIDE_DEFAULT_IDS,
   OVERLOAD_USER_MESSAGE,
   GEMINI_MODEL,
   GEMINI_MODEL_CHAIN,
