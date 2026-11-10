@@ -519,5 +519,40 @@
     "geo_mode": "nationwide",
     "cities": [],
     "geo_note": "Википедия/публичные обзоры: 186–300+ городов РФ. Агрегатор доставки → nationwide с пометкой."
+  },
+  {
+    "id": "aliexpress",
+    "name": "AliExpress",
+    "geo": [
+      "Россия",
+      "онлайн"
+    ],
+    "coverage": "wide",
+    "geo_deny": [],
+    "tags": [
+      "aliexpress",
+      "алиэкспресс",
+      "кухня",
+      "дом",
+      "спорт",
+      "здоровый быт",
+      "посуда",
+      "контейнеры",
+      "бутылка",
+      "гаджеты",
+      "онлайн-магазин",
+      "товар",
+      "для дома"
+    ],
+    "offer_type": "promo",
+    "promo_code": null,
+    "promo_terms": "Партнёрская ссылка",
+    "live": true,
+    "link": "https://ali.click/566oq1x?gc=vv3q4oey1v268e100ca0b6d1781017&erid=2bL9aMPo2e49hMef4pdzo6JkYp",
+    "blurb": "Онлайн-магазин: товары для кухни, дома, спорта и здорового быта. Партнёрская ссылка.",
+    "disclaimer": "Реклама. erid: 2bL9aMPo2e49hMef4pdzo6JkYp. Партнёрская ссылка Perfluence.",
+    "geo_mode": "nationwide",
+    "cities": [],
+    "geo_note": "Всероссийский онлайн-магазин AliExpress; доставка по РФ. Не локальная доставка еды → nationwide / все города, без узкого whitelist."
   }
 ]
