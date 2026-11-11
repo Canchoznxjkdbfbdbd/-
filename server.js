@@ -19,7 +19,7 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 const DEFAULT_FALLBACK_MODELS = ['gemini-3.6-flash'];
 const DONATE_URL = process.env.DONATE_URL || '#donate';
 /** Single place for the VK community footer link (override via env if shortname changes). */
-const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.com/nutrikod';
+const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.ru/ai.nutricode';
 /** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
 const MAX_OUTPUT_TOKENS = Math.min(
   Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 1024),

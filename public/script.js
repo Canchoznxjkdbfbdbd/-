@@ -14,7 +14,7 @@
 
   const DONATE_SOFT_COPY = 'Хотите поддержать проект или дать обратную связь?';
   /** Fallback if /api/config has no communityVkUrl — keep in sync with server COMMUNITY_VK_URL. */
-  const COMMUNITY_VK_URL_DEFAULT = 'https://vk.com/nutrikod';
+  const COMMUNITY_VK_URL_DEFAULT = 'https://vk.ru/ai.nutricode';
 
   function pickStatus(list) {
     return list[Math.floor(Math.random() * list.length)];
