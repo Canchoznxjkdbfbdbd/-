@@ -10,7 +10,9 @@
     "verify:stream": "node scripts/verify-stream-complete.js",
     "verify:modes": "node scripts/verify-modes.js",
     "verify:history": "node scripts/verify-chat-history.js",
-    "verify:privacy": "node scripts/verify-privacy.js"
+    "verify:privacy": "node scripts/verify-privacy.js",
+    "verify:partners": "node scripts/verify-partner-pick.js",
+    "verify:promos": "node scripts/verify-promos.js"
   },
   "engines": {
     "node": ">=18"
