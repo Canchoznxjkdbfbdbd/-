@@ -12,10 +12,9 @@
   const THINKING_STATUS = ['Думает…', 'Что-то прикидывает…', 'Собирает мысли…'];
   const TYPING_STATUS = ['Печатает…', 'Набирает ответ…', 'Подбирает слова…'];
 
-  const DONATE_VARIANTS = [
-    { id: 'a', copy: 'Если зашло — киньте админу на чай, а то он на тостах.' },
-    { id: 'b', copy: 'Бесплатно, как совет про овощи. Поддержка — если захочется, на сервер.' },
-  ];
+  const DONATE_SOFT_COPY = 'Хотите поддержать проект или дать обратную связь?';
+  /** Fallback if /api/config has no communityVkUrl — keep in sync with server COMMUNITY_VK_URL. */
+  const COMMUNITY_VK_URL_DEFAULT = 'https://vk.com/nutrikod';
 
   function pickStatus(list) {
     return list[Math.floor(Math.random() * list.length)];
@@ -37,7 +36,9 @@
   const clearChatBtn = document.getElementById('clear-chat');
   const donateBanner = document.getElementById('donate-banner');
   const donateCopy = document.getElementById('donate-copy');
+  const donateCta = document.getElementById('donate-cta');
   const donateDismiss = document.getElementById('donate-dismiss');
+  const communityVkLink = document.getElementById('community-vk');
   const modeChips = Array.from(document.querySelectorAll('.mode-chip'));
 
   /** @type {{role: string, content: string}[]} */
@@ -45,6 +46,7 @@
   let streaming = false;
   let partnerShown = false;
   let donateUrl = '#donate';
+  let communityVkUrl = COMMUNITY_VK_URL_DEFAULT;
   let userTurns = 0;
   let selectedMode = 'normal';
 
@@ -571,29 +573,36 @@
   /** CloudTips pay pages accept optional ?amount= to prefill the tip. */
   function donateHrefForAmount(amount) {
     const base = donateUrl || '#donate';
-    if (base === '#donate' || base.startsWith('#')) return `#donate-${amount}`;
+    if (base === '#donate' || base.startsWith('#')) {
+      return amount ? `#donate-${amount}` : '#donate';
+    }
+    if (!amount) return base;
     return base.includes('?') ? `${base}&amount=${amount}` : `${base}?amount=${amount}`;
+  }
+
+  function applyDonateLink(anchor, amount) {
+    if (!anchor) return;
+    const base = donateUrl || '#donate';
+    const isPlaceholder = base === '#donate' || base.startsWith('#');
+    anchor.href = donateHrefForAmount(amount);
+    if (isPlaceholder) {
+      anchor.removeAttribute('target');
+      anchor.removeAttribute('rel');
+    } else {
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener noreferrer');
+    }
   }
 
   function showDonateBanner() {
     if (sessionStorage.getItem('nutrikod_donate_hide') === '1') return;
     if (userTurns < DONATE_AFTER_TURNS) return;
     if (!donateBanner.hidden) return;
-    const variant = Math.random() < 0.5 ? DONATE_VARIANTS[0] : DONATE_VARIANTS[1];
-    donateCopy.textContent = variant.copy;
+    if (donateCopy) donateCopy.textContent = DONATE_SOFT_COPY;
     donateBanner.hidden = false;
-    const base = donateUrl || '#donate';
-    const isPlaceholder = base === '#donate' || base.startsWith('#');
+    applyDonateLink(donateCta, null);
     donateBanner.querySelectorAll('.donate-btn').forEach((a) => {
-      const amount = a.getAttribute('data-amount');
-      a.href = donateHrefForAmount(amount);
-      if (isPlaceholder) {
-        a.removeAttribute('target');
-        a.removeAttribute('rel');
-      } else {
-        a.setAttribute('target', '_blank');
-        a.setAttribute('rel', 'noopener noreferrer');
-      }
+      applyDonateLink(a, a.getAttribute('data-amount'));
     });
   }
 
@@ -607,6 +616,12 @@
       const res = await fetch('/api/config');
       const data = await res.json();
       donateUrl = data.donateUrl || '#donate';
+      if (data.communityVkUrl) {
+        communityVkUrl = String(data.communityVkUrl).trim() || COMMUNITY_VK_URL_DEFAULT;
+      }
+      if (communityVkLink && communityVkUrl) {
+        communityVkLink.href = communityVkUrl;
+      }
       if (!data.hasKey) {
         /* mock mode is fine; notice comes with first stream */
       }

@@ -18,6 +18,8 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 /** Default chain after the primary model when Gemini returns 503 / UNAVAILABLE. */
 const DEFAULT_FALLBACK_MODELS = ['gemini-3.6-flash'];
 const DONATE_URL = process.env.DONATE_URL || '#donate';
+/** Single place for the VK community footer link (override via env if shortname changes). */
+const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.com/nutrikod';
 /** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
 const MAX_OUTPUT_TOKENS = Math.min(
   Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 1024),
@@ -653,6 +655,7 @@ app.get('/api/config', (_req, res) => {
     hasKey: GEMINI_KEY_SLOTS.length > 0,
     keySlotsConfigured: GEMINI_KEY_SLOTS.length,
     donateUrl: DONATE_URL,
+    communityVkUrl: COMMUNITY_VK_URL,
     brand: 'НутриКод',
     model: GEMINI_MODEL,
     modelChain: GEMINI_MODEL_CHAIN,
@@ -1313,12 +1316,12 @@ function buildSystemInstruction(mode = null, poolOrPartner = null, messages = nu
 
 Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
 DONATE_URL: ${donateUrl}
-Не вставляй голый URL доната. Если даёшь ссылку — только markdown: [Поддержать НутриКод](${donateUrl}). Иначе без ссылки: «кнопка поддержки ниже» (кнопки 50/100/150 уже в UI).`;
+Не вставляй голый URL доната. Если даёшь ссылку — только markdown: [Поддержать НутриКод](${donateUrl}). Иначе без ссылки: «кнопка поддержки ниже» (мягкая кнопка без суммы).`;
   } else {
     extra += `
 
 Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
-DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже» (кнопки 50/100/150 уже в UI), без URL.`;
+DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже» (мягкая кнопка без суммы), без URL.`;
   }
   // Accept either a pool array or a legacy single partner object.
   const pool = Array.isArray(poolOrPartner)
