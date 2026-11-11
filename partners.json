@@ -210,7 +210,7 @@
     ],
     "offer_type": "promo",
     "promo_code": "196WA72QR",
-    "promo_terms": "Скидка 300 ₽ на первый заказ от 1200 ₽, до 30.11.2026",
+    "promo_terms": "Скидка 300 ₽ на первый заказ от 1200 ₽",
     "live": true,
     "link": "https://perekrestok.prfl.me/sites/dqrm7a?erid=2Ranym6S7Nt",
     "blurb": "Доставка продуктов и готовой еды. Промокод 196WA72QR — 300 ₽ на первый заказ от 1200 ₽ (до 30.11.2026). Другие: 198RMVZPG (−750 ₽ от 1500 ₽), 19576AT6Q (−40% от 1500 ₽), 197E9EMC6 (−99% «Готовая еда» от 1000 ₽ в приложении).",
@@ -227,7 +227,29 @@
       "самара",
       "екатеринбург"
     ],
-    "geo_note": "Google Play «Перекрёсток доставка»: Москва и область, СПб, Ростов-на-Дону, Краснодар, Казань, Воронеж, НН, Самара, Екатеринбург. МО suburbs не перечислены поименно — в whitelist только названные города (без угадывания МО)."
+    "geo_note": "Google Play «Перекрёсток доставка»: Москва и область, СПб, Ростов-на-Дону, Краснодар, Казань, Воронеж, НН, Самара, Екатеринбург. МО suburbs не перечислены поименно — в whitelist только названные города (без угадывания МО).",
+    "promos": [
+      {
+        "code": "196WA72QR",
+        "terms": "Скидка 300 ₽ на первый заказ от 1200 ₽",
+        "expires": "2026-11-30"
+      },
+      {
+        "code": "198RMVZPG",
+        "terms": "Скидка 750 ₽ на заказ от 1500 ₽",
+        "expires": null
+      },
+      {
+        "code": "19576AT6Q",
+        "terms": "Скидка 40% на заказ от 1500 ₽",
+        "expires": null
+      },
+      {
+        "code": "197E9EMC6",
+        "terms": "Скидка 99% на «Готовая еда» от 1000 ₽ в приложении",
+        "expires": null
+      }
+    ]
   },
   {
     "id": "yandex-lavka",
@@ -250,7 +272,7 @@
     ],
     "offer_type": "promo",
     "promo_code": "300SOK495",
-    "promo_terms": "Скидка 300 ₽ на заказ, до 31.12.2026",
+    "promo_terms": "Скидка 300 ₽ на заказ",
     "live": true,
     "link": "https://yalavka.prfl.me/sites/k9mdkk?erid=2RanykE3YEx",
     "blurb": "Быстрая доставка продуктов. Промокод 300SOK495 — 300 ₽ (до 31.12.2026). Другие: 50SUP455 (−50%), 40ARU495 (−40%).",
@@ -278,7 +300,24 @@
       "калуга",
       "липецк"
     ],
-    "geo_note": "сборный whitelist из публичных материалов Яндекс Лавки / Retail.ru 2024–2025 (≈20 городов). Не полный API."
+    "geo_note": "сборный whitelist из публичных материалов Яндекс Лавки / Retail.ru 2024–2025 (≈20 городов). Не полный API.",
+    "promos": [
+      {
+        "code": "300SOK495",
+        "terms": "Скидка 300 ₽ на заказ",
+        "expires": "2026-12-31"
+      },
+      {
+        "code": "50SUP455",
+        "terms": "Скидка 50%",
+        "expires": null
+      },
+      {
+        "code": "40ARU495",
+        "terms": "Скидка 40%",
+        "expires": null
+      }
+    ]
   },
   {
     "id": "yobidoyobi",
@@ -303,7 +342,7 @@
     ],
     "offer_type": "promo",
     "promo_code": "IBDZB",
-    "promo_terms": "Скидка 20% на заказ, до 31.01.2027",
+    "promo_terms": "Скидка 20% на заказ",
     "live": true,
     "link": "https://yobidoyobi1.prfl.me/sites/nozpxf?erid=2RanykWN5Jc",
     "blurb": "Суши и роллы с доставкой. Промокод IBDZB — 20% до 31.01.2027. Также HPSGL до 31.01.2027.",
@@ -424,7 +463,19 @@
       "ялуторовск",
       "ярославль"
     ],
-    "geo_note": "города франшизы beboss.ru/franchise/3935/locations (+ сверка dostavka.today). Приближённо к точкам сети."
+    "geo_note": "города франшизы beboss.ru/franchise/3935/locations (+ сверка dostavka.today). Приближённо к точкам сети.",
+    "promos": [
+      {
+        "code": "IBDZB",
+        "terms": "Скидка 20% на заказ",
+        "expires": "2027-01-31"
+      },
+      {
+        "code": "HPSGL",
+        "terms": "Промокод на заказ",
+        "expires": "2027-01-31"
+      }
+    ]
   },
   {
     "id": "magnit",
@@ -447,14 +498,31 @@
     ],
     "offer_type": "promo",
     "promo_code": "25GFD95HN",
-    "promo_terms": "Скидка 31% на заказ, до 30.11.2026",
+    "promo_terms": "Скидка 31% на заказ",
     "live": true,
     "link": "https://mgntgm.prfl.me/sites/wjguzk?erid=2Ranym4yoWC",
     "blurb": "Продукты и доставка. Промокод 25GFD95HN — 31% до 30.11.2026. Также SGPF12ULLH1 (26%), «Ноябрь» до 10.11.2026.",
     "disclaimer": "Реклама. АО \"Тандер\", ИНН 2310031475. erid: 2Ranym4yoWC",
     "geo_mode": "nationwide",
     "cities": [],
-    "geo_note": "RuStore/офиц.: доставка в 100+ городах; Magnit Доставка — «во всех городах присутствия магазинов», 500+ (B2B lastmile). Полного публичного списка городов нет → nationwide с пометкой."
+    "geo_note": "RuStore/офиц.: доставка в 100+ городах; Magnit Доставка — «во всех городах присутствия магазинов», 500+ (B2B lastmile). Полного публичного списка городов нет → nationwide с пометкой.",
+    "promos": [
+      {
+        "code": "25GFD95HN",
+        "terms": "Скидка 31% на заказ",
+        "expires": "2026-11-30"
+      },
+      {
+        "code": "SGPF12ULLH1",
+        "terms": "Скидка 26% на заказ",
+        "expires": null
+      },
+      {
+        "code": "Ноябрь",
+        "terms": "Промокод «Ноябрь»",
+        "expires": "2026-11-10"
+      }
+    ]
   },
   {
     "id": "dodo-pizza",
@@ -477,7 +545,7 @@
     ],
     "offer_type": "promo",
     "promo_code": "A563Z",
-    "promo_terms": "Скидка 25% на заказ, до 30.11.2026",
+    "promo_terms": "Скидка 25% на заказ",
     "live": true,
     "link": "https://dodo1.prfl.me/sites/0bw42g?erid=2RanymnVTPr",
     "blurb": "Пицца с доставкой. Промокод A563Z — 25% до 30.11.2026. Также 6ZP9E, 8N9OS2, 81JVX.",
@@ -487,7 +555,29 @@
     ],
     "geo_mode": "nationwide",
     "cities": [],
-    "geo_note": "dodostats.ru: 500+ городов РФ с пиццериями (в т.ч. Комсомольск-на-Амуре). Полный перечень огромный → nationwide с пометкой."
+    "geo_note": "dodostats.ru: 500+ городов РФ с пиццериями (в т.ч. Комсомольск-на-Амуре). Полный перечень огромный → nationwide с пометкой.",
+    "promos": [
+      {
+        "code": "A563Z",
+        "terms": "Скидка 25% на заказ",
+        "expires": "2026-11-30"
+      },
+      {
+        "code": "6ZP9E",
+        "terms": "Доп. промокод",
+        "expires": null
+      },
+      {
+        "code": "8N9OS2",
+        "terms": "Доп. промокод",
+        "expires": null
+      },
+      {
+        "code": "81JVX",
+        "terms": "Доп. промокод",
+        "expires": null
+      }
+    ]
   },
   {
     "id": "yandex-eda",
@@ -511,14 +601,21 @@
     ],
     "offer_type": "promo",
     "promo_code": "fps856",
-    "promo_terms": "Промокод на доставку из ресторанов, до 31.12.2026",
+    "promo_terms": "Промокод на доставку из ресторанов",
     "live": true,
     "link": "https://edayandex.prfl.me/sites/d7aso4?erid=2RanyoLvhat",
     "blurb": "Доставка из ресторанов. Промокод fps856 до 31.12.2026.",
     "disclaimer": "Реклама. ООО \"ЯНДЕКС.ЕДА\", ИНН 9705114405. erid: 2RanyoLvhat",
     "geo_mode": "nationwide",
     "cities": [],
-    "geo_note": "Википедия/публичные обзоры: 186–300+ городов РФ. Агрегатор доставки → nationwide с пометкой."
+    "geo_note": "Википедия/публичные обзоры: 186–300+ городов РФ. Агрегатор доставки → nationwide с пометкой.",
+    "promos": [
+      {
+        "code": "fps856",
+        "terms": "Промокод на доставку из ресторанов",
+        "expires": "2026-12-31"
+      }
+    ]
   },
   {
     "id": "aliexpress",

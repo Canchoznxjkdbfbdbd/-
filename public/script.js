@@ -159,6 +159,23 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  /** Near the bottom of the transcript (user is following the latest lines). */
+  function isNearBottom(threshold = 72) {
+    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight <= threshold;
+  }
+
+  /** Keep the start of a streaming reply in view (first paragraph), not the growing tail. */
+  function scrollToMessageStart(wrap) {
+    if (!wrap || !messagesEl) return;
+    const parentRect = messagesEl.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    const delta = wrapRect.top - parentRect.top;
+    messagesEl.scrollTop += delta - 6;
+  }
+
+  /** While streaming: pin to bottom only if the user is (or stays) at the bottom. */
+  let streamPinBottom = false;
+
   function addMessage(role, text, opts = {}) {
     const wrap = document.createElement('div');
     wrap.className = `msg ${role}${opts.notice ? ' notice' : ''}${opts.error ? ' error' : ''}`;
@@ -317,32 +334,80 @@
     return 'Готовый вариант рядом';
   }
 
+  /** Never show expiry dates on the plaque. */
+  function stripPromoExpiryPhrase(terms) {
+    return String(terms || '')
+      .replace(/,?\s*до\s+\d{1,2}[./]\d{1,2}[./]\d{2,4}\s*$/i, '')
+      .replace(/,?\s*до\s+\d{4}-\d{2}-\d{2}\s*$/i, '')
+      .trim()
+      .replace(/[,\s—–-]+$/g, '')
+      .trim();
+  }
+
+  function promoExpiresOn(value) {
+    const raw = String(value || '').trim();
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  }
+
+  function isPromoExpired(expires) {
+    const end = promoExpiresOn(expires);
+    if (!end) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return end < today;
+  }
+
   /**
-   * Short promo conditions under the code row: min order, %/₽, deadline, first order.
-   * Prefer partners.json promo_terms; else extract from blurb (not the whole blurb).
+   * Active promos for the plaque: prefer payload.promos[], else legacy promo_code/terms,
+   * else light extract from blurb. Expired rows are dropped; terms have no dates.
    */
+  function partnerActivePromos(partner) {
+    const rows = [];
+    if (Array.isArray(partner && partner.promos)) {
+      for (const raw of partner.promos) {
+        if (!raw || typeof raw !== 'object') continue;
+        const code = String(raw.code || '').trim();
+        if (!code) continue;
+        if (isPromoExpired(raw.expires)) continue;
+        rows.push({
+          code,
+          terms: stripPromoExpiryPhrase(raw.terms || raw.promo_terms || ''),
+        });
+      }
+    }
+    if (!rows.length) {
+      const code = partner && partner.promo_code ? String(partner.promo_code).trim() : '';
+      if (code) {
+        let terms = stripPromoExpiryPhrase(
+          partner.promo_terms != null ? String(partner.promo_terms) : ''
+        );
+        if (!terms) {
+          const blurb = partnerBlurbPrimary(partner);
+          const promoPat = new RegExp(
+            `Промокод\\s+${escapeRegExp(code)}\\s*(?:[—\\-]\\s*)?(.+)$`,
+            'i'
+          );
+          const hit = blurb.match(promoPat);
+          if (hit && hit[1]) {
+            terms = stripPromoExpiryPhrase(hit[1].replace(/\.$/, '').trim());
+            if (terms.length > 120) terms = '';
+          }
+        }
+        rows.push({ code, terms });
+      }
+    }
+    return rows;
+  }
+
+  /** Short condition for the primary promo (no expiry). */
   function partnerPromoTerms(partner) {
-    const explicit = partner && partner.promo_terms != null
-      ? String(partner.promo_terms).trim()
-      : '';
-    if (explicit) return explicit;
-
-    const code = partner && partner.promo_code ? String(partner.promo_code).trim() : '';
-    if (!code) return '';
-
-    const blurb = partnerBlurbPrimary(partner);
-    const promoPat = new RegExp(
-      `Промокод\\s+${escapeRegExp(code)}\\s*(?:[—\\-]\\s*)?(.+)$`,
-      'i'
+    const active = partnerActivePromos(partner);
+    if (active[0] && active[0].terms) return active[0].terms;
+    return stripPromoExpiryPhrase(
+      partner && partner.promo_terms != null ? String(partner.promo_terms) : ''
     );
-    const hit = blurb.match(promoPat);
-    if (!hit || !hit[1]) return '';
-
-    let cond = hit[1].replace(/\.$/, '').trim().replace(/\s+/g, ' ');
-    // Skip if extraction collapsed to the whole remaining blurb-ish product lead.
-    // Human phrases are longer than «25% · дата»; keep a soft cap so we never dump the whole blurb.
-    if (!cond || cond.length > 120) return '';
-    return cond;
   }
 
   function copyPartnerPromo(code, button) {
@@ -409,35 +474,6 @@
     box.appendChild(brand);
     box.appendChild(offer);
 
-    const promoCode = partner.promo_code ? String(partner.promo_code).trim() : '';
-    if (promoCode) {
-      const row = document.createElement('div');
-      row.className = 'partner-promo-row';
-
-      const code = document.createElement('code');
-      code.className = 'partner-code';
-      code.textContent = promoCode;
-
-      const copyBtn = document.createElement('button');
-      copyBtn.type = 'button';
-      copyBtn.className = 'partner-copy';
-      copyBtn.textContent = 'Скопировать';
-      copyBtn.setAttribute('aria-label', `Скопировать промокод ${promoCode}`);
-      copyBtn.addEventListener('click', () => copyPartnerPromo(promoCode, copyBtn));
-
-      row.appendChild(code);
-      row.appendChild(copyBtn);
-      box.appendChild(row);
-    }
-
-    const termsText = partnerPromoTerms(partner);
-    if (termsText) {
-      const terms = document.createElement('p');
-      terms.className = 'partner-terms';
-      terms.textContent = termsText;
-      box.appendChild(terms);
-    }
-
     const cta = document.createElement('a');
     cta.className = 'partner-cta';
     cta.href = partner.link;
@@ -445,6 +481,81 @@
     cta.rel = 'noopener noreferrer';
     cta.textContent = 'Открыть';
     box.appendChild(cta);
+
+    const promos = partnerActivePromos(partner);
+    const primary = promos[0] || null;
+    if (primary) {
+      const row = document.createElement('div');
+      row.className = 'partner-promo-row';
+
+      const code = document.createElement('code');
+      code.className = 'partner-code';
+      code.textContent = primary.code;
+
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'partner-copy';
+      copyBtn.textContent = 'Скопировать';
+      copyBtn.setAttribute('aria-label', `Скопировать промокод ${primary.code}`);
+      copyBtn.addEventListener('click', () => copyPartnerPromo(primary.code, copyBtn));
+
+      row.appendChild(code);
+      row.appendChild(copyBtn);
+      box.appendChild(row);
+
+      const termsText = primary.terms || partnerPromoTerms(partner);
+      if (termsText) {
+        const terms = document.createElement('p');
+        terms.className = 'partner-terms';
+        terms.textContent = termsText;
+        box.appendChild(terms);
+      }
+    }
+
+    const extras = promos.slice(1);
+    if (extras.length) {
+      const details = document.createElement('details');
+      details.className = 'partner-more';
+
+      const summary = document.createElement('summary');
+      summary.className = 'partner-more-toggle';
+      summary.textContent = 'Подробнее';
+      details.appendChild(summary);
+
+      const list = document.createElement('ul');
+      list.className = 'partner-more-list';
+      for (const item of extras) {
+        const li = document.createElement('li');
+        li.className = 'partner-more-item';
+
+        const code = document.createElement('code');
+        code.className = 'partner-code partner-code-sm';
+        code.textContent = item.code;
+        li.appendChild(code);
+
+        if (item.terms) {
+          const t = document.createElement('span');
+          t.className = 'partner-more-terms';
+          t.textContent = item.terms;
+          li.appendChild(t);
+        }
+
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'partner-copy partner-copy-sm';
+        copyBtn.textContent = 'Скопировать';
+        copyBtn.setAttribute('aria-label', `Скопировать промокод ${item.code}`);
+        copyBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          copyPartnerPromo(item.code, copyBtn);
+        });
+        li.appendChild(copyBtn);
+        list.appendChild(li);
+      }
+      details.appendChild(list);
+      box.appendChild(details);
+    }
 
     if (partner.disclaimer) {
       const tip = document.createElement('p');
@@ -454,7 +565,7 @@
     }
 
     wrap.appendChild(box);
-    scrollBottom();
+    if (streamPinBottom) scrollBottom();
   }
 
   /** CloudTips pay pages accept optional ?amount= to prefill the tip. */
@@ -514,12 +625,20 @@
     /** @type {'thinking' | 'typing' | 'reply'} */
     let stage = 'thinking';
     let typingFallbackTimer = 0;
-    const allowPartner = !partnerShown && userTurns >= 2;
+    // Soft CPA: one offer per reply. Allow a new pick on later turns if the person asks for something else.
+    const allowPartner = userTurns >= 2;
 
     // Stage 1: calm “thinking” so the wait never looks like a blank chat or fake typing.
     const { wrap, bubble } = addMessage('assistant', pickStatus(THINKING_STATUS), { feedback: true });
     bubble.classList.add('typing');
     bubble.dataset.stage = 'thinking';
+
+    // Pin to bottom only if the user was already following the latest lines.
+    streamPinBottom = isNearBottom();
+    const onStreamScroll = () => {
+      streamPinBottom = isNearBottom();
+    };
+    messagesEl.addEventListener('scroll', onStreamScroll, { passive: true });
 
     const setStatus = (next, phrase) => {
       if (gotToken || stage === 'reply') return;
@@ -530,7 +649,7 @@
       bubble.dataset.stage = next;
       bubble.textContent = phrase;
       bubble.classList.add('typing');
-      scrollBottom();
+      if (streamPinBottom) scrollBottom();
     };
 
     const beginReply = () => {
@@ -545,11 +664,15 @@
       bubble.classList.remove('typing');
       // Only clear the placeholder once — never wipe accumulated tokens later.
       bubble.textContent = '';
+      // Stay on the first paragraph while tokens arrive; do not chase the growing tail.
+      // Pin-to-bottom resumes only if the user themselves scrolls to the bottom.
+      scrollToMessageStart(wrap);
+      streamPinBottom = false;
     };
 
     const paint = () => {
       fillAssistantBubble(bubble, full);
-      scrollBottom();
+      if (streamPinBottom) scrollBottom();
     };
 
     // If the server is slow to signal “typing”, still advance the stage locally.
@@ -682,6 +805,8 @@
         paint();
       }
     } finally {
+      messagesEl.removeEventListener('scroll', onStreamScroll);
+      streamPinBottom = false;
       if (typingFallbackTimer) {
         clearTimeout(typingFallbackTimer);
         typingFallbackTimer = 0;
