@@ -77,15 +77,18 @@
         </div>
 
         <form id="composer" class="composer" autocomplete="off">
-          <label class="sr-only" for="input">Сообщение</label>
-          <textarea
-            id="input"
-            name="message"
-            rows="1"
-            maxlength="4000"
-            placeholder="Расскажите о питании, аллергиях, цели…"
-            required
-          ></textarea>
+          <div class="composer-field">
+            <label class="sr-only" for="input">Сообщение</label>
+            <textarea
+              id="input"
+              name="message"
+              rows="1"
+              maxlength="2000"
+              placeholder="Расскажите о питании, аллергиях, цели…"
+              required
+            ></textarea>
+            <p id="composer-hint" class="composer-hint" hidden aria-live="polite"></p>
+          </div>
           <button type="submit" id="send" class="send" aria-label="Отправить">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
               <path

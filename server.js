@@ -26,6 +26,15 @@ const MAX_OUTPUT_TOKENS = Math.min(
   8192
 );
 const MAX_CONTINUES = 2;
+/**
+ * Hard cap for one user chat message (JS string .length — UTF-16 code units).
+ * Rejected before Gemini; admin/prompt editors are not covered by this limit.
+ */
+const MAX_USER_MESSAGE_CHARS = Math.min(
+  Math.max(Number(process.env.MAX_USER_MESSAGE_CHARS) || 2000, 200),
+  20000
+);
+const USER_MESSAGE_TOO_LONG_TEXT = `Сообщение слишком длинное — сократите до ${MAX_USER_MESSAGE_CHARS} символов и отправьте снова.`;
 /** Retries per model on overload before switching to the next fallback. */
 const OVERLOAD_RETRIES = Math.min(
   Math.max(Number(process.env.GEMINI_OVERLOAD_RETRIES) || 2, 0),
@@ -659,6 +668,7 @@ app.get('/api/config', (_req, res) => {
     brand: 'НутриКод',
     model: GEMINI_MODEL,
     modelChain: GEMINI_MODEL_CHAIN,
+    maxUserMessageChars: MAX_USER_MESSAGE_CHARS,
     modes: MODE_IDS.map((id) => ({ id, label: CHAT_MODES[id].label })),
   });
 });
@@ -1656,6 +1666,19 @@ async function streamMock(res, partner) {
 app.post('/api/chat', chatLimiter, async (req, res) => {
   const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const allowPartner = Boolean(req.body?.allowPartner);
+
+  // Hard reject oversized newest user turn before SSE / Gemini (history context still slice-capped separately).
+  const newestUserText = lastUserText(messages);
+  if (newestUserText.length > MAX_USER_MESSAGE_CHARS) {
+    res.status(413).json({
+      type: 'error',
+      text: USER_MESSAGE_TOO_LONG_TEXT,
+      maxUserMessageChars: MAX_USER_MESSAGE_CHARS,
+      length: newestUserText.length,
+    });
+    return;
+  }
+
   const mode = resolveChatMode(req.body?.mode, messages);
   const partnerPool = collectPartnerPool(messages, { allowPartner });
   // Mock / no-key path still needs a single heuristic card from the city pool.
@@ -1893,6 +1916,9 @@ module.exports = {
   PARTNER_MARK_RE,
   WIDE_DEFAULT_IDS,
   OVERLOAD_USER_MESSAGE,
+  MAX_USER_MESSAGE_CHARS,
+  USER_MESSAGE_TOO_LONG_TEXT,
+  lastUserText,
   GEMINI_MODEL,
   GEMINI_MODEL_CHAIN,
   DEFAULT_FALLBACK_MODELS,

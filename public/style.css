@@ -680,9 +680,16 @@ body {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.55rem;
+  align-items: end;
   padding: 0.75rem;
   border-top: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.55);
+}
+
+.composer-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
 }
 
 .composer textarea {
@@ -696,11 +703,25 @@ body {
   min-height: 48px;
   max-height: 140px;
   outline: none;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .composer textarea:focus {
   border-color: rgba(31, 107, 79, 0.45);
   box-shadow: 0 0 0 3px rgba(31, 107, 79, 0.12);
+}
+
+.composer-hint {
+  margin: 0;
+  padding: 0 0.15rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+
+.composer-hint.warn {
+  color: var(--danger-soft);
 }
 
 .send {

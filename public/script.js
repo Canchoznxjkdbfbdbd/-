@@ -8,6 +8,12 @@
   /** Show quiet donate strip only after this many user messages. */
   const DONATE_AFTER_TURNS = 3;
 
+  /**
+   * One user message cap — JS string .length (same as server MAX_USER_MESSAGE_CHARS).
+   * Synced from /api/config when available; maxlength attribute stays in lockstep.
+   */
+  let maxUserMessageChars = 2000;
+
   /** Calm Russian wait stages — rotate short variants so it doesn’t feel canned. */
   const THINKING_STATUS = ['Думает…', 'Что-то прикидывает…', 'Собирает мысли…'];
   const TYPING_STATUS = ['Печатает…', 'Набирает ответ…', 'Подбирает слова…'];
@@ -32,6 +38,7 @@
   const messagesEl = document.getElementById('messages');
   const form = document.getElementById('composer');
   const input = document.getElementById('input');
+  const composerHint = document.getElementById('composer-hint');
   const sendBtn = document.getElementById('send');
   const clearChatBtn = document.getElementById('clear-chat');
   const donateBanner = document.getElementById('donate-banner');
@@ -40,6 +47,37 @@
   const donateDismiss = document.getElementById('donate-dismiss');
   const communityVkLink = document.getElementById('community-vk');
   const modeChips = Array.from(document.querySelectorAll('.mode-chip'));
+
+  function tooLongMessageText(limit = maxUserMessageChars) {
+    return `Сообщение слишком длинное — сократите до ${limit} символов и отправьте снова.`;
+  }
+
+  function syncComposerLimit() {
+    if (!input) return;
+    input.setAttribute('maxlength', String(maxUserMessageChars));
+    updateComposerHint();
+  }
+
+  function updateComposerHint() {
+    if (!composerHint || !input) return;
+    const len = input.value.length;
+    const limit = maxUserMessageChars;
+    if (len >= limit) {
+      composerHint.hidden = false;
+      composerHint.classList.add('warn');
+      composerHint.textContent = tooLongMessageText(limit);
+      return;
+    }
+    if (len >= Math.floor(limit * 0.9)) {
+      composerHint.hidden = false;
+      composerHint.classList.remove('warn');
+      composerHint.textContent = `${len} из ${limit} символов`;
+      return;
+    }
+    composerHint.hidden = true;
+    composerHint.classList.remove('warn');
+    composerHint.textContent = '';
+  }
 
   /** @type {{role: string, content: string}[]} */
   let history = [];
@@ -622,10 +660,16 @@
       if (communityVkLink && communityVkUrl) {
         communityVkLink.href = communityVkUrl;
       }
+      const cfgLimit = Number(data.maxUserMessageChars);
+      if (Number.isFinite(cfgLimit) && cfgLimit >= 200) {
+        maxUserMessageChars = Math.floor(cfgLimit);
+      }
+      syncComposerLimit();
       if (!data.hasKey) {
         /* mock mode is fine; notice comes with first stream */
       }
     } catch {
+      syncComposerLimit();
       /* offline demo still works after server up */
     }
   }
@@ -779,7 +823,20 @@
           typingFallbackTimer = 0;
         }
         bubble.classList.remove('typing');
-        bubble.textContent = 'Ответ пока не пришёл. Можно повторить через минуту.';
+        let errText = 'Ответ пока не пришёл. Можно повторить через минуту.';
+        if (res.status === 413 || res.status === 400) {
+          try {
+            const errBody = await res.json();
+            if (errBody && typeof errBody.text === 'string' && errBody.text.trim()) {
+              errText = errBody.text.trim();
+            } else {
+              errText = tooLongMessageText();
+            }
+          } catch {
+            errText = tooLongMessageText();
+          }
+        }
+        bubble.textContent = errText;
         wrap.classList.add('error');
         return;
       }
@@ -840,6 +897,15 @@
     if (streaming) return;
     const text = input.value.trim();
     if (!text) return;
+    if (text.length > maxUserMessageChars) {
+      updateComposerHint();
+      if (composerHint) {
+        composerHint.hidden = false;
+        composerHint.classList.add('warn');
+        composerHint.textContent = tooLongMessageText();
+      }
+      return;
+    }
 
     addMessage('user', text);
     history.push({ role: 'user', content: text });
@@ -847,6 +913,7 @@
     persistChat();
     input.value = '';
     autoGrow();
+    updateComposerHint();
     await streamReply();
   });
 
@@ -868,13 +935,17 @@
     setClearArmed(false);
   });
 
-  input.addEventListener('input', autoGrow);
+  input.addEventListener('input', () => {
+    autoGrow();
+    updateComposerHint();
+  });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       form.requestSubmit();
     }
   });
+  syncComposerLimit();
 
   async function boot() {
     await loadConfig();
