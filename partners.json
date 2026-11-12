@@ -651,5 +651,38 @@
     "geo_mode": "nationwide",
     "cities": [],
     "geo_note": "Всероссийский онлайн-магазин AliExpress; доставка по РФ. Не локальная доставка еды → nationwide / все города, без узкого whitelist."
+  },
+  {
+    "id": "vkusvill",
+    "name": "ВкусВилл",
+    "geo": [
+      "Россия",
+      "онлайн"
+    ],
+    "coverage": "wide",
+    "geo_deny": [],
+    "tags": [
+      "вкусвилл",
+      "vkusvill",
+      "grocery",
+      "продукты",
+      "супермаркет",
+      "доставка",
+      "здоровая еда",
+      "заказать",
+      "нет времени",
+      "готовое",
+      "магазин"
+    ],
+    "offer_type": "promo",
+    "promo_code": null,
+    "promo_terms": "Партнёрская ссылка",
+    "live": true,
+    "link": "https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx",
+    "blurb": "Продукты и доставка: супермаркет здоровой еды ВкусВилл.",
+    "disclaimer": "Реклама. erid: 2bL9aMPo2e49hMef4phUrdrQCx. Партнёрская ссылка Admitad.",
+    "geo_mode": "nationwide",
+    "cities": [],
+    "geo_note": "Сеть ВкусВилл / доставка через приложение; полного стабильного публичного whitelist городов нет → nationwide с пометкой (как Магнит). Не вакансии."
   }
 ]
