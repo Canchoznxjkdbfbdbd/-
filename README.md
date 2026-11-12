@@ -68,8 +68,10 @@ npm start
 | `GEMINI_MODEL`               | основная модель, по умолчанию `gemini-3.5-flash-lite`                    |
 | `GEMINI_FALLBACK_MODELS`     | запасные модели через запятую (по умолчанию `gemini-3.6-flash`)          |
 | `GEMINI_MODEL_CHAIN`         | полная цепочка моделей через запятую (если задана — перекрывает два поля выше) |
-| `GEMINI_OVERLOAD_RETRIES`    | повторы на каждую модель при 503, по умолчанию `2`                       |
-| `GEMINI_OVERLOAD_BACKOFF_MS` | стартовая пауза перед повтором (мс), по умолчанию `800`                  |
+| `GEMINI_OVERLOAD_RETRIES`    | повторы на каждую модель при 503, по умолчанию `1`                       |
+| `GEMINI_OVERLOAD_BACKOFF_MS` | стартовая пауза перед повтором (мс), по умолчанию `500`                  |
+| `GEMINI_FETCH_TIMEOUT_MS`    | таймаут открытия stream к Gemini, по умолчанию `35000`                   |
+| `SSE_HEARTBEAT_MS`           | keepalive SSE на время ожидания первого токена, по умолчанию `1500`      |
 | `GEMINI_MAX_OUTPUT_TOKENS`   | длина ответа, по умолчанию `8192`                                        |
 | `PORT`                       | порт, по умолчанию `3000`                                                |
 | `DONATE_URL`                 | ссылка на оплату доната (заглушка `#donate`)                             |

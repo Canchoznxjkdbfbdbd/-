@@ -26,9 +26,22 @@
     return list[Math.floor(Math.random() * list.length)];
   }
 
+  const WAIT_STATUS_EXTRA = [
+    'Ещё думаю…',
+    'Модель отвечает дольше обычного…',
+    'Модель отвечает дольше обычного — почти готово…',
+    'Почти готово, ещё чуть-чуть…',
+    'Думает…',
+    'Печатает…',
+  ];
+
   function isStatusPhrase(text) {
     const t = String(text || '');
-    return THINKING_STATUS.includes(t) || TYPING_STATUS.includes(t);
+    return (
+      THINKING_STATUS.includes(t) ||
+      TYPING_STATUS.includes(t) ||
+      WAIT_STATUS_EXTRA.includes(t)
+    );
   }
 
   const MODE_STORAGE_KEY = 'nutrikod_mode';
@@ -701,9 +714,16 @@
 
     const setStatus = (next, phrase) => {
       if (gotToken || stage === 'reply') return;
-      // Only advance (or keep) — never flicker a new random phrase for the same stage.
-      if (next === 'thinking' && stage !== 'thinking') return;
-      if (stage === next) return;
+      // Never go backwards from typing → thinking.
+      if (next === 'thinking' && stage === 'typing') return;
+      // Same stage: refresh progressive / heartbeat copy without flicker of stage.
+      if (stage === next) {
+        if (phrase && bubble.textContent !== phrase) {
+          bubble.textContent = phrase;
+          if (streamPinBottom) scrollBottom();
+        }
+        return;
+      }
       stage = next;
       bubble.dataset.stage = next;
       bubble.textContent = phrase;
@@ -711,15 +731,22 @@
       if (streamPinBottom) scrollBottom();
     };
 
+    const waitTimers = [];
+    const clearWaitTimers = () => {
+      for (const id of waitTimers) clearTimeout(id);
+      waitTimers.length = 0;
+      if (typingFallbackTimer) {
+        clearTimeout(typingFallbackTimer);
+        typingFallbackTimer = 0;
+      }
+    };
+
     const beginReply = () => {
       if (gotToken) return;
       gotToken = true;
       stage = 'reply';
       bubble.dataset.stage = 'reply';
-      if (typingFallbackTimer) {
-        clearTimeout(typingFallbackTimer);
-        typingFallbackTimer = 0;
-      }
+      clearWaitTimers();
       bubble.classList.remove('typing');
       // Only clear the placeholder once — never wipe accumulated tokens later.
       bubble.textContent = '';
@@ -734,10 +761,22 @@
       if (streamPinBottom) scrollBottom();
     };
 
-    // If the server is slow to signal “typing”, still advance the stage locally.
+    // Progressive local copy while Gemini TTFB is slow — do NOT fake «печатает» early.
+    for (const hint of [
+      { at: 3500, text: 'Ещё думаю…' },
+      { at: 8000, text: 'Модель отвечает дольше обычного…' },
+      { at: 16000, text: 'Почти готово, ещё чуть-чуть…' },
+    ]) {
+      waitTimers.push(
+        window.setTimeout(() => {
+          if (!gotToken) setStatus('thinking', hint.text);
+        }, hint.at)
+      );
+    }
+    // Only as a last resort if the server never signals typing/tokens.
     typingFallbackTimer = window.setTimeout(() => {
       setStatus('typing', pickStatus(TYPING_STATUS));
-    }, 1400);
+    }, 22000);
 
     const handlePayload = (payload) => {
       if (!payload || typeof payload !== 'object') return;
@@ -745,10 +784,7 @@
         if (payload.stage === 'thinking') {
           setStatus('thinking', payload.text || pickStatus(THINKING_STATUS));
         } else if (payload.stage === 'typing') {
-          if (typingFallbackTimer) {
-            clearTimeout(typingFallbackTimer);
-            typingFallbackTimer = 0;
-          }
+          clearWaitTimers();
           setStatus('typing', payload.text || pickStatus(TYPING_STATUS));
         }
       } else if (payload.type === 'notice') {
@@ -760,6 +796,7 @@
       } else if (payload.type === 'token') {
         // Ignore empty token frames so we never clear the status into a blank bubble.
         if (!payload.text) return;
+        clearWaitTimers();
         beginReply();
         full += payload.text;
         paint();
@@ -768,10 +805,7 @@
         partnerShown = true;
         attachPartner(wrap, payload.partner);
       } else if (payload.type === 'error') {
-        if (typingFallbackTimer) {
-          clearTimeout(typingFallbackTimer);
-          typingFallbackTimer = 0;
-        }
+        clearWaitTimers();
         bubble.classList.remove('typing');
         if (!full) {
           bubble.textContent = payload.text || 'Ответ пока не пришёл. Можно повторить через минуту.';
@@ -879,10 +913,7 @@
     } finally {
       messagesEl.removeEventListener('scroll', onStreamScroll);
       streamPinBottom = false;
-      if (typingFallbackTimer) {
-        clearTimeout(typingFallbackTimer);
-        typingFallbackTimer = 0;
-      }
+      clearWaitTimers();
       bubble.classList.remove('typing');
       streaming = false;
       sendBtn.disabled = false;

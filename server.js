@@ -35,14 +35,30 @@ const MAX_USER_MESSAGE_CHARS = Math.min(
   20000
 );
 const USER_MESSAGE_TOO_LONG_TEXT = `Сообщение слишком длинное — сократите до ${MAX_USER_MESSAGE_CHARS} символов и отправьте снова.`;
-/** Retries per model on overload before switching to the next fallback. */
+/**
+ * Retries per model on overload before switching to the next fallback.
+ * Default 1 (2 attempts total) — fewer than 2 keeps TTFB lower when Gemini is hot.
+ */
 const OVERLOAD_RETRIES = Math.min(
-  Math.max(Number(process.env.GEMINI_OVERLOAD_RETRIES) || 2, 0),
+  Math.max(Number(process.env.GEMINI_OVERLOAD_RETRIES) || 1, 0),
   5
 );
 const OVERLOAD_BACKOFF_MS = Math.min(
-  Math.max(Number(process.env.GEMINI_OVERLOAD_BACKOFF_MS) || 800, 200),
+  Math.max(Number(process.env.GEMINI_OVERLOAD_BACKOFF_MS) || 500, 200),
   8000
+);
+/**
+ * Hard timeout for opening the Gemini upstream (connect + headers / first byte).
+ * Prevents infinite «думает» when the API proxy hangs.
+ */
+const GEMINI_FETCH_TIMEOUT_MS = Math.min(
+  Math.max(Number(process.env.GEMINI_FETCH_TIMEOUT_MS) || 35000, 5000),
+  120000
+);
+/** SSE keepalive while waiting for Gemini so proxies/clients don’t stall on silence. */
+const SSE_HEARTBEAT_MS = Math.min(
+  Math.max(Number(process.env.SSE_HEARTBEAT_MS) || 1500, 500),
+  10000
 );
 
 /**
@@ -1189,17 +1205,10 @@ function partnerExcludeIds(partner) {
     .filter(Boolean);
 }
 
-/** Full pool row for Gemini (link + promo + disclaimer + exclusives). */
+/** Compact pool row for Gemini (skip tags / long promo lists — keeps TTFB down). */
 function partnerPoolRow(partner) {
   const payload = partnerPayload(partner);
   const excludes = partnerExcludeIds(partner);
-  const extra =
-    Array.isArray(payload.promos) && payload.promos.length > 1
-      ? payload.promos
-          .slice(1)
-          .map((p) => `${p.code}${p.terms ? ` (${p.terms})` : ''}`)
-          .join('; ')
-      : '';
   return [
     `- id: ${payload.id}`,
     `  name: ${payload.name}`,
@@ -1207,11 +1216,9 @@ function partnerPoolRow(partner) {
     `  link: ${payload.link}`,
     `  promo_code: ${payload.promo_code || ''}`,
     `  promo_terms: ${payload.promo_terms || ''}`,
-    extra ? `  other_promos: ${extra}` : null,
     `  offer_type: ${payload.offer_type || 'affiliate'}`,
     `  disclaimer: ${payload.disclaimer || ''}`,
     `  exclude_partners: ${excludes.length ? excludes.join(', ') : '—'}`,
-    `  tags: ${(partner.tags || []).join(', ')}`,
   ]
     .filter(Boolean)
     .join('\n');
@@ -1416,7 +1423,7 @@ function summarizeGeminiError(status, rawBody, model = GEMINI_MODEL) {
  * @param {{ id: number, key: string }} keySlot
  * @returns {Promise<{ upstream: Response, model: string, keyId: number } | { errorText: string, status: number, model: string, keyId: number, failoverWorthy: boolean }>}
  */
-async function openGeminiStreamWithKey(body, models, keySlot) {
+async function openGeminiStreamWithKey(body, models, keySlot, { signal } = {}) {
   const chain = models.length ? models : GEMINI_MODEL_CHAIN;
   const apiKey = keySlot.key;
   const keyId = keySlot.id;
@@ -1433,34 +1440,64 @@ async function openGeminiStreamWithKey(body, models, keySlot) {
     const attempts = OVERLOAD_RETRIES + 1;
 
     for (let attempt = 0; attempt < attempts; attempt++) {
-      console.info(
-        `[gemini] request key=${keyId} model=${model} attempt=${attempt + 1}/${attempts} chain=${modelIndex + 1}/${chain.length}`
-      );
-
-      let upstream;
-      try {
-        upstream = await fetch(geminiStreamUrl(model, apiKey), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-      } catch (err) {
-        console.error(
-          `[gemini] fetch failed key=${keyId} model=${model}`,
-          redactSecrets(err?.message || String(err))
-        );
+      if (signal?.aborted) {
         lastFailure = {
           errorText: 'Связь прервалась. Проверьте сеть и напишите снова.',
           status: 0,
           model,
           keyId,
+          failoverWorthy: false,
+        };
+        return lastFailure;
+      }
+
+      console.info(
+        `[gemini] request key=${keyId} model=${model} attempt=${attempt + 1}/${attempts} chain=${modelIndex + 1}/${chain.length}`
+      );
+
+      let upstream;
+      const attemptCtrl = new AbortController();
+      const onAbort = () => attemptCtrl.abort();
+      if (signal) {
+        if (signal.aborted) {
+          attemptCtrl.abort();
+        } else {
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+      }
+      const timeoutId = setTimeout(() => attemptCtrl.abort(), GEMINI_FETCH_TIMEOUT_MS);
+      try {
+        upstream = await fetch(geminiStreamUrl(model, apiKey), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: attemptCtrl.signal,
+        });
+      } catch (err) {
+        const aborted = attemptCtrl.signal.aborted || signal?.aborted;
+        const timedOut = aborted && !signal?.aborted;
+        console.error(
+          `[gemini] fetch failed key=${keyId} model=${model}${timedOut ? ' timeout' : ''}`,
+          redactSecrets(err?.message || String(err))
+        );
+        lastFailure = {
+          errorText: timedOut
+            ? 'Модель отвечает слишком долго. Напишите ещё раз — обычно со второго раза быстрее.'
+            : 'Связь прервалась. Проверьте сеть и напишите снова.',
+          status: 0,
+          model,
+          keyId,
           failoverWorthy: true,
         };
+        if (signal?.aborted) return lastFailure;
         if (attempt < attempts - 1) {
           await sleep(OVERLOAD_BACKOFF_MS * Math.pow(2, attempt));
           continue;
         }
         break;
+      } finally {
+        clearTimeout(timeoutId);
+        if (signal) signal.removeEventListener('abort', onAbort);
       }
 
       if (upstream.ok) {
@@ -1517,7 +1554,7 @@ async function openGeminiStreamWithKey(body, models, keySlot) {
  * @param {object} body request JSON
  * @param {string[]} [models] override chain
  */
-async function openGeminiStream(body, models = GEMINI_MODEL_CHAIN) {
+async function openGeminiStream(body, models = GEMINI_MODEL_CHAIN, { signal } = {}) {
   const slots = orderedGeminiKeySlots();
   if (!slots.length) {
     return {
@@ -1532,7 +1569,7 @@ async function openGeminiStream(body, models = GEMINI_MODEL_CHAIN) {
   let lastFailure = null;
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i];
-    const result = await openGeminiStreamWithKey(body, models, slot);
+    const result = await openGeminiStreamWithKey(body, models, slot, { signal });
     if (result?.upstream) {
       if (activeGeminiKeyId !== slot.id) {
         console.info(`[gemini] primary key switched ${activeGeminiKeyId || 'n/a'} → ${slot.id}`);
@@ -1541,6 +1578,7 @@ async function openGeminiStream(body, models = GEMINI_MODEL_CHAIN) {
       return result;
     }
     lastFailure = result;
+    if (signal?.aborted) break;
     const canFailover =
       i === 0 &&
       slots.length > 1 &&
@@ -1571,6 +1609,35 @@ const MOCK_REPLY =
 function writeEvent(res, obj) {
   res.write(`data: ${JSON.stringify(obj)}\n\n`);
   if (typeof res.flush === 'function') res.flush();
+}
+
+/** SSE comment frame — keeps the pipe warm without changing UI state. */
+function writeSseComment(res, comment = 'ping') {
+  res.write(`: ${comment}\n\n`);
+  if (typeof res.flush === 'function') res.flush();
+}
+
+/**
+ * Heartbeat while Gemini open/read is blocked: comment + occasional thinking status.
+ * Stops when the returned disposer runs (first token / error / done).
+ */
+function startSseHeartbeat(res, { onTick } = {}) {
+  let ticks = 0;
+  const timer = setInterval(() => {
+    if (res.writableEnded || res.destroyed) {
+      clearInterval(timer);
+      return;
+    }
+    ticks += 1;
+    try {
+      writeSseComment(res, `hb-${ticks}`);
+      if (typeof onTick === 'function') onTick(ticks);
+    } catch {
+      clearInterval(timer);
+    }
+  }, SSE_HEARTBEAT_MS);
+  if (typeof timer.unref === 'function') timer.unref();
+  return () => clearInterval(timer);
 }
 
 /**
@@ -1692,6 +1759,15 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
   if (res.socket) res.socket.setNoDelay(true);
   res.flushHeaders?.();
 
+  const chatStartedAt = Date.now();
+  let firstTokenAt = 0;
+  const abortGemini = new AbortController();
+  const onClientGone = () => {
+    if (!abortGemini.signal.aborted) abortGemini.abort();
+  };
+  req.on('close', onClientGone);
+  req.on('aborted', onClientGone);
+
   // Tell the client which mode actually applied (explicit or quiet auto-detect).
   writeEvent(res, { type: 'mode', mode: { id: mode.id, label: mode.label, source: mode.source } });
 
@@ -1701,10 +1777,29 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       text: 'Ключ GEMINI_API_KEY не задан — показываю демо-ответ, чтобы можно было оценить интерфейс.',
     });
     await streamMock(res, mockPartner);
+    req.off('close', onClientGone);
+    req.off('aborted', onClientGone);
     return;
   }
 
-  writeEvent(res, { type: 'status', stage: 'thinking' });
+  writeEvent(res, { type: 'status', stage: 'thinking', text: 'Думает…' });
+  // Kick the socket immediately so «думает» is not stuck behind Gemini TTFB.
+  writeSseComment(res, 'open');
+
+  const stopHeartbeat = startSseHeartbeat(res, {
+    onTick: (ticks) => {
+      if (firstTokenAt) return;
+      if (ticks === 3) {
+        writeEvent(res, { type: 'status', stage: 'thinking', text: 'Ещё думаю…' });
+      } else if (ticks === 7) {
+        writeEvent(res, {
+          type: 'status',
+          stage: 'thinking',
+          text: 'Модель отвечает дольше обычного — почти готово…',
+        });
+      }
+    },
+  });
 
   const systemInstruction = {
     parts: [{ text: buildSystemInstruction(mode, partnerPool, messages) }],
@@ -1730,6 +1825,8 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     let activeModel = GEMINI_MODEL;
 
     for (let attempt = 0; attempt <= MAX_CONTINUES; attempt++) {
+      if (abortGemini.signal.aborted) break;
+
       const requestBody = {
         system_instruction: systemInstruction,
         contents,
@@ -1739,10 +1836,16 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       // First segment: full retry + fallback chain. Continues stick to the model that worked.
       const opened = await openGeminiStream(
         requestBody,
-        attempt === 0 ? GEMINI_MODEL_CHAIN : [activeModel]
+        attempt === 0 ? GEMINI_MODEL_CHAIN : [activeModel],
+        { signal: abortGemini.signal }
       );
 
       if (!opened?.upstream) {
+        stopHeartbeat();
+        if (abortGemini.signal.aborted) {
+          res.end();
+          return;
+        }
         const failStatus = opened?.status || 0;
         const kind = classifyGeminiFailure(failStatus, '', opened?.errorText || '');
         void recordChatError(kind, defaultWarningMessage(kind));
@@ -1758,16 +1861,24 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       activeModel = opened.model;
 
       if (!signaledTyping) {
-        writeEvent(res, { type: 'status', stage: 'typing' });
+        writeEvent(res, { type: 'status', stage: 'typing', text: 'Печатает…' });
         signaledTyping = true;
       }
 
       let segment;
       try {
         segment = await readGeminiSse(opened.upstream.body, (text) => {
+          if (!firstTokenAt) {
+            firstTokenAt = Date.now();
+            stopHeartbeat();
+            console.info(
+              `[gemini] ttfb_ms=${firstTokenAt - chatStartedAt} model=${activeModel} key=${opened.keyId || 'n/a'}`
+            );
+          }
           writeEvent(res, { type: 'token', text });
         });
       } catch (err) {
+        stopHeartbeat();
         if (err?.geminiError) {
           const statusNum = Number(err.geminiError.code) || 500;
           const kind = classifyGeminiFailure(
@@ -1781,6 +1892,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
             JSON.stringify({ error: err.geminiError }),
             activeModel
           );
+          // Keep any partial text already streamed; still close cleanly.
           writeEvent(res, { type: 'error', text: calm });
           writeEvent(res, { type: 'done', finishReason: 'ERROR' });
           res.end();
@@ -1815,13 +1927,20 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       ];
     }
 
+    stopHeartbeat();
+
+    if (abortGemini.signal.aborted) {
+      res.end();
+      return;
+    }
+
     const selected = resolveSelectedPartner(assembled, partnerPool);
     if (selected) {
       writeEvent(res, { type: 'partner', partner: partnerPayload(selected) });
     }
 
     console.info(
-      `[gemini] done model=${activeModel} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length} selected=${selected ? selected.id : 'none'}`
+      `[gemini] done model=${activeModel} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length} selected=${selected ? selected.id : 'none'} ttfb_ms=${firstTokenAt ? firstTokenAt - chatStartedAt : -1} total_ms=${Date.now() - chatStartedAt}`
     );
     if (assembled.length > 0 && finishReason !== 'ERROR') {
       void recordChatSuccess();
@@ -1836,14 +1955,20 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     });
     res.end();
   } catch (err) {
+    stopHeartbeat();
     console.error('[gemini] stream failed', redactSecrets(err?.message || String(err)));
     void recordChatError('outage', defaultWarningMessage('outage'));
-    writeEvent(res, {
-      type: 'error',
-      text: 'Связь прервалась. Проверьте сеть и напишите снова.',
-    });
-    writeEvent(res, { type: 'done' });
+    if (!abortGemini.signal.aborted) {
+      writeEvent(res, {
+        type: 'error',
+        text: 'Связь прервалась. Проверьте сеть и напишите снова.',
+      });
+      writeEvent(res, { type: 'done' });
+    }
     res.end();
+  } finally {
+    req.off('close', onClientGone);
+    req.off('aborted', onClientGone);
   }
 });
 
