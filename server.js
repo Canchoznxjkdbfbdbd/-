@@ -37,24 +37,26 @@ const MAX_USER_MESSAGE_CHARS = Math.min(
 const USER_MESSAGE_TOO_LONG_TEXT = `Сообщение слишком длинное — сократите до ${MAX_USER_MESSAGE_CHARS} символов и отправьте снова.`;
 /**
  * Retries per model on overload before switching to the next fallback.
- * Default 1 (2 attempts total) — fewer than 2 keeps TTFB lower when Gemini is hot.
+ * Prefer stability over raw TTFB — default 2 (3 attempts) again after #15 regression.
  */
 const OVERLOAD_RETRIES = Math.min(
-  Math.max(Number(process.env.GEMINI_OVERLOAD_RETRIES) || 1, 0),
+  Math.max(Number(process.env.GEMINI_OVERLOAD_RETRIES) || 2, 0),
   5
 );
 const OVERLOAD_BACKOFF_MS = Math.min(
-  Math.max(Number(process.env.GEMINI_OVERLOAD_BACKOFF_MS) || 500, 200),
+  Math.max(Number(process.env.GEMINI_OVERLOAD_BACKOFF_MS) || 800, 200),
   8000
 );
 /**
- * Hard timeout for opening the Gemini upstream (connect + headers / first byte).
- * Prevents infinite «думает» when the API proxy hangs.
+ * Hard timeout for opening the Gemini upstream (connect + headers / first byte only).
+ * Does NOT cancel an already-streaming body. Raised after #15 false cutoffs.
  */
 const GEMINI_FETCH_TIMEOUT_MS = Math.min(
-  Math.max(Number(process.env.GEMINI_FETCH_TIMEOUT_MS) || 35000, 5000),
-  120000
+  Math.max(Number(process.env.GEMINI_FETCH_TIMEOUT_MS) || 90000, 15000),
+  180000
 );
+const INCOMPLETE_ANSWER_NOTICE =
+  'Ответ оборвался на середине — это не полный текст. Напишите «продолжи» или повторите вопрос.';
 /** SSE keepalive while waiting for Gemini so proxies/clients don’t stall on silence. */
 const SSE_HEARTBEAT_MS = Math.min(
   Math.max(Number(process.env.SSE_HEARTBEAT_MS) || 1500, 500),
@@ -1666,6 +1668,14 @@ async function readGeminiSse(upstreamBody, onText) {
   let finishReason = '';
   let assembled = '';
 
+  const attachPartial = (err) => {
+    if (!err || typeof err !== 'object') return err;
+    err.partialText = assembled;
+    err.partialTokenCount = tokenCount;
+    err.partialFinishReason = finishReason;
+    return err;
+  };
+
   const handleDataLine = (trimmed) => {
     if (!trimmed.startsWith('data:')) return;
     const payload = trimmed.slice(5).trim();
@@ -1676,7 +1686,7 @@ async function readGeminiSse(upstreamBody, onText) {
       return;
     }
     if (parsed.error) {
-      const err = new Error('gemini_upstream_error');
+      const err = attachPartial(new Error('gemini_upstream_error'));
       err.geminiError = parsed.error;
       throw err;
     }
@@ -1700,14 +1710,23 @@ async function readGeminiSse(upstreamBody, onText) {
     }
   };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    drain(false);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      drain(false);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) drain(true);
+  } catch (err) {
+    try {
+      reader.cancel().catch(() => {});
+    } catch {
+      /* ignore */
+    }
+    throw attachPartial(err);
   }
-  buffer += decoder.decode();
-  if (buffer.trim()) drain(true);
 
   return { tokenCount, finishReason, text: assembled };
 }
@@ -1761,12 +1780,6 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 
   const chatStartedAt = Date.now();
   let firstTokenAt = 0;
-  const abortGemini = new AbortController();
-  const onClientGone = () => {
-    if (!abortGemini.signal.aborted) abortGemini.abort();
-  };
-  req.on('close', onClientGone);
-  req.on('aborted', onClientGone);
 
   // Tell the client which mode actually applied (explicit or quiet auto-detect).
   writeEvent(res, { type: 'mode', mode: { id: mode.id, label: mode.label, source: mode.source } });
@@ -1777,8 +1790,6 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       text: 'Ключ GEMINI_API_KEY не задан — показываю демо-ответ, чтобы можно было оценить интерфейс.',
     });
     await streamMock(res, mockPartner);
-    req.off('close', onClientGone);
-    req.off('aborted', onClientGone);
     return;
   }
 
@@ -1810,6 +1821,19 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     maxOutputTokens: MAX_OUTPUT_TOKENS,
   };
 
+  const buildContinueContents = (soFar) => [
+    ...contents,
+    { role: 'model', parts: [{ text: String(soFar || '').slice(-12000) }] },
+    {
+      role: 'user',
+      parts: [
+        {
+          text: 'Продолжи ответ точно с того места, где оборвался. Не повторяй уже сказанное, без нового вступления.',
+        },
+      ],
+    },
+  ];
+
   try {
     console.info(
       `[gemini] chat turns=${messages.length} mode=${mode.id}/${mode.source} pool=${partnerPool.map((p) => p.id).join(',') || 'none'} maxOutputTokens=${MAX_OUTPUT_TOKENS} chain=${GEMINI_MODEL_CHAIN.join(
@@ -1823,37 +1847,52 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     let continues = 0;
     let signaledTyping = false;
     let activeModel = GEMINI_MODEL;
+    let incomplete = false;
+    let lastErrorText = '';
 
     for (let attempt = 0; attempt <= MAX_CONTINUES; attempt++) {
-      if (abortGemini.signal.aborted) break;
-
       const requestBody = {
         system_instruction: systemInstruction,
-        contents,
+        contents: attempt === 0 ? contents : buildContinueContents(assembled),
         generationConfig,
       };
 
-      // First segment: full retry + fallback chain. Continues stick to the model that worked.
+      // Full retry + fallback on first segment; continues stick to the model that worked.
+      // No client-req abort signal — req 'close' fires after body parse and was cutting streams (#15 regression).
       const opened = await openGeminiStream(
         requestBody,
-        attempt === 0 ? GEMINI_MODEL_CHAIN : [activeModel],
-        { signal: abortGemini.signal }
+        attempt === 0 || !activeModel ? GEMINI_MODEL_CHAIN : [activeModel]
       );
 
       if (!opened?.upstream) {
-        stopHeartbeat();
-        if (abortGemini.signal.aborted) {
-          res.end();
-          return;
+        // Honest retry: if we already have partial text, try one continue instead of silent end.
+        if (assembled.length && attempt < MAX_CONTINUES) {
+          continues += 1;
+          console.warn(
+            `[gemini] open failed after partial — continue ${continues}/${MAX_CONTINUES} chars=${assembled.length}`
+          );
+          incomplete = true;
+          lastErrorText = opened?.errorText || OVERLOAD_USER_MESSAGE;
+          continue;
         }
+        stopHeartbeat();
         const failStatus = opened?.status || 0;
         const kind = classifyGeminiFailure(failStatus, '', opened?.errorText || '');
         void recordChatError(kind, defaultWarningMessage(kind));
+        if (assembled.length) {
+          writeEvent(res, { type: 'notice', text: INCOMPLETE_ANSWER_NOTICE });
+          incomplete = true;
+        }
         writeEvent(res, {
           type: 'error',
-          text: opened?.errorText || OVERLOAD_USER_MESSAGE,
+          text: opened?.errorText || lastErrorText || OVERLOAD_USER_MESSAGE,
         });
-        writeEvent(res, { type: 'done', finishReason: finishReason || 'ERROR' });
+        writeEvent(res, {
+          type: 'done',
+          finishReason: 'ERROR',
+          incomplete: true,
+          truncated: true,
+        });
         res.end();
         return;
       }
@@ -1878,6 +1917,19 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
           writeEvent(res, { type: 'token', text });
         });
       } catch (err) {
+        const partial = String(err?.partialText || '');
+        if (partial) {
+          assembled += partial;
+          tokenCount += Number(err.partialTokenCount) || 0;
+        }
+        if (err?.geminiError && assembled.length && attempt < MAX_CONTINUES) {
+          continues += 1;
+          incomplete = true;
+          console.warn(
+            `[gemini] mid-stream error — continue ${continues}/${MAX_CONTINUES} chars=${assembled.length}`
+          );
+          continue;
+        }
         stopHeartbeat();
         if (err?.geminiError) {
           const statusNum = Number(err.geminiError.code) || 500;
@@ -1892,9 +1944,16 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
             JSON.stringify({ error: err.geminiError }),
             activeModel
           );
-          // Keep any partial text already streamed; still close cleanly.
+          if (assembled.length) {
+            writeEvent(res, { type: 'notice', text: INCOMPLETE_ANSWER_NOTICE });
+          }
           writeEvent(res, { type: 'error', text: calm });
-          writeEvent(res, { type: 'done', finishReason: 'ERROR' });
+          writeEvent(res, {
+            type: 'done',
+            finishReason: 'ERROR',
+            incomplete: Boolean(assembled.length),
+            truncated: Boolean(assembled.length),
+          });
           res.end();
           return;
         }
@@ -1905,52 +1964,50 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
       finishReason = segment.finishReason || finishReason;
       assembled += segment.text;
 
+      if (segment.finishReason === 'STOP' || segment.finishReason === 'END_TURN') {
+        incomplete = false;
+        break;
+      }
+
       if (segment.finishReason !== 'MAX_TOKENS' || !segment.text || attempt === MAX_CONTINUES) {
+        if (segment.finishReason === 'MAX_TOKENS') incomplete = true;
         break;
       }
 
       continues += 1;
+      incomplete = false;
       console.info(
         `[gemini] MAX_TOKENS — continue ${continues}/${MAX_CONTINUES} model=${activeModel} soFarChars=${assembled.length}`
       );
-      contents = [
-        ...contents,
-        { role: 'model', parts: [{ text: assembled.slice(-12000) }] },
-        {
-          role: 'user',
-          parts: [
-            {
-              text: 'Продолжи ответ точно с того места, где оборвался. Не повторяй уже сказанное, без нового вступления.',
-            },
-          ],
-        },
-      ];
     }
 
     stopHeartbeat();
 
-    if (abortGemini.signal.aborted) {
-      res.end();
-      return;
-    }
-
-    const selected = resolveSelectedPartner(assembled, partnerPool);
+    const cleanFinish =
+      finishReason === 'STOP' || finishReason === 'END_TURN' || (!incomplete && assembled.length > 0);
+    const selected = cleanFinish ? resolveSelectedPartner(assembled, partnerPool) : null;
     if (selected) {
       writeEvent(res, { type: 'partner', partner: partnerPayload(selected) });
     }
 
+    if (incomplete && assembled.length) {
+      writeEvent(res, { type: 'notice', text: INCOMPLETE_ANSWER_NOTICE });
+    }
+
+    const finalReason = cleanFinish ? finishReason || 'STOP' : finishReason || 'ERROR';
     console.info(
-      `[gemini] done model=${activeModel} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length} selected=${selected ? selected.id : 'none'} ttfb_ms=${firstTokenAt ? firstTokenAt - chatStartedAt : -1} total_ms=${Date.now() - chatStartedAt}`
+      `[gemini] done model=${activeModel} chunks=${tokenCount} finishReason=${finalReason} continues=${continues} chars=${assembled.length} selected=${selected ? selected.id : 'none'} incomplete=${incomplete} ttfb_ms=${firstTokenAt ? firstTokenAt - chatStartedAt : -1} total_ms=${Date.now() - chatStartedAt}`
     );
-    if (assembled.length > 0 && finishReason !== 'ERROR') {
+    if (assembled.length > 0 && cleanFinish) {
       void recordChatSuccess();
-    } else if (!assembled.length) {
+    } else if (!assembled.length || incomplete) {
       void recordChatError('outage', defaultWarningMessage('outage'));
     }
     writeEvent(res, {
       type: 'done',
-      finishReason: finishReason || 'STOP',
-      truncated: finishReason === 'MAX_TOKENS',
+      finishReason: finalReason,
+      truncated: incomplete || finishReason === 'MAX_TOKENS',
+      incomplete,
       model: activeModel,
     });
     res.end();
@@ -1958,17 +2015,12 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     stopHeartbeat();
     console.error('[gemini] stream failed', redactSecrets(err?.message || String(err)));
     void recordChatError('outage', defaultWarningMessage('outage'));
-    if (!abortGemini.signal.aborted) {
-      writeEvent(res, {
-        type: 'error',
-        text: 'Связь прервалась. Проверьте сеть и напишите снова.',
-      });
-      writeEvent(res, { type: 'done' });
-    }
+    writeEvent(res, {
+      type: 'error',
+      text: 'Связь прервалась. Проверьте сеть и напишите снова.',
+    });
+    writeEvent(res, { type: 'done', finishReason: 'ERROR', incomplete: true });
     res.end();
-  } finally {
-    req.off('close', onClientGone);
-    req.off('aborted', onClientGone);
   }
 });
 

@@ -694,6 +694,8 @@
 
     let full = '';
     let gotToken = false;
+    let sawDone = false;
+    let streamIncomplete = false;
     /** @type {'thinking' | 'typing' | 'reply'} */
     let stage = 'thinking';
     let typingFallbackTimer = 0;
@@ -812,9 +814,18 @@
           wrap.classList.add('error');
           stage = 'reply';
           bubble.dataset.stage = 'reply';
+        } else {
+          // Partial answer already on screen — mark as incomplete, never look like a clean end.
+          streamIncomplete = true;
+          wrap.classList.add('error');
+        }
+      } else if (payload.type === 'done') {
+        sawDone = true;
+        if (payload.incomplete || payload.truncated) {
+          streamIncomplete = true;
+          wrap.classList.add('error');
         }
       }
-      // type:done — keep whatever text we already painted (including after continues).
     };
 
     const consumeEventBlock = (raw) => {
@@ -901,6 +912,22 @@
           bubble.textContent = 'Пусто пока. Напишите ещё раз — иногда помогает.';
         }
       }
+
+      // Stream ended without done / marked incomplete — never look like a normal finish.
+      if (full && (!sawDone || streamIncomplete)) {
+        wrap.classList.add('error');
+        const note =
+          'Ответ оборвался на середине — это не полный текст. Напишите «продолжи» или повторите вопрос.';
+        const already = [...messagesEl.querySelectorAll('.msg.notice .bubble')].some(
+          (el) => el.textContent === note
+        );
+        if (!already) {
+          const { wrap: noticeWrap } = addMessage('assistant', note, { notice: true });
+          if (wrap?.parentNode && noticeWrap) {
+            wrap.parentNode.appendChild(noticeWrap);
+          }
+        }
+      }
     } catch {
       bubble.classList.remove('typing');
       if (!full) {
@@ -909,6 +936,12 @@
       } else {
         // Keep partial answer visible if the connection dropped mid-stream.
         paint();
+        wrap.classList.add('error');
+        addMessage(
+          'assistant',
+          'Ответ оборвался на середине — это не полный текст. Напишите «продолжи» или повторите вопрос.',
+          { notice: true }
+        );
       }
     } finally {
       messagesEl.removeEventListener('scroll', onStreamScroll);
