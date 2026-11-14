@@ -337,6 +337,23 @@
   /** While streaming: pin to bottom only if the user is (or stays) at the bottom. */
   let streamPinBottom = false;
 
+  function showClientError(text) {
+    try {
+      addMessage('assistant', text || 'Не удалось отправить. Попробуйте ещё раз.', {
+        error: true,
+        notice: true,
+      });
+    } catch (_e) {
+      try {
+        if (composerHint) {
+          composerHint.hidden = false;
+          composerHint.classList.add('warn');
+          composerHint.textContent = text || 'Не удалось отправить.';
+        }
+      } catch (_e2) { /* ignore */ }
+    }
+  }
+
   function addMessage(role, text, opts = {}) {
     const wrap = document.createElement('div');
     wrap.className = `msg ${role}${opts.notice ? ' notice' : ''}${opts.error ? ' error' : ''}`;
@@ -1143,10 +1160,20 @@
     }
   }
 
-  if (form) form.addEventListener('submit', async (e) => {
-    e.preventDefault();
+  async function handleSend(triggerEvent) {
+    if (triggerEvent && typeof triggerEvent.preventDefault === 'function') {
+      try {
+        triggerEvent.preventDefault();
+        triggerEvent.stopPropagation();
+      } catch (_e) { /* ignore */ }
+    }
     if (streaming) return;
-    const text = input.value.trim();
+    if (!input) {
+      showClientError('Поле ввода недоступно в этом браузере.');
+      return;
+    }
+
+    const text = String(input.value || '').trim();
     if (!text) return;
     if (text.length > maxUserMessageChars) {
       updateComposerHint();
@@ -1158,15 +1185,55 @@
       return;
     }
 
-    addMessage('user', text);
-    history.push({ role: 'user', content: text });
-    userTurns += 1;
-    persistChat();
-    input.value = '';
-    autoGrow();
-    updateComposerHint();
-    await streamReply();
-  });
+    // Append user bubble BEFORE clearing the field (iOS Google/VK: clear-without-bubble looked like “send ate text”).
+    let painted = false;
+    try {
+      addMessage('user', text);
+      painted = true;
+      history.push({ role: 'user', content: text });
+      userTurns += 1;
+      persistChat();
+    } catch (_e) {
+      showClientError('Сообщение не попало в чат. Обновите страницу и попробуйте снова.');
+      return;
+    }
+
+    try {
+      input.value = '';
+      autoGrow();
+      updateComposerHint();
+    } catch (_e) { /* ignore */ }
+
+    if (!painted) return;
+
+    try {
+      await streamReply();
+    } catch (_e) {
+      streaming = false;
+      if (sendBtn) sendBtn.disabled = false;
+      showClientError('Сбой отправки. Проверьте сеть и нажмите отправить ещё раз.');
+    }
+  }
+
+  if (form) {
+    form.addEventListener(
+      'submit',
+      function (e) {
+        handleSend(e);
+        return false;
+      },
+      false
+    );
+  }
+  if (sendBtn) {
+    sendBtn.addEventListener(
+      'click',
+      function (e) {
+        handleSend(e);
+      },
+      false
+    );
+  }
 
   if (clearChatBtn) clearChatBtn.addEventListener('click', () => {
     if (streaming) return;
@@ -1194,10 +1261,11 @@
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        requestFormSubmit(form);
+        handleSend(e);
       }
     });
   }
+  syncComposerLimit();
   syncComposerLimit();
 
   async function boot() {
@@ -1219,6 +1287,19 @@
         // Fresh greeting alone is not persisted — only after the person writes.
         syncClearButton();
       }
+      // Recover text if an older build did a native GET ?message= submit.
+      try {
+        var params = new URLSearchParams(window.location.search || '');
+        var orphan = String(params.get('message') || '').trim();
+        if (orphan && input && !String(input.value || '').trim()) {
+          input.value = orphan.slice(0, maxUserMessageChars);
+          autoGrow();
+          updateComposerHint();
+          if (window.history && typeof window.history.replaceState === 'function') {
+            window.history.replaceState(null, '', window.location.pathname || '/');
+          }
+        }
+      } catch (_orphan) { /* ignore */ }
     } catch (_e) {
       try {
         if (messagesEl && !messagesEl.childElementCount) {

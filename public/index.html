@@ -27,7 +27,7 @@
         href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap"
       />
     </noscript>
-    <link rel="stylesheet" href="/style.css?v=20261114-ios2" />
+    <link rel="stylesheet" href="/style.css?v=20261114-ios3" />
   </head>
   <body>
     <noscript><p style="padding:1rem;font-family:sans-serif">Для чата НутриКод нужен JavaScript. Откройте сайт в Safari или Chrome.</p></noscript>
@@ -84,20 +84,21 @@
           </div>
         </div>
 
-        <form id="composer" class="composer" autocomplete="off">
+        <form id="composer" class="composer" action="#" method="post" autocomplete="off" novalidate onsubmit="return false;">
           <div class="composer-field">
             <label class="sr-only" for="input">Сообщение</label>
             <textarea
               id="input"
-              name="message"
               rows="1"
               maxlength="2000"
               placeholder="Расскажите о питании, аллергиях, цели…"
-              required
+              enterkeyhint="send"
+              autocomplete="off"
+              autocorrect="on"
             ></textarea>
             <p id="composer-hint" class="composer-hint" hidden aria-live="polite"></p>
           </div>
-          <button type="submit" id="send" class="send" aria-label="Отправить">
+          <button type="button" id="send" class="send" aria-label="Отправить">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
               <path
                 d="M5 12h12M13 6l6 6-6 6"
@@ -163,7 +164,7 @@
         window.__nkBoot.storage = false;
       }
     </script>
-    <script src="/history-store.js?v=20261114-ios2" defer></script>
-    <script src="/script.js?v=20261114-ios2" defer></script>
+    <script src="/history-store.js?v=20261114-ios3" defer></script>
+    <script src="/script.js?v=20261114-ios3" defer></script>
   </body>
 </html>
