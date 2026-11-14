@@ -16,8 +16,8 @@
   --danger-soft: #8a4b3a;
   --radius: 18px;
   --shadow: 0 18px 50px rgba(23, 48, 40, 0.08);
-  --font-brand: 'Unbounded', 'Manrope', sans-serif;
-  --font-ui: 'Manrope', sans-serif;
+  --font-brand: 'Unbounded', 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-ui: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
 *,
@@ -1002,4 +1002,12 @@ body {
     animation: none !important;
     transition: none !important;
   }
+}
+
+
+.partner-soft-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--muted);
 }

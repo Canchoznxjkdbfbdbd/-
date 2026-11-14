@@ -10,24 +10,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="НутриКод" />
     <title>НутриКод — анонимный нутрициолог</title>
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- manifest deferred: see end of body — avoids iOS loading-bar stall -->
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <!-- Non-blocking fonts: hanging fonts.googleapis.com kept iOS WebView loading bar stuck. -->
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap"
-      media="print"
-      onload="this.media='all'"
-    />
-    <noscript>
-      <link
-        rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap"
-      />
-    </noscript>
-    <link rel="stylesheet" href="/style.css?v=20261114-ios3" />
+    <!-- Fonts: system stack only — Google Fonts hung iOS WebView loading bar ~50%. -->
+<link rel="stylesheet" href="/style.css?v=20261114-ios4" />
   </head>
   <body>
     <noscript><p style="padding:1rem;font-family:sans-serif">Для чата НутриКод нужен JavaScript. Откройте сайт в Safari или Chrome.</p></noscript>
@@ -164,7 +152,18 @@
         window.__nkBoot.storage = false;
       }
     </script>
-    <script src="/history-store.js?v=20261114-ios3" defer></script>
-    <script src="/script.js?v=20261114-ios3" defer></script>
-  </body>
+    <script src="/history-store.js?v=20261114-ios4" defer></script>
+    <script src="/script.js?v=20261114-ios4" defer></script>
+    <script id="nk-manifest-defer">
+      setTimeout(function () {
+        try {
+          var l = document.createElement('link');
+          l.rel = 'manifest';
+          l.href = '/manifest.webmanifest';
+          document.head.appendChild(l);
+        } catch (e) {}
+      }, 2500);
+    </script>
+    <!-- Yandex.Metrika: injected only after idle from script.js; skipped on iOS. -->
+</body>
 </html>

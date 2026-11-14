@@ -21,6 +21,8 @@
   const DONATE_SOFT_COPY = 'Хотите поддержать проект или дать обратную связь?';
   /** Fallback if /api/config has no communityVkUrl — keep in sync with server COMMUNITY_VK_URL. */
   const COMMUNITY_VK_URL_DEFAULT = 'https://vk.ru/ai.nutricode';
+  /** Fallback if /api/config has no yandexMetrikaId yet — must match live counter. */
+  window.__nkMetrikaId = window.__nkMetrikaId || '114157729';
 
   function pickStatus(list) {
     return list[Math.floor(Math.random() * list.length)];
@@ -690,6 +692,10 @@
         terms.textContent = termsText;
         box.appendChild(terms);
       }
+      const soft = document.createElement('p');
+      soft.className = 'partner-soft-hint';
+      soft.textContent = 'Условия промо — у партнёра; перед заказом лучше сверить в приложении или на сайте.';
+      box.appendChild(soft);
     }
 
     const extras = promos.slice(1);
@@ -801,11 +807,103 @@
     });
   }
 
+
+  /** Load Metrika only after chat UI is up — never block boot on mc.yandex.ru. */
+  function scheduleYandexMetrika(rawId) {
+    var id = String(rawId || '').trim();
+    if (!id || !/^\d{5,12}$/.test(id)) return;
+    if (window.__nkMetrikaScheduled) return;
+
+    // Never load Metrika on iOS / in-app WebViews — mc.yandex.ru hangs the loading bar (~50%) and blocks UX.
+    try {
+      var ua = navigator.userAgent || '';
+      if (/iPhone|iPad|iPod/i.test(ua)) return;
+      if (/VKAndroid|VKiOS|; wv\)/i.test(ua)) return;
+      if (window.__nkDisableMetrika === true) return;
+    } catch (_ua) { /* ignore */ }
+
+    window.__nkMetrikaScheduled = true;
+
+    var start = function () {
+      if (window.__nkMetrikaStarted) return;
+      window.__nkMetrikaStarted = true;
+      try {
+        if (typeof window.ym === 'function') {
+          window.ym(Number(id), 'init', {
+            clickmap: true,
+            trackLinks: true,
+            accurateTrackBounce: true,
+            webvisor: false,
+          });
+          return;
+        }
+      } catch (_e0) { /* continue to inject */ }
+
+      var settled = false;
+      var scriptEl = document.createElement('script');
+      scriptEl.async = true;
+      scriptEl.defer = true;
+      scriptEl.src = 'https://mc.yandex.ru/metrika/tag.js';
+
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        try {
+          if (scriptEl.parentNode) scriptEl.parentNode.removeChild(scriptEl);
+        } catch (_e1) { /* ignore */ }
+      }, 4000);
+
+      scriptEl.onload = function () {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          if (typeof window.ym === 'function') {
+            window.ym(Number(id), 'init', {
+              clickmap: true,
+              trackLinks: true,
+              accurateTrackBounce: true,
+              webvisor: false,
+            });
+          }
+        } catch (_e2) { /* ignore */ }
+      };
+      scriptEl.onerror = function () {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+      };
+
+      try {
+        (document.body || document.documentElement).appendChild(scriptEl);
+      } catch (_e3) {
+        settled = true;
+        clearTimeout(timer);
+      }
+    };
+
+    // After first paint / chat boot: idle + short delay so iOS loading bar can finish.
+    var delay = function () {
+      setTimeout(start, 2000);
+    };
+    try {
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(delay, { timeout: 4000 });
+      } else {
+        delay();
+      }
+    } catch (_e4) {
+      delay();
+    }
+  }
+
+
   async function loadConfig() {
     try {
       const res = await fetchWithTimeout('/api/config', { method: 'GET', credentials: 'same-origin' }, 5000);
       if (!res || !res.ok) {
         syncComposerLimit();
+        scheduleYandexMetrika(window.__nkMetrikaId || '');
         return;
       }
       const data = await res.json();
@@ -821,6 +919,7 @@
         maxUserMessageChars = Math.floor(cfgLimit);
       }
       syncComposerLimit();
+      scheduleYandexMetrika(data.yandexMetrikaId || window.__nkMetrikaId || '');
       if (!data.hasKey) {
         /* mock mode is fine; notice comes with first stream */
       }
@@ -1327,7 +1426,23 @@
   }
 
   try {
-    boot();
+    boot().finally(function () {
+      // Metrika only after UI is idle — never compete with chat init for the network bar.
+      var run = function () {
+        try {
+          scheduleYandexMetrika(window.__nkMetrikaId || '');
+        } catch (_m) { /* ignore */ }
+      };
+      try {
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(function () { setTimeout(run, 2000); }, { timeout: 8000 });
+        } else {
+          setTimeout(run, 5000);
+        }
+      } catch (_idle) {
+        setTimeout(run, 5000);
+      }
+    });
   } catch (_e) {
     try {
       if (messagesEl && !messagesEl.childElementCount) {
