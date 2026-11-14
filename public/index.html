@@ -14,13 +14,20 @@
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Non-blocking fonts: hanging fonts.googleapis.com kept iOS WebView loading bar stuck. -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap"
       rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
     />
-    <link rel="stylesheet" href="/style.css?v=20261114-ios1" />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap"
+      />
+    </noscript>
+    <link rel="stylesheet" href="/style.css?v=20261114-ios2" />
   </head>
   <body>
     <noscript><p style="padding:1rem;font-family:sans-serif">Для чата НутриКод нужен JavaScript. Откройте сайт в Safari или Chrome.</p></noscript>
@@ -156,7 +163,7 @@
         window.__nkBoot.storage = false;
       }
     </script>
-    <script src="/history-store.js?v=20261114-ios1" defer></script>
-    <script src="/script.js?v=20261114-ios1" defer></script>
+    <script src="/history-store.js?v=20261114-ios2" defer></script>
+    <script src="/script.js?v=20261114-ios2" defer></script>
   </body>
 </html>

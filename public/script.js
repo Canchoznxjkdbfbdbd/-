@@ -106,6 +106,51 @@
     if (sendBtn && typeof sendBtn.click === 'function') sendBtn.click();
   }
 
+  function preferXhrSse() {
+    if (window.NutriKodForceXhrSse === true) return true;
+    try {
+      var ua = navigator.userAgent || '';
+      // iOS WKWebView / in-app (VK, Google) often hang or buffer fetch() SSE until complete.
+      if (/iPhone|iPad|iPod/i.test(ua)) return true;
+      if (/VKAndroid|VKiOS|; wv\)/i.test(ua)) return true;
+    } catch (_e) { /* ignore */ }
+    try {
+      if (!window.ReadableStream) return true;
+      if (!Response || !('body' in Response.prototype)) return true;
+    } catch (_e2) {
+      return true;
+    }
+    return false;
+  }
+
+  function fetchWithTimeout(url, options, ms) {
+    var opts = options || {};
+    var timeoutMs = typeof ms === 'number' ? ms : 8000;
+    if (typeof AbortController === 'function') {
+      var ctrl = new AbortController();
+      var timer = setTimeout(function () {
+        try { ctrl.abort(); } catch (e) { /* ignore */ }
+      }, timeoutMs);
+      var merged = {};
+      for (var k in opts) {
+        if (Object.prototype.hasOwnProperty.call(opts, k)) merged[k] = opts[k];
+      }
+      merged.signal = ctrl.signal;
+      return fetch(url, merged).finally(function () {
+        clearTimeout(timer);
+      });
+    }
+    return Promise.race([
+      fetch(url, opts),
+      new Promise(function (_resolve, reject) {
+        setTimeout(function () {
+          reject(new Error('timeout'));
+        }, timeoutMs);
+      }),
+    ]);
+  }
+
+
 
   const messagesEl = document.getElementById('messages');
   const form = document.getElementById('composer');
@@ -741,7 +786,11 @@
 
   async function loadConfig() {
     try {
-      const res = await fetch('/api/config');
+      const res = await fetchWithTimeout('/api/config', { method: 'GET', credentials: 'same-origin' }, 5000);
+      if (!res || !res.ok) {
+        syncComposerLimit();
+        return;
+      }
       const data = await res.json();
       donateUrl = data.donateUrl || '#donate';
       if (data.communityVkUrl) {
@@ -760,7 +809,7 @@
       }
     } catch (_e) {
       syncComposerLimit();
-      /* offline demo still works after server up */
+      /* never block UI if config/SSE path is slow in WKWebView */
     }
   }
 
@@ -932,98 +981,109 @@
       }
     };
 
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-        body: JSON.stringify({ messages: history, allowPartner, mode: selectedMode }),
-      });
+    const decoder = new TextDecoder();
+    const state = { buffer: '' };
 
-      if (!res.ok) {
-        clearWaitTimers();
-        bubble.classList.remove('typing');
-        let errText = 'Ответ пока не пришёл. Можно повторить через минуту.';
-        if (res.status === 413 || res.status === 400) {
-          try {
-            const errBody = await res.json();
-            if (errBody && typeof errBody.text === 'string' && errBody.text.trim()) {
-              errText = errBody.text.trim();
-            } else {
+    const runXhrSse = function () {
+      return new Promise(function (resolve, reject) {
+        try {
+          var xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/chat');
+          xhr.timeout = 90000;
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.setRequestHeader('Accept', 'text/event-stream');
+          var seen = 0;
+          var settled = false;
+          var onChunk = function () {
+            var t = xhr.responseText || '';
+            if (t.length <= seen) return;
+            state.buffer += t.slice(seen);
+            seen = t.length;
+            drainBuffer(state, false);
+          };
+          xhr.onprogress = onChunk;
+          xhr.onreadystatechange = function () {
+            if (xhr.readyState >= 3) onChunk();
+          };
+          xhr.onload = function () {
+            if (settled) return;
+            settled = true;
+            onChunk();
+            drainBuffer(state, true);
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else reject(new Error('xhr ' + xhr.status));
+          };
+          xhr.ontimeout = function () {
+            if (settled) return;
+            settled = true;
+            reject(new Error('xhr timeout'));
+          };
+          xhr.onerror = function () {
+            if (settled) return;
+            settled = true;
+            reject(new Error('xhr network'));
+          };
+          xhr.send(JSON.stringify({ messages: history, allowPartner: allowPartner, mode: selectedMode }));
+        } catch (err) {
+          reject(err);
+        }
+      });
+    };
+
+    try {
+      if (preferXhrSse()) {
+        await runXhrSse();
+      } else {
+        const res = await fetchWithTimeout(
+          '/api/chat',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+            body: JSON.stringify({ messages: history, allowPartner, mode: selectedMode }),
+          },
+          90000
+        );
+
+        if (!res.ok) {
+          clearWaitTimers();
+          bubble.classList.remove('typing');
+          let errText = 'Ответ пока не пришёл. Можно повторить через минуту.';
+          if (res.status === 413 || res.status === 400) {
+            try {
+              const errBody = await res.json();
+              if (errBody && typeof errBody.text === 'string' && errBody.text.trim()) {
+                errText = errBody.text.trim();
+              } else {
+                errText = tooLongMessageText();
+              }
+            } catch (_e) {
               errText = tooLongMessageText();
             }
-          } catch (_e) {
-            errText = tooLongMessageText();
           }
+          bubble.textContent = errText;
+          wrap.classList.add('error');
+          return;
         }
-        bubble.textContent = errText;
-        wrap.classList.add('error');
-        return;
-      }
 
-      // Prefer fetch stream when available; otherwise XHR path below (body may be null in WKWebView).
-      if (!res.body || typeof res.body.getReader !== 'function') {
-        window.NutriKodForceXhrSse = true;
-      }
-
-      const decoder = new TextDecoder();
-      const state = { buffer: '' };
-      const body = res.body;
-      const canStream =
-        body &&
-        typeof body.getReader === 'function' &&
-        !(window.NutriKodForceXhrSse === true);
-
-      if (canStream) {
-        try {
-          const reader = body.getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            state.buffer += decoder.decode(value, { stream: true });
-            drainBuffer(state, false);
-          }
-          state.buffer += decoder.decode();
-          drainBuffer(state, true);
-        } catch (_streamErr) {
-          // Some WKWebView builds expose getReader but fail mid-stream — fall back below.
-          const text = await res.clone().text().catch(function () { return ''; });
-          if (text) {
-            state.buffer += text;
-            drainBuffer(state, true);
-          }
-        }
-      } else {
-        // VK / older WKWebView: no ReadableStream on fetch — use XHR progressive SSE.
-        await new Promise(function (resolve, reject) {
+        const body = res.body;
+        const canStream = body && typeof body.getReader === 'function';
+        if (!canStream) {
+          await runXhrSse();
+        } else {
           try {
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', '/api/chat');
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.setRequestHeader('Accept', 'text/event-stream');
-            var seen = 0;
-            var onChunk = function () {
-              var t = xhr.responseText || '';
-              if (t.length <= seen) return;
-              state.buffer += t.slice(seen);
-              seen = t.length;
+            const reader = body.getReader();
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              state.buffer += decoder.decode(value, { stream: true });
               drainBuffer(state, false);
-            };
-            xhr.onprogress = onChunk;
-            xhr.onreadystatechange = function () {
-              if (xhr.readyState >= 3) onChunk();
-            };
-            xhr.onload = function () {
-              onChunk();
-              drainBuffer(state, true);
-              if (xhr.status >= 200 && xhr.status < 300) resolve();
-              else reject(new Error('xhr ' + xhr.status));
-            };
-            xhr.onerror = function () { reject(new Error('xhr network')); };
-            xhr.send(JSON.stringify({ messages: history, allowPartner: allowPartner, mode: selectedMode }));
-          } catch (err) {
-            reject(err);
+            }
+            state.buffer += decoder.decode();
+            drainBuffer(state, true);
+          } catch (_streamErr) {
+            await runXhrSse();
           }
-        });
+        }
       }
 
       if (full) {
@@ -1141,13 +1201,9 @@
   syncComposerLimit();
 
   async function boot() {
+    // Paint chat FIRST — never await network before the first bubble (WKWebView hang → white screen / stuck bar).
     try {
-      await loadConfig();
-    } catch (_e) {
-      try { syncComposerLimit(); } catch (_e2) { /* ignore */ }
-    }
-    try {
-      setMode(readStoredMode());
+      setMode(readStoredMode(), { persist: false });
     } catch (_e) {
       selectedMode = 'normal';
     }
@@ -1174,10 +1230,18 @@
         /* last resort: leave shell visible */
       }
     }
+
     try {
       if (input) input.focus();
     } catch (_e) {
       /* VK WebView may block focus */
+    }
+
+    // Config in background with timeout — must not leave a hanging fetch.
+    try {
+      await loadConfig();
+    } catch (_e) {
+      try { syncComposerLimit(); } catch (_e2) { /* ignore */ }
     }
   }
 
