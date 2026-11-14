@@ -2,18 +2,23 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <meta name="description" content="НутриКод — анонимный ИИ-нутрициолог. Подберите рацион без регистрации." />
+    <meta name="theme-color" content="#1f6b4f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="НутриКод" />
     <title>НутриКод — анонимный нутрициолог</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="/style.css" />
+    <!-- manifest deferred: see end of body — avoids iOS loading-bar stall -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <!-- Fonts: system stack only — Google Fonts hung iOS WebView loading bar ~50%. -->
+<link rel="stylesheet" href="/style.css?v=20261114-ios4" />
   </head>
   <body>
+    <noscript><p style="padding:1rem;font-family:sans-serif">Для чата НутриКод нужен JavaScript. Откройте сайт в Safari или Chrome.</p></noscript>
     <div class="atmosphere" aria-hidden="true"></div>
 
     <header class="top">
@@ -67,17 +72,21 @@
           </div>
         </div>
 
-        <form id="composer" class="composer" autocomplete="off">
-          <label class="sr-only" for="input">Сообщение</label>
-          <textarea
-            id="input"
-            name="message"
-            rows="1"
-            maxlength="4000"
-            placeholder="Расскажите о питании, аллергиях, цели…"
-            required
-          ></textarea>
-          <button type="submit" id="send" class="send" aria-label="Отправить">
+        <form id="composer" class="composer" action="#" method="post" autocomplete="off" novalidate onsubmit="return false;">
+          <div class="composer-field">
+            <label class="sr-only" for="input">Сообщение</label>
+            <textarea
+              id="input"
+              rows="1"
+              maxlength="2000"
+              placeholder="Расскажите о питании, аллергиях, цели…"
+              enterkeyhint="send"
+              autocomplete="off"
+              autocorrect="on"
+            ></textarea>
+            <p id="composer-hint" class="composer-hint" hidden aria-live="polite"></p>
+          </div>
+          <button type="button" id="send" class="send" aria-label="Отправить">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
               <path
                 d="M5 12h12M13 6l6 6-6 6"
@@ -92,11 +101,21 @@
       </section>
 
       <aside id="donate-banner" class="donate" hidden>
-        <p class="donate-copy" id="donate-copy"></p>
-        <div class="donate-amounts" role="group" aria-label="Сумма доната">
-          <a class="donate-btn" data-amount="100" href="#donate">100 ₽</a>
-          <a class="donate-btn" data-amount="300" href="#donate">300 ₽</a>
-          <a class="donate-btn" data-amount="500" href="#donate">500 ₽</a>
+        <p class="donate-copy" id="donate-copy">
+          Хотите поддержать проект или дать обратную связь?
+        </p>
+        <a
+          class="donate-cta"
+          id="donate-cta"
+          href="#donate"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Поддержать / написать</a
+        >
+        <div class="donate-amounts" role="group" aria-label="Сумма доната, по желанию">
+          <a class="donate-btn donate-btn-soft" data-amount="50" href="#donate" target="_blank" rel="noopener noreferrer">50 ₽</a>
+          <a class="donate-btn donate-btn-soft" data-amount="100" href="#donate" target="_blank" rel="noopener noreferrer">100 ₽</a>
+          <a class="donate-btn donate-btn-soft" data-amount="150" href="#donate" target="_blank" rel="noopener noreferrer">150 ₽</a>
         </div>
         <button type="button" class="donate-dismiss" id="donate-dismiss" aria-label="Скрыть">×</button>
       </aside>
@@ -108,10 +127,43 @@
         или диетолога. Аккаунтов нет; история чата — только в вашем браузере; в Gemini уходит текст
         сообщений, чтобы получить ответ.
         <a class="legal-link" href="/privacy.html">О данных и границах</a>
+        ·
+        <a
+          class="legal-link legal-link-muted"
+          id="community-vk"
+          href="https://vk.ru/ai.nutricode"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Сообщество ВК</a
+        >
       </p>
     </footer>
 
-    <script src="/history-store.js" defer></script>
-    <script src="/script.js" defer></script>
-  </body>
+    <script id="nk-boot-guard">
+      window.__nkBoot = { err: null, storage: true };
+      window.addEventListener('error', function (e) {
+        window.__nkBoot.err = (e && e.message) || 'error';
+      });
+      try {
+        var k = '__nk_boot';
+        localStorage.setItem(k, '1');
+        localStorage.removeItem(k);
+      } catch (e) {
+        window.__nkBoot.storage = false;
+      }
+    </script>
+    <script src="/history-store.js?v=20261114-ios4" defer></script>
+    <script src="/script.js?v=20261114-ios4" defer></script>
+    <script id="nk-manifest-defer">
+      setTimeout(function () {
+        try {
+          var l = document.createElement('link');
+          l.rel = 'manifest';
+          l.href = '/manifest.webmanifest';
+          document.head.appendChild(l);
+        } catch (e) {}
+      }, 2500);
+    </script>
+    <!-- Yandex.Metrika: injected only after idle from script.js; skipped on iOS. -->
+</body>
 </html>
