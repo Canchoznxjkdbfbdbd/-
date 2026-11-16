@@ -642,11 +642,19 @@ body {
   font-weight: 500;
 }
 
-.legal-link:hover {
+.legal-link-muted {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.74rem;
+}
+
+.legal-link:hover,
+.legal-link-muted:hover {
   color: var(--leaf);
 }
 
-.legal-link:focus-visible {
+.legal-link:focus-visible,
+.legal-link-muted:focus-visible {
   outline: 2px solid rgba(31, 107, 79, 0.45);
   outline-offset: 2px;
   border-radius: 2px;

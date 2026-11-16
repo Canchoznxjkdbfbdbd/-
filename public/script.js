@@ -9,6 +9,9 @@
   /** Show quiet donate strip only after this many user messages. */
   const DONATE_AFTER_TURNS = 3;
 
+  /** Fallback if /api/config has no communityVkUrl — keep in sync with server COMMUNITY_VK_URL. */
+  const COMMUNITY_VK_URL_DEFAULT = 'https://vk.ru/ai.nutricode';
+
   /** Calm Russian wait stages — rotate short variants so it doesn’t feel canned. */
   const THINKING_STATUS = ['Думает…', 'Что-то прикидывает…', 'Собирает мысли…'];
   const TYPING_STATUS = ['Печатает…', 'Набирает ответ…', 'Подбирает слова…'];
@@ -39,6 +42,7 @@
   const donateBanner = document.getElementById('donate-banner');
   const donateCopy = document.getElementById('donate-copy');
   const donateDismiss = document.getElementById('donate-dismiss');
+  const communityVkLink = document.getElementById('community-vk');
   const emptyStart = document.getElementById('empty-start');
   const modeBar = document.getElementById('mode-bar');
   const modeChips = Array.from(document.querySelectorAll('.mode-chip'));
@@ -49,6 +53,7 @@
   let streaming = false;
   let partnerShown = false;
   let donateUrl = '#donate';
+  let communityVkUrl = COMMUNITY_VK_URL_DEFAULT;
   let userTurns = 0;
   let selectedMode = 'normal';
 
@@ -302,6 +307,12 @@
       const res = await fetch('/api/config');
       const data = await res.json();
       donateUrl = data.donateUrl || '#donate';
+      if (data.communityVkUrl) {
+        communityVkUrl = String(data.communityVkUrl).trim() || COMMUNITY_VK_URL_DEFAULT;
+      }
+      if (communityVkLink && communityVkUrl) {
+        communityVkLink.href = communityVkUrl;
+      }
       if (!data.hasKey) {
         /* mock mode is fine; notice comes with first stream */
       }
