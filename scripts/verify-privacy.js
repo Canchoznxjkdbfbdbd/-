@@ -16,8 +16,13 @@ const styleCss = fs.readFileSync(path.join(root, 'public', 'style.css'), 'utf8')
 
 assert.match(indexHtml, /href="\/privacy\.html"/);
 assert.match(indexHtml, /О данных и границах/);
+assert.match(indexHtml, /id="community-vk"/);
+assert.match(indexHtml, /https:\/\/vk\.ru\/ai\.nutricode/);
+assert.match(indexHtml, /Сообщество ВК/);
 
 assert.match(privacyHtml, /lang="ru"/);
+assert.match(privacyHtml, /https:\/\/vk\.ru\/ai\.nutricode/);
+assert.match(privacyHtml, /Сообщество ВК/);
 assert.match(privacyHtml, /Что уходит в Gemini/);
 assert.match(privacyHtml, /История только в браузере/);
 assert.match(privacyHtml, /Без аккаунтов/);

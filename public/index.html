@@ -5,16 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="НутриКод — анонимный ИИ-нутрициолог. Подберите рацион без регистрации." />
     <title>НутриКод — анонимный нутрициолог</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="stylesheet" href="/fonts.css" />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <div class="atmosphere" aria-hidden="true"></div>
+    <div class="atmosphere" aria-hidden="true">
+      <div class="atmosphere-photo"></div>
+      <div class="atmosphere-wash"></div>
+    </div>
 
     <header class="top">
       <div class="brand-row">
@@ -41,15 +39,35 @@
         <p class="eyebrow">анонимный нутрициолог</p>
         <h1 id="brand-title" class="brand-hero">НутриКод</h1>
         <p class="lede">
-          Залог хорошего самочувствия — это сбалансированное питание. Иногда его нужно подбирать
-          индивидуально. Приступим...
+          Подберём рацион под вашу жизнь — без регистрации. Напишите или выберите короткий старт.
         </p>
       </section>
 
       <section class="chat" aria-label="Чат с НутриКод">
         <div id="messages" class="messages" role="log" aria-live="polite"></div>
 
-        <div class="mode-bar" role="radiogroup" aria-label="Режим ответа">
+        <div id="empty-start" class="empty-start">
+          <p class="empty-invite">С чего начнём?</p>
+          <div class="starter-chips" role="group" aria-label="Быстрый старт">
+            <button type="button" class="starter-chip" data-prompt="Нет времени на готовку — что поесть сегодня за 15–20 минут?">
+              Нет времени
+            </button>
+            <button type="button" class="starter-chip" data-prompt="Лёгкий ужин без тяжести, чтобы комфортно спалось.">
+              Лёгкий ужин
+            </button>
+            <button type="button" class="starter-chip" data-prompt="Семейный / детский стол: одно блюдо на всех, мягкий вкус.">
+              Детский стол
+            </button>
+            <button type="button" class="starter-chip" data-prompt="Составьте короткий список покупок на 3–5 дней для обычного рациона.">
+              Список покупок
+            </button>
+            <button type="button" class="starter-chip" data-prompt="Что поесть после тренировки: простые продукты, без добавок.">
+              После нагрузки
+            </button>
+          </div>
+        </div>
+
+        <div id="mode-bar" class="mode-bar" role="radiogroup" aria-label="Режим ответа" hidden>
           <p class="mode-hint" id="mode-hint">Режим</p>
           <div class="mode-chips">
             <button type="button" class="mode-chip" role="radio" aria-checked="true" data-mode="normal">
@@ -74,7 +92,7 @@
             name="message"
             rows="1"
             maxlength="4000"
-            placeholder="Расскажите о питании, аллергиях, цели…"
+            placeholder="Или напишите своё…"
             required
           ></textarea>
           <button type="submit" id="send" class="send" aria-label="Отправить">
@@ -108,6 +126,15 @@
         или диетолога. Аккаунтов нет; история чата — только в вашем браузере; в Gemini уходит текст
         сообщений, чтобы получить ответ.
         <a class="legal-link" href="/privacy.html">О данных и границах</a>
+        ·
+        <a
+          class="legal-link legal-link-muted"
+          id="community-vk"
+          href="https://vk.ru/ai.nutricode"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Сообщество ВК</a
+        >
       </p>
     </footer>
 

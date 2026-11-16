@@ -85,6 +85,11 @@ const html = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8
 assert.ok(html.includes('id="clear-chat"'));
 assert.ok(html.includes('Очистить чат'));
 assert.ok(html.includes('history-store.js'));
+assert.ok(html.includes('id="empty-start"'));
+assert.ok(html.includes('starter-chip'));
+assert.ok(html.includes('id="mode-bar"'));
+assert.ok(html.includes('fonts.css'));
+assert.ok(!/fonts\.googleapis\.com/.test(html));
 assert.ok(/только в вашем браузере/i.test(html));
 assert.ok(/Gemini/i.test(html));
 
@@ -94,5 +99,17 @@ assert.ok(script.includes('persistChat'));
 assert.ok(script.includes('renderRestoredHistory'));
 assert.ok(script.includes('Точно очистить?'));
 assert.ok(script.includes('setClearArmed'));
+assert.ok(script.includes('setEmptyChrome'));
+assert.ok(script.includes('sendUserText'));
+// Empty boot must not dump the long first questionnaire into the chat.
+assert.ok(!/addMessage\('assistant',\s*FIRST_QUESTION/.test(script));
+
+const css = fs.readFileSync(path.join(__dirname, '../public/style.css'), 'utf8');
+assert.ok(css.includes('food-atmosphere.jpg'));
+assert.ok(css.includes('.starter-chip'));
+assert.ok(fs.existsSync(path.join(__dirname, '../public/img/food-atmosphere.jpg')));
+assert.ok(fs.existsSync(path.join(__dirname, '../public/fonts.css')));
+assert.ok(fs.existsSync(path.join(__dirname, '../public/fonts/manrope-cyrillic.woff2')));
+assert.ok(fs.existsSync(path.join(__dirname, '../public/fonts/unbounded-cyrillic.woff2')));
 
 console.log('verify-chat-history: ok');
