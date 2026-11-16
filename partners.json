@@ -34,5 +34,33 @@
     "link": "https://example.com/malysh-menu",
     "blurb": "Мягкие семейные рационы и перекусы без острых специй.",
     "disclaimer": "Партнёрская ссылка (демо). Не заменяет консультацию педиатра."
+  },
+  {
+    "id": "vkusvill",
+    "name": "ВкусВилл",
+    "geo": ["Россия", "онлайн"],
+    "tags": [
+      "вкусвилл",
+      "vkusvill",
+      "продукты",
+      "супермаркет",
+      "доставка",
+      "здоровая еда",
+      "grocery",
+      "заказать",
+      "нет времени",
+      "готовое",
+      "магазин"
+    ],
+    "offer_type": "grocery",
+    "promo_code": "VSC7247",
+    "promo_terms": "Партнёрская ссылка",
+    "live": false,
+    "admitad_base": "https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx",
+    "erid": "2bL9aMPo2e49hMef4phUrdrQCx",
+    "link": "https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx",
+    "landing_url": "https://vkusvill.ru/?utm_medium=677297&utm_source=partners&utm_campaign=16031&utm_content=381&promo_code=VSC7247&web_id=2603881&click_id=3b650a472375dbe278075b7ea2f168b6",
+    "blurb": "Продукты и доставка: супермаркет здоровой еды ВкусВилл.",
+    "disclaimer": "Реклама. АО «ВкусВилл», ИНН 7734443270. erid: 2bL9aMPo2e49hMef4phUrdrQCx. Партнёрская ссылка Admitad."
   }
 ]

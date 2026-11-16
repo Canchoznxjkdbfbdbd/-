@@ -54,6 +54,13 @@
   let partnerShown = false;
   let donateUrl = '#donate';
   let communityVkUrl = COMMUNITY_VK_URL_DEFAULT;
+  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string}} */
+  let vkusvillDeeplink = {
+    enabled: false,
+    admitadBase: '',
+    erid: '',
+    searchPrefix: 'https://vkusvill.ru/search/?q=',
+  };
   let userTurns = 0;
   let selectedMode = 'normal';
 
@@ -187,12 +194,108 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  /**
+   * Build Admitad deeplink: search URL → double-encode into admitadBase as ulp=.
+   * Base must be Admitad webmaster (kdbov…), never a raw vkusvill.ru email landing.
+   */
+  function buildVkusvillAdmitadUrl(productName) {
+    const name = String(productName || '').trim();
+    const base = String(vkusvillDeeplink.admitadBase || '').trim();
+    const prefix = String(vkusvillDeeplink.searchPrefix || 'https://vkusvill.ru/search/?q=');
+    if (!name || !base) return null;
+    const target = `${prefix}${encodeURIComponent(name)}`;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+  }
+
+  /**
+   * Turn [[product]] into clickable chips; leave [[partner:id]] alone (other handlers).
+   * Incomplete trailing [[… is left as plain text while streaming.
+   */
+  function renderProductDeeplinks(text) {
+    const src = String(text || '');
+    const re = /\[\[([^\]]+)\]\]/g;
+    /** @type {{start:number,end:number,name:string,href:string|null,partner:boolean}[]} */
+    const hits = [];
+    let m;
+    while ((m = re.exec(src))) {
+      const inner = String(m[1] || '').trim();
+      if (!inner) continue;
+      const partner = /^\s*partner\s*:/i.test(inner);
+      hits.push({
+        start: m.index,
+        end: m.index + m[0].length,
+        name: inner,
+        partner,
+        href: partner ? null : buildVkusvillAdmitadUrl(inner),
+      });
+    }
+
+    const root = document.createDocumentFragment();
+    let linkCount = 0;
+    let cursor = 0;
+
+    const pushText = (chunk) => {
+      if (!chunk) return;
+      root.appendChild(document.createTextNode(chunk));
+    };
+
+    for (const hit of hits) {
+      if (hit.start < cursor) continue;
+      pushText(src.slice(cursor, hit.start));
+      if (hit.partner) {
+        // Keep raw [[partner:id]] for strip/partner UI on richer branches; hide visibly.
+        pushText('');
+      } else if (hit.href && vkusvillDeeplink.enabled) {
+        const a = document.createElement('a');
+        a.className = 'product-chip';
+        a.href = hit.href;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer sponsored';
+        a.textContent = hit.name;
+        a.title = 'ВкусВилл — поиск';
+        root.appendChild(a);
+        linkCount += 1;
+      } else {
+        // No Admitad base yet — show product name without raw brackets.
+        pushText(hit.name);
+      }
+      cursor = hit.end;
+    }
+    pushText(src.slice(cursor));
+
+    return { fragment: root, linkCount, erid: vkusvillDeeplink.erid || '' };
+  }
+
+  function syncAdDisclosure(wrap, linkCount, erid) {
+    if (!wrap) return;
+    let tip = wrap.querySelector(':scope > .ad-disclosure');
+    if (linkCount >= 1 && erid) {
+      if (!tip) {
+        tip = document.createElement('p');
+        tip.className = 'ad-disclosure';
+        const feedback = wrap.querySelector(':scope > .feedback');
+        if (feedback) wrap.insertBefore(tip, feedback);
+        else wrap.appendChild(tip);
+      }
+      tip.textContent = `Реклама. АО «ВкусВилл», ИНН 7734443270. erid: ${erid}`;
+    } else if (tip) {
+      tip.remove();
+    }
+  }
+
+  /** Paint assistant bubble: product chips from [[name]]; plain text otherwise. */
+  function fillAssistantBubble(bubble, text, wrap) {
+    const { fragment, linkCount, erid } = renderProductDeeplinks(text);
+    bubble.replaceChildren(fragment);
+    if (wrap) syncAdDisclosure(wrap, linkCount, erid);
+  }
+
   function addMessage(role, text, opts = {}) {
     const wrap = document.createElement('div');
     wrap.className = `msg ${role}${opts.notice ? ' notice' : ''}${opts.error ? ' error' : ''}`;
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    bubble.textContent = text;
     wrap.appendChild(bubble);
 
     if (role === 'assistant' && opts.feedback) {
@@ -216,6 +319,12 @@
         }
       });
       wrap.appendChild(fb);
+    }
+
+    if (role === 'assistant' && !opts.notice && !opts.error) {
+      fillAssistantBubble(bubble, text, wrap);
+    } else {
+      bubble.textContent = text;
     }
 
     messagesEl.appendChild(wrap);
@@ -313,6 +422,15 @@
       if (communityVkLink && communityVkUrl) {
         communityVkLink.href = communityVkUrl;
       }
+      const dl = data.vkusvillDeeplink;
+      if (dl && typeof dl === 'object') {
+        vkusvillDeeplink = {
+          enabled: Boolean(dl.enabled && dl.admitadBase),
+          admitadBase: String(dl.admitadBase || '').trim(),
+          erid: String(dl.erid || '').trim(),
+          searchPrefix: String(dl.searchPrefix || 'https://vkusvill.ru/search/?q=').trim(),
+        };
+      }
       if (!data.hasKey) {
         /* mock mode is fine; notice comes with first stream */
       }
@@ -365,7 +483,7 @@
     };
 
     const paint = () => {
-      bubble.textContent = full;
+      fillAssistantBubble(bubble, full, wrap);
       scrollBottom();
     };
 
