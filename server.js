@@ -20,6 +20,84 @@ const DEFAULT_FALLBACK_MODELS = ['gemini-3.6-flash'];
 const DONATE_URL = process.env.DONATE_URL || '#donate';
 /** Single place for the VK community footer link (override via env if shortname changes). */
 const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.ru/ai.nutricode';
+
+/**
+ * VkusVill product auto-deeplink (Admitad ulp).
+ * Verified search path: https://vkusvill.ru/search/?q=… (sites without slash 301 → with slash).
+ * Defaults = live Admitad offer from Project store; override via env or partners.json id=vkusvill.
+ */
+const VKUSVILL_SEARCH_PREFIX = 'https://vkusvill.ru/search/?q=';
+const DEFAULT_ADMITAD_VKUSVILL_BASE =
+  'https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx';
+const DEFAULT_ADMITAD_VKUSVILL_ERID = '2bL9aMPo2e49hMef4phUrdrQCx';
+
+/** Strip ulp so we can append a fresh double-encoded target; keep erid and other params. */
+function normalizeAdmitadBase(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    url.searchParams.delete('ulp');
+    let out = `${url.origin}${url.pathname}`;
+    const qs = url.searchParams.toString();
+    if (qs) out += `?${qs}`;
+    return out;
+  } catch {
+    return value
+      .replace(/([?&])ulp=[^&]*/gi, '$1')
+      .replace(/[?&]$/, '')
+      .replace(/\?&/, '?');
+  }
+}
+
+function eridFromUrl(raw) {
+  try {
+    return String(new URL(String(raw || '').trim()).searchParams.get('erid') || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+/** Admitad webmaster hosts only — never a raw vkusvill.ru email/landing URL. */
+function looksLikeAdmitadWebmaster(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return false;
+  if (/vkusvill\.ru/i.test(value)) return false;
+  // Live offer uses kdbov.com; classic admitad.com / ad.admitad.com also ok if owner pastes those.
+  return /kdbov\.com|admitad\.com|ad\.admitad\.com/i.test(value);
+}
+
+function resolveVkusvillDeeplinkConfig(partners) {
+  const row = Array.isArray(partners)
+    ? partners.find((p) => p && String(p.id || '').toLowerCase() === 'vkusvill')
+    : null;
+  const fromEnvBase = String(process.env.ADMITAD_VKUSVILL_BASE || '').trim();
+  const fromPartnerAdmitad = String((row && row.admitad_base) || '').trim();
+  const fromPartnerLink = String((row && row.link) || '').trim();
+  // Prefer explicit admitad_base / env. Ignore vkusvill.ru landings (promo email clicks ≠ ulp base).
+  const candidate =
+    (looksLikeAdmitadWebmaster(fromEnvBase) && fromEnvBase) ||
+    (looksLikeAdmitadWebmaster(fromPartnerAdmitad) && fromPartnerAdmitad) ||
+    (looksLikeAdmitadWebmaster(fromPartnerLink) && fromPartnerLink) ||
+    DEFAULT_ADMITAD_VKUSVILL_BASE;
+  const base = normalizeAdmitadBase(candidate);
+  const fromEnvErid = String(process.env.ADMITAD_VKUSVILL_ERID || '').trim();
+  const fromPartnerErid = String((row && row.erid) || '').trim();
+  const erid =
+    fromEnvErid ||
+    fromPartnerErid ||
+    eridFromUrl(base) ||
+    DEFAULT_ADMITAD_VKUSVILL_ERID;
+  return {
+    admitadBase: base,
+    erid,
+    searchPrefix: VKUSVILL_SEARCH_PREFIX,
+    enabled: Boolean(base),
+    /** Optional plaque promo from partners.json — not used in ulp URL build. */
+    promoCode: String((row && row.promo_code) || '').trim() || null,
+  };
+}
+
 /** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
 const MAX_OUTPUT_TOKENS = Math.min(
   Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 1024),
@@ -75,6 +153,7 @@ function isOverloadError(status, code, message) {
 const ROOT = __dirname;
 const SYSTEM_PROMPT = fs.readFileSync(path.join(ROOT, 'prompt.txt'), 'utf8');
 const PARTNERS = JSON.parse(fs.readFileSync(path.join(ROOT, 'partners.json'), 'utf8'));
+const VKUSVILL_DEEPLINK = resolveVkusvillDeeplinkConfig(PARTNERS);
 
 /**
  * Quiet chat-mode overlays (надстройки). Same bot + short context block.
@@ -318,8 +397,27 @@ app.get('/api/config', (_req, res) => {
     model: GEMINI_MODEL,
     modelChain: GEMINI_MODEL_CHAIN,
     modes: MODE_IDS.map((id) => ({ id, label: CHAT_MODES[id].label })),
+    /** Public marking + webmaster deeplink base (semi-public); no private Admitad credentials. */
+    vkusvillDeeplink: {
+      enabled: VKUSVILL_DEEPLINK.enabled,
+      admitadBase: VKUSVILL_DEEPLINK.admitadBase,
+      erid: VKUSVILL_DEEPLINK.erid,
+      searchPrefix: VKUSVILL_DEEPLINK.searchPrefix,
+      promoCode: VKUSVILL_DEEPLINK.promoCode,
+    },
   });
 });
+
+/** Exported for scripts/verify-vkusvill-deeplink.js */
+function buildVkusvillAdmitadUrl(productName, cfg = VKUSVILL_DEEPLINK) {
+  const name = String(productName || '').trim();
+  const base = normalizeAdmitadBase(cfg && cfg.admitadBase);
+  const prefix = String((cfg && cfg.searchPrefix) || VKUSVILL_SEARCH_PREFIX);
+  if (!name || !base) return null;
+  const target = `${prefix}${encodeURIComponent(name)}`;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+}
 
 /**
  * Intent only: готовое / заказать / нет времени готовить.
@@ -864,4 +962,9 @@ module.exports = {
   resolveChatMode,
   modeOverlayBlock,
   buildSystemInstruction,
+  buildVkusvillAdmitadUrl,
+  normalizeAdmitadBase,
+  resolveVkusvillDeeplinkConfig,
+  VKUSVILL_SEARCH_PREFIX,
+  VKUSVILL_DEEPLINK,
 };
