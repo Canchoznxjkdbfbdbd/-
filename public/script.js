@@ -1,7 +1,8 @@
 (() => {
   const GREETING =
-    'Залог хорошего самочувствия — это сбалансированное питание. Иногда его нужно подбирать индивидуально. Приступим...';
+    'Подберём рацион под вашу жизнь — без регистрации. Напишите или выберите короткий старт.';
 
+  /** Kept for older localStorage threads that still store the bundled first question. */
   const FIRST_QUESTION =
     'Расскажите коротко: как вы питаетесь сейчас, есть ли аллергии или ограничения, и какую цель хотите — энергия, лёгкость, набор, поддержка после нагрузок или что-то ещё?';
 
@@ -38,7 +39,10 @@
   const donateBanner = document.getElementById('donate-banner');
   const donateCopy = document.getElementById('donate-copy');
   const donateDismiss = document.getElementById('donate-dismiss');
+  const emptyStart = document.getElementById('empty-start');
+  const modeBar = document.getElementById('mode-bar');
   const modeChips = Array.from(document.querySelectorAll('.mode-chip'));
+  const starterChips = Array.from(document.querySelectorAll('.starter-chip'));
 
   /** @type {{role: string, content: string}[]} */
   let history = [];
@@ -48,15 +52,33 @@
   let userTurns = 0;
   let selectedMode = 'normal';
 
+  function hasUserMessage() {
+    return history.some((m) => m.role === 'user');
+  }
+
+  function setEmptyChrome(on) {
+    if (emptyStart) emptyStart.hidden = !on;
+    if (modeBar) modeBar.hidden = on;
+    starterChips.forEach((chip) => {
+      chip.disabled = streaming;
+    });
+  }
+
+  function syncSessionChrome() {
+    const hasUser = hasUserMessage();
+    setEmptyChrome(!hasUser);
+    syncClearButton();
+  }
+
   function persistChat() {
     if (!HistoryStore) return;
-    // Keep localStorage empty until the person actually writes — greeting alone is not a session.
-    if (!history.some((m) => m.role === 'user')) {
+    // Keep localStorage empty until the person actually writes — empty starters alone are not a session.
+    if (!hasUserMessage()) {
       HistoryStore.clear(window.localStorage);
     } else {
       HistoryStore.save(window.localStorage, { messages: history, partnerShown, userTurns });
     }
-    syncClearButton();
+    syncSessionChrome();
   }
 
   let clearArmed = false;
@@ -71,7 +93,7 @@
 
   function syncClearButton() {
     if (!clearChatBtn) return;
-    const hasUser = history.some((m) => m.role === 'user');
+    const hasUser = hasUserMessage();
     clearChatBtn.hidden = !hasUser;
     clearChatBtn.disabled = streaming;
     if (!hasUser || streaming) setClearArmed(false);
@@ -83,10 +105,8 @@
     partnerShown = false;
     userTurns = 0;
     if (donateBanner) donateBanner.hidden = true;
-    addMessage('assistant', FIRST_QUESTION, { feedback: true });
-    history.push({ role: 'assistant', content: `${GREETING}\n\n${FIRST_QUESTION}` });
     if (HistoryStore) HistoryStore.clear(window.localStorage);
-    syncClearButton();
+    syncSessionChrome();
     input.focus();
   }
 
@@ -99,17 +119,20 @@
         ? saved.userTurns
         : history.filter((m) => m.role === 'user').length;
 
+    let sawUser = false;
     for (const msg of history) {
       if (msg.role === 'user') {
+        sawUser = true;
         addMessage('user', msg.content);
       } else {
         const text = HistoryStore
           ? HistoryStore.displayAssistantText(GREETING, FIRST_QUESTION, msg.content)
           : msg.content;
-        addMessage('assistant', text, { feedback: true });
+        // Feedback only after the person has written — no 👍👎 on a lonely opener.
+        addMessage('assistant', text, { feedback: sawUser });
       }
     }
-    syncClearButton();
+    syncSessionChrome();
     showDonateBanner();
   }
 
@@ -290,7 +313,7 @@
   async function streamReply() {
     streaming = true;
     sendBtn.disabled = true;
-    syncClearButton();
+    syncSessionChrome();
 
     let full = '';
     let gotToken = false;
@@ -470,25 +493,38 @@
       bubble.classList.remove('typing');
       streaming = false;
       sendBtn.disabled = false;
-      syncClearButton();
+      syncSessionChrome();
       input.focus();
       showDonateBanner();
     }
   }
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
+  async function sendUserText(text) {
     if (streaming) return;
-    const text = input.value.trim();
-    if (!text) return;
+    const value = String(text || '').trim();
+    if (!value) return;
 
-    addMessage('user', text);
-    history.push({ role: 'user', content: text });
+    addMessage('user', value);
+    history.push({ role: 'user', content: value });
     userTurns += 1;
     persistChat();
     input.value = '';
     autoGrow();
     await streamReply();
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (streaming) return;
+    await sendUserText(input.value);
+  });
+
+  starterChips.forEach((chip) => {
+    chip.addEventListener('click', async () => {
+      if (streaming) return;
+      const prompt = chip.getAttribute('data-prompt') || chip.textContent || '';
+      await sendUserText(prompt);
+    });
   });
 
   clearChatBtn?.addEventListener('click', () => {
@@ -525,11 +561,9 @@
     if (saved && saved.messages.some((m) => m.role === 'user')) {
       renderRestoredHistory(saved);
     } else {
-      // Hero already shows the greeting line; first AI turn asks the intake question.
-      addMessage('assistant', FIRST_QUESTION, { feedback: true });
-      history.push({ role: 'assistant', content: `${GREETING}\n\n${FIRST_QUESTION}` });
-      // Fresh greeting alone is not persisted — only after the person writes.
-      syncClearButton();
+      // Empty chat: brand + invite + starters + input. No bot survey, no mode/feedback noise.
+      history = [];
+      syncSessionChrome();
     }
     input.focus();
   }
