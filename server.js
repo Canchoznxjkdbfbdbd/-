@@ -12,7 +12,20 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 /** Behind nginx / Beget / Timeweb proxy — rate-limit must see real client IP. */
 app.set('trust proxy', 1);
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+/**
+ * Gemini API origin. On RU VPS, set GEMINI_API_ORIGIN to an allowed proxy host —
+ * direct generativelanguage.googleapis.com returns FAILED_PRECONDITION (location).
+ */
+const GEMINI_API_ORIGIN = (
+  process.env.GEMINI_API_ORIGIN || 'https://generativelanguage.googleapis.com'
+).replace(/\/$/, '');
+/** Slot 1 = GEMINI_API_KEY, slot 2 = GEMINI_API_KEY_2 (sticky primary after successful failover). */
+const GEMINI_KEY_SLOTS = [
+  { id: 1, key: String(process.env.GEMINI_API_KEY || '').trim() },
+  { id: 2, key: String(process.env.GEMINI_API_KEY_2 || '').trim() },
+].filter((slot) => slot.key);
+const GEMINI_API_KEY = GEMINI_KEY_SLOTS[0]?.key || '';
+let activeGeminiKeyId = GEMINI_KEY_SLOTS[0]?.id || null;
 /** Prefer lean/fast models first under free-tier load; gemini-3.8-flash is opt-in via env. */
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 /** Default chain after the primary model when Gemini returns 503 / UNAVAILABLE. */
@@ -136,10 +149,22 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function geminiStreamUrl(model) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+function getGeminiKeySlot(id) {
+  return GEMINI_KEY_SLOTS.find((s) => s.id === id) || null;
+}
+
+function orderedGeminiKeySlots() {
+  if (!GEMINI_KEY_SLOTS.length) return [];
+  const primary = getGeminiKeySlot(activeGeminiKeyId) || GEMINI_KEY_SLOTS[0];
+  const rest = GEMINI_KEY_SLOTS.filter((s) => s.id !== primary.id);
+  return [primary, ...rest];
+}
+
+function geminiStreamUrl(model, apiKey) {
+  const key = apiKey || GEMINI_API_KEY;
+  return `${GEMINI_API_ORIGIN}/v1beta/models/${encodeURIComponent(
     model
-  )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(GEMINI_API_KEY)}`;
+  )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`;
 }
 
 /** True for high-demand / capacity errors that may clear after backoff or a lighter model. */
@@ -147,6 +172,16 @@ function isOverloadError(status, code, message) {
   const blob = `${code || ''} ${message || ''}`;
   if (status === 503) return true;
   if (/UNAVAILABLE|high demand|overloaded|try again later/i.test(blob)) return true;
+  return false;
+}
+
+/** Errors that justify one switch to the other API key. */
+function isKeyFailoverError(status, code, message) {
+  if (!status) return true;
+  const blob = `${code || ''} ${message || ''}`;
+  if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate/i.test(blob)) return true;
+  if (isOverloadError(status, code, message)) return true;
+  if (status === 400 && /FAILED_PRECONDITION|location is not supported/i.test(blob)) return true;
   return false;
 }
 
@@ -586,14 +621,20 @@ function summarizeGeminiError(status, rawBody, model = GEMINI_MODEL) {
 }
 
 /**
- * Open a Gemini SSE stream. On 503/UNAVAILABLE: backoff retries, then next model in chain.
- * @param {object} body request JSON
- * @param {string[]} [models] override chain (e.g. stick to one model on MAX_TOKENS continue)
- * @returns {Promise<{ upstream: Response, model: string } | { errorText: string, status: number, model: string }>}
+ * Open Gemini SSE for one API key. On 503/UNAVAILABLE: backoff, then next model in chain.
+ * @returns {Promise<{ upstream: Response, model: string, keyId: number } | { errorText: string, status: number, model: string, keyId: number, failoverWorthy: boolean }>}
  */
-async function openGeminiStream(body, models = GEMINI_MODEL_CHAIN) {
+async function openGeminiStreamWithKey(body, models, keySlot) {
   const chain = models.length ? models : GEMINI_MODEL_CHAIN;
-  let lastFailure = { errorText: OVERLOAD_USER_MESSAGE, status: 503, model: chain[0] };
+  const apiKey = keySlot.key;
+  const keyId = keySlot.id;
+  let lastFailure = {
+    errorText: OVERLOAD_USER_MESSAGE,
+    status: 503,
+    model: chain[0],
+    keyId,
+    failoverWorthy: true,
+  };
 
   for (let modelIndex = 0; modelIndex < chain.length; modelIndex++) {
     const model = chain[modelIndex];
@@ -601,22 +642,27 @@ async function openGeminiStream(body, models = GEMINI_MODEL_CHAIN) {
 
     for (let attempt = 0; attempt < attempts; attempt++) {
       console.info(
-        `[gemini] request model=${model} attempt=${attempt + 1}/${attempts} chain=${modelIndex + 1}/${chain.length}`
+        `[gemini] request key=${keyId} model=${model} attempt=${attempt + 1}/${attempts} chain=${modelIndex + 1}/${chain.length}`
       );
 
       let upstream;
       try {
-        upstream = await fetch(geminiStreamUrl(model), {
+        upstream = await fetch(geminiStreamUrl(model, apiKey), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
       } catch (err) {
-        console.error(`[gemini] fetch failed model=${model}`, redactSecrets(err?.message || String(err)));
+        console.error(
+          `[gemini] fetch failed key=${keyId} model=${model}`,
+          redactSecrets(err?.message || String(err))
+        );
         lastFailure = {
           errorText: 'Связь прервалась. Проверьте сеть и напишите снова.',
           status: 0,
           model,
+          keyId,
+          failoverWorthy: true,
         };
         if (attempt < attempts - 1) {
           await sleep(OVERLOAD_BACKOFF_MS * Math.pow(2, attempt));
@@ -627,39 +673,101 @@ async function openGeminiStream(body, models = GEMINI_MODEL_CHAIN) {
 
       if (upstream.ok) {
         if (model !== GEMINI_MODEL) {
-          console.info(`[gemini] fallback ok model=${model} (primary was ${GEMINI_MODEL})`);
+          console.info(
+            `[gemini] fallback ok key=${keyId} model=${model} (primary was ${GEMINI_MODEL})`
+          );
         }
-        return { upstream, model };
+        return { upstream, model, keyId };
       }
 
       const errText = await upstream.text().catch(() => '');
       const { code, message } = parseGeminiErrorBody(errText);
+      const failoverWorthy = isKeyFailoverError(upstream.status, code, message);
       lastFailure = {
         errorText: summarizeGeminiError(upstream.status, errText, model),
         status: upstream.status,
         model,
+        keyId,
+        failoverWorthy,
       };
 
       if (isOverloadError(upstream.status, code, message)) {
         const canRetry = attempt < attempts - 1;
         const canFallback = modelIndex < chain.length - 1;
         console.warn(
-          `[gemini] overload model=${model} status=${upstream.status} code=${code || 'n/a'} retry=${canRetry} fallback=${canFallback}`
+          `[gemini] overload key=${keyId} model=${model} status=${upstream.status} code=${code || 'n/a'} retry=${canRetry} fallback=${canFallback}`
         );
         if (canRetry) {
           await sleep(OVERLOAD_BACKOFF_MS * Math.pow(2, attempt));
           continue;
         }
-        // Exhausted retries on this model — try next in chain.
         break;
       }
 
-      // Non-overload failure: stop immediately (no fallback for auth/404/etc.).
+      if (failoverWorthy) {
+        console.warn(
+          `[gemini] key=${keyId} failover-worthy status=${upstream.status} code=${code || 'n/a'}`
+        );
+        return lastFailure;
+      }
+
       return lastFailure;
     }
   }
 
   return lastFailure;
+}
+
+/**
+ * Open a Gemini SSE stream with dual-key failover (one switch on 429/503/network/geo).
+ * @param {object} body request JSON
+ * @param {string[]} [models] override chain (e.g. stick to one model on MAX_TOKENS continue)
+ */
+async function openGeminiStream(body, models = GEMINI_MODEL_CHAIN) {
+  const slots = orderedGeminiKeySlots();
+  if (!slots.length) {
+    return {
+      errorText: 'Ключ Gemini не задан.',
+      status: 0,
+      model: GEMINI_MODEL,
+      keyId: null,
+      failoverWorthy: false,
+    };
+  }
+
+  let lastFailure = null;
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    const result = await openGeminiStreamWithKey(body, models, slot);
+    if (result?.upstream) {
+      if (activeGeminiKeyId !== slot.id) {
+        console.info(
+          `[gemini] primary key switched ${activeGeminiKeyId || 'n/a'} → ${slot.id}`
+        );
+        activeGeminiKeyId = slot.id;
+      }
+      return result;
+    }
+    lastFailure = result;
+    const canFailover = i === 0 && slots.length > 1 && result?.failoverWorthy === true;
+    if (canFailover) {
+      console.warn(
+        `[gemini] key ${slot.id} failed (status=${result.status || 0}) — one failover to key ${slots[1].id}`
+      );
+      continue;
+    }
+    break;
+  }
+
+  return (
+    lastFailure || {
+      errorText: OVERLOAD_USER_MESSAGE,
+      status: 503,
+      model: GEMINI_MODEL,
+      keyId: activeGeminiKeyId,
+      failoverWorthy: false,
+    }
+  );
 }
 
 const MOCK_REPLY =
@@ -934,9 +1042,9 @@ if (require.main === module) {
   } else {
     app.listen(PORT, '0.0.0.0', () => {
       console.log(
-        `НутриКод worker pid=${process.pid} on http://127.0.0.1:${PORT} (key: ${
-          GEMINI_API_KEY ? 'yes' : 'mock'
-        }, model: ${GEMINI_MODEL}, chain: ${GEMINI_MODEL_CHAIN.join('→')})`
+        `НутриКод worker pid=${process.pid} on http://127.0.0.1:${PORT} (keys: ${
+          GEMINI_KEY_SLOTS.length
+        }, active: ${activeGeminiKeyId || 'n/a'}, origin: ${GEMINI_API_ORIGIN}, model: ${GEMINI_MODEL}, chain: ${GEMINI_MODEL_CHAIN.join('→')})`
       );
     });
   }
@@ -946,8 +1054,12 @@ module.exports = {
   app,
   parseModelChain,
   isOverloadError,
+  isKeyFailoverError,
   summarizeGeminiError,
   openGeminiStream,
+  openGeminiStreamWithKey,
+  GEMINI_API_ORIGIN,
+  GEMINI_KEY_SLOTS,
   pickPartner,
   isLivePartner,
   partnerPayload,
