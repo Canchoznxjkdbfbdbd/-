@@ -40,6 +40,7 @@ const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.ru/ai.nutri
  * VkusVill search (verified 200): https://vkusvill.ru/search/?q=
  * Важная рыба search (verified 200): https://vipfish.ru/search/?q=
  * BeFit: WP search https://letbefit.ru/?s= ( /search/?q= → 404); programs /programmy/{slug}/.
+ * Хваловская вода: WP https://hvalwaters.ru/?s= (/search/?q= → 404); products /water/{slug}/.
  */
 const VKUSVILL_SEARCH_PREFIX = 'https://vkusvill.ru/search/?q=';
 const DEFAULT_ADMITAD_VKUSVILL_BASE =
@@ -71,6 +72,46 @@ const DEFAULT_ADMITAD_BEFIT_BASE =
 const DEFAULT_ADMITAD_BEFIT_ERID = '25H8d7vbP8SRTvJZjHsUpp';
 /** Soft-geo from partner brief (MSK + SPb). */
 const BEFIT_GEO_CITIES = ['Москва', 'Санкт-Петербург'];
+
+/** Хваловская вода (hvalwaters.ru) — chips [[hval:…]] / [[water:…]] / [[hvalwaters:…]]. */
+const HVALWATERS_SEARCH_PREFIX = 'https://hvalwaters.ru/?s=';
+const HVALWATERS_PRODUCT_PREFIX = 'https://hvalwaters.ru/water/';
+const DEFAULT_ADMITAD_HVALWATERS_BASE =
+  'https://xmknb.com/g/b0173jl262268e100ca000dcac28d3/?erid=2bL9aMPo2e49hMef4pfVDKbKSL';
+const DEFAULT_ADMITAD_HVALWATERS_ERID = '2bL9aMPo2e49hMef4pfVDKbKSL';
+/** Optional coupon-ish Admitad (i=3) — stored in partners, chips use base without i=3. */
+const DEFAULT_ADMITAD_HVALWATERS_COUPON_BASE =
+  'https://xmknb.com/g/b4m98x4q7s268e100ca000dcac28d3/?i=3&erid=2bL9aMPo2e49hMef4pgUkgcvSC';
+/** Soft-geo MSK + SPb (+ near regions by address; hubs only in code). */
+const HVALWATERS_GEO_CITIES = ['Москва', 'Санкт-Петербург'];
+/** Verified product slugs under /water/{slug}/ (2026-11-17). */
+const HVALWATERS_PRODUCT_SLUGS = ['premium', 'naturelle', 'gornaya', 'deluxe'];
+/** Friendly aliases → verified /water/ slug. */
+const HVALWATERS_PRODUCT_ALIASES = {
+  premium: 'premium',
+  премиум: 'premium',
+  'хваловская premium': 'premium',
+  'хваловская премиум': 'premium',
+  'hvalovskaya premium': 'premium',
+  '19л': 'premium',
+  '19 l': 'premium',
+  '19l': 'premium',
+  '18.9': 'premium',
+  '18,9': 'premium',
+  бутыль: 'premium',
+  naturelle: 'naturelle',
+  натурель: 'naturelle',
+  'хваловская naturelle': 'naturelle',
+  gornaya: 'gornaya',
+  горная: 'gornaya',
+  'хваловская горная': 'gornaya',
+  deluxe: 'deluxe',
+  delux: 'deluxe',
+  делюкс: 'deluxe',
+  'хваловская deluxe': 'deluxe',
+  'хваловская делюкс': 'deluxe',
+};
+
 /** Verified program slugs from letbefit.ru home (2026-11-17). */
 const BEFIT_PROGRAM_SLUGS = [
   'balance',
@@ -144,14 +185,15 @@ function eridFromUrl(raw) {
 
 /**
  * Admitad webmaster hosts only — never raw merchant landings
- * (vkusvill.ru / vipfish.ru / letbefit.ru).
- * VV kdbov.com; рыба dorinebeaumont.com; BeFit uuwgc.com; classic admitad.com also ok.
+ * (vkusvill.ru / vipfish.ru / letbefit.ru / hvalwaters.ru).
+ * VV kdbov.com; рыба dorinebeaumont.com; BeFit uuwgc.com; Hvalwaters xmknb.com;
+ * classic admitad.com also ok.
  */
 function looksLikeAdmitadWebmaster(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (!value) return false;
-  if (/vkusvill\.ru|vipfish\.ru|letbefit\.ru/i.test(value)) return false;
-  return /kdbov\.com|dorinebeaumont\.com|uuwgc\.com|admitad\.com|ad\.admitad\.com/i.test(
+  if (/vkusvill\.ru|vipfish\.ru|letbefit\.ru|hvalwaters\.ru/i.test(value)) return false;
+  return /kdbov\.com|dorinebeaumont\.com|uuwgc\.com|xmknb\.com|admitad\.com|ad\.admitad\.com/i.test(
     value
   );
 }
@@ -333,6 +375,86 @@ function resolveBefitDeeplinkConfig(partners) {
   };
 }
 
+function resolveHvalwatersProductSlug(
+  label,
+  aliases = HVALWATERS_PRODUCT_ALIASES,
+  slugs = HVALWATERS_PRODUCT_SLUGS
+) {
+  const raw = String(label || '').trim();
+  if (!raw) return null;
+  let key = raw.toLowerCase().replace(/^\/+/, '');
+  key = key.replace(/^water\//i, '').replace(/\/+$/, '');
+  key = key.replace(/\s+/g, ' ').trim();
+  const aliasMap = aliases && typeof aliases === 'object' ? aliases : HVALWATERS_PRODUCT_ALIASES;
+  const slugList = Array.isArray(slugs) && slugs.length ? slugs : HVALWATERS_PRODUCT_SLUGS;
+  const slugSet = new Set(slugList.map((s) => String(s).toLowerCase()));
+  if (aliasMap[key]) return aliasMap[key];
+  const compact = key.replace(/\s+/g, '');
+  if (aliasMap[compact]) return aliasMap[compact];
+  if (slugSet.has(key)) return key;
+  if (slugSet.has(compact)) return compact;
+  if (/^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
+    return key.toLowerCase();
+  }
+  return null;
+}
+
+function resolveHvalwatersTargetUrl(label, cfg = {}) {
+  const raw = String(label || '').trim();
+  if (!raw) return null;
+  const slug = resolveHvalwatersProductSlug(
+    raw,
+    (cfg && cfg.productAliases) || HVALWATERS_PRODUCT_ALIASES,
+    (cfg && cfg.productSlugs) || HVALWATERS_PRODUCT_SLUGS
+  );
+  if (slug) {
+    const productPrefix = String(
+      (cfg && cfg.productPrefix) || HVALWATERS_PRODUCT_PREFIX
+    ).replace(/\/?$/, '/');
+    return `${productPrefix}${slug}/`;
+  }
+  const prefix = String((cfg && cfg.searchPrefix) || HVALWATERS_SEARCH_PREFIX);
+  return `${prefix}${encodeURIComponent(raw)}`;
+}
+
+function resolveHvalwatersDeeplinkConfig(partners) {
+  const row =
+    findPartnerRow(partners, 'hvalwaters') ||
+    findPartnerRow(partners, 'hvalovskie-vody') ||
+    findPartnerRow(partners, 'hval');
+  const geoFromPartner = Array.isArray(row && row.geo) ? row.geo : null;
+  const cities =
+    geoFromPartner && geoFromPartner.length
+      ? geoFromPartner.map((c) => String(c || '').trim()).filter(Boolean)
+      : HVALWATERS_GEO_CITIES.slice();
+  const cfg = resolveAdmitadDeeplinkConfig({
+    partners: row ? [row] : partners,
+    partnerId: (row && row.id) || 'hvalwaters',
+    envBaseKey: 'ADMITAD_HVALWATERS_BASE',
+    envEridKey: 'ADMITAD_HVALWATERS_ERID',
+    defaultBase: DEFAULT_ADMITAD_HVALWATERS_BASE,
+    defaultErid: DEFAULT_ADMITAD_HVALWATERS_ERID,
+    searchPrefix: HVALWATERS_SEARCH_PREFIX,
+  });
+  const couponRaw = String(
+    (row && (row.admitad_coupon_base || row.coupon_admitad_base)) ||
+      DEFAULT_ADMITAD_HVALWATERS_COUPON_BASE
+  ).trim();
+  const couponBase =
+    looksLikeAdmitadWebmaster(couponRaw) ? normalizeAdmitadBase(couponRaw) : '';
+  return {
+    ...cfg,
+    id: 'hvalwaters',
+    name: String((row && row.name) || 'Хваловская вода'),
+    cities,
+    tagPrefixes: ['hval', 'water', 'hvalwaters'],
+    productPrefix: HVALWATERS_PRODUCT_PREFIX,
+    productSlugs: HVALWATERS_PRODUCT_SLUGS.slice(),
+    productAliases: { ...HVALWATERS_PRODUCT_ALIASES },
+    couponAdmitadBase: couponBase || null,
+  };
+}
+
 /** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
 const MAX_OUTPUT_TOKENS = Math.min(
   Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 1024),
@@ -413,6 +535,7 @@ const PARTNERS = JSON.parse(fs.readFileSync(path.join(ROOT, 'partners.json'), 'u
 const VKUSVILL_DEEPLINK = resolveVkusvillDeeplinkConfig(PARTNERS);
 const VIPFISH_DEEPLINK = resolveVipfishDeeplinkConfig(PARTNERS);
 const BEFIT_DEEPLINK = resolveBefitDeeplinkConfig(PARTNERS);
+const HVALWATERS_DEEPLINK = resolveHvalwatersDeeplinkConfig(PARTNERS);
 
 /**
  * Quiet chat-mode overlays (надстройки). Same bot + short context block.
@@ -698,6 +821,24 @@ app.get('/api/config', (_req, res) => {
       inn: BEFIT_DEEPLINK.inn,
       name: BEFIT_DEEPLINK.name,
     },
+    /** Хваловская вода (hvalwaters.ru) — MSK+SPb; chips [[hval:…]] / [[water:…]] / [[hvalwaters:…]]. */
+    hvalwatersDeeplink: {
+      enabled: HVALWATERS_DEEPLINK.enabled,
+      admitadBase: HVALWATERS_DEEPLINK.admitadBase,
+      erid: HVALWATERS_DEEPLINK.erid,
+      searchPrefix: HVALWATERS_DEEPLINK.searchPrefix,
+      productPrefix: HVALWATERS_DEEPLINK.productPrefix,
+      productSlugs: HVALWATERS_DEEPLINK.productSlugs,
+      productAliases: HVALWATERS_DEEPLINK.productAliases,
+      cities: HVALWATERS_DEEPLINK.cities,
+      tagPrefixes: HVALWATERS_DEEPLINK.tagPrefixes,
+      couponAdmitadBase: HVALWATERS_DEEPLINK.couponAdmitadBase,
+      promoCode: HVALWATERS_DEEPLINK.promoCode,
+      disclaimer: HVALWATERS_DEEPLINK.disclaimer,
+      legalName: HVALWATERS_DEEPLINK.legalName,
+      inn: HVALWATERS_DEEPLINK.inn,
+      name: HVALWATERS_DEEPLINK.name,
+    },
   });
 });
 
@@ -730,6 +871,15 @@ function buildVipfishAdmitadUrl(productName, cfg = VIPFISH_DEEPLINK) {
 /** BeFit: program slug → /programmy/{slug}/; else WP search ?s=. */
 function buildBefitAdmitadUrl(label, cfg = BEFIT_DEEPLINK) {
   const target = resolveBefitTargetUrl(label, cfg || BEFIT_DEEPLINK);
+  const base = normalizeAdmitadBase(cfg && cfg.admitadBase);
+  if (!target || !base) return null;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+}
+
+/** Hvalwaters: product slug → /water/{slug}/; else WP search ?s=. */
+function buildHvalwatersAdmitadUrl(label, cfg = HVALWATERS_DEEPLINK) {
+  const target = resolveHvalwatersTargetUrl(label, cfg || HVALWATERS_DEEPLINK);
   const base = normalizeAdmitadBase(cfg && cfg.admitadBase);
   if (!target || !base) return null;
   const sep = base.includes('?') ? '&' : '?';
@@ -1362,11 +1512,15 @@ module.exports = {
   buildBefitAdmitadUrl,
   resolveBefitTargetUrl,
   resolveBefitProgramSlug,
+  buildHvalwatersAdmitadUrl,
+  resolveHvalwatersTargetUrl,
+  resolveHvalwatersProductSlug,
   normalizeAdmitadBase,
   looksLikeAdmitadWebmaster,
   resolveVkusvillDeeplinkConfig,
   resolveVipfishDeeplinkConfig,
   resolveBefitDeeplinkConfig,
+  resolveHvalwatersDeeplinkConfig,
   VKUSVILL_SEARCH_PREFIX,
   VKUSVILL_DEEPLINK,
   VIPFISH_SEARCH_PREFIX,
@@ -1378,4 +1532,10 @@ module.exports = {
   BEFIT_GEO_CITIES,
   BEFIT_PROGRAM_SLUGS,
   BEFIT_PROGRAM_ALIASES,
+  HVALWATERS_SEARCH_PREFIX,
+  HVALWATERS_PRODUCT_PREFIX,
+  HVALWATERS_DEEPLINK,
+  HVALWATERS_GEO_CITIES,
+  HVALWATERS_PRODUCT_SLUGS,
+  HVALWATERS_PRODUCT_ALIASES,
 };

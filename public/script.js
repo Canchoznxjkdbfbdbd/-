@@ -93,6 +93,23 @@
     promoCode: null,
     promos: [],
   };
+  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,productPrefix:string,productSlugs:string[],productAliases:Record<string,string>,disclaimer:string,legalName:string,inn:string,name:string,tagPrefixes:string[],promoCode:string|null,couponAdmitadBase:string|null}} */
+  let hvalwatersDeeplink = {
+    enabled: false,
+    admitadBase: '',
+    erid: '',
+    searchPrefix: 'https://hvalwaters.ru/?s=',
+    productPrefix: 'https://hvalwaters.ru/water/',
+    productSlugs: [],
+    productAliases: {},
+    disclaimer: '',
+    legalName: 'ООО «АКВАСИТИ»',
+    inn: '7816714891',
+    name: 'Хваловская вода',
+    tagPrefixes: ['hval', 'water', 'hvalwaters'],
+    promoCode: null,
+    couponAdmitadBase: null,
+  };
   let userTurns = 0;
   let selectedMode = 'normal';
 
@@ -228,7 +245,7 @@
 
   /**
    * Build Admitad deeplink: search URL → double-encode into admitadBase as ulp=.
-   * Base must be Admitad webmaster (kdbov… / dorinebeaumont… / uuwgc…), never raw merchant landing.
+   * Base must be Admitad webmaster (kdbov… / dorinebeaumont… / uuwgc… / xmknb…), never raw merchant landing.
    */
   function buildAdmitadUlpUrl(productName, cfg) {
     const name = String(productName || '').trim();
@@ -275,6 +292,41 @@
     return `${base}${sep}ulp=${encodeURIComponent(target)}`;
   }
 
+  /** Hvalwaters: known product slug → /water/{slug}/; else WP ?s= search. */
+  function resolveHvalwatersTargetUrl(label) {
+    const raw = String(label || '').trim();
+    if (!raw) return null;
+    let key = raw.toLowerCase().replace(/^\/+/, '');
+    key = key.replace(/^water\//i, '').replace(/\/+$/, '');
+    key = key.replace(/\s+/g, ' ').trim();
+    const aliases = hvalwatersDeeplink.productAliases || {};
+    const slugs = Array.isArray(hvalwatersDeeplink.productSlugs)
+      ? hvalwatersDeeplink.productSlugs.map((s) => String(s).toLowerCase())
+      : [];
+    const slugSet = new Set(slugs);
+    let slug = aliases[key] || aliases[key.replace(/\s+/g, '')] || null;
+    if (!slug && slugSet.has(key)) slug = key;
+    if (!slug && /^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
+      slug = key.toLowerCase();
+    }
+    if (slug) {
+      const productPrefix = String(
+        hvalwatersDeeplink.productPrefix || 'https://hvalwaters.ru/water/'
+      ).replace(/\/?$/, '/');
+      return `${productPrefix}${slug}/`;
+    }
+    const prefix = String(hvalwatersDeeplink.searchPrefix || 'https://hvalwaters.ru/?s=');
+    return `${prefix}${encodeURIComponent(raw)}`;
+  }
+
+  function buildHvalwatersAdmitadUrl(label) {
+    const target = resolveHvalwatersTargetUrl(label);
+    const base = String(hvalwatersDeeplink.admitadBase || '').trim();
+    if (!target || !base) return null;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+  }
+
   function parseProductTag(inner) {
     const raw = String(inner || '').trim();
     if (!raw) return null;
@@ -294,11 +346,17 @@
       const befitPrefixes = (befitDeeplink.tagPrefixes || ['befit', 'letbefit']).map((p) =>
         String(p).toLowerCase()
       );
+      const hvalPrefixes = (hvalwatersDeeplink.tagPrefixes || ['hval', 'water', 'hvalwaters']).map(
+        (p) => String(p).toLowerCase()
+      );
       if (fishPrefixes.includes(prefix)) {
         return { kind: 'product', label, store: 'vipfish' };
       }
       if (befitPrefixes.includes(prefix)) {
         return { kind: 'product', label, store: 'befit' };
+      }
+      if (hvalPrefixes.includes(prefix)) {
+        return { kind: 'product', label, store: 'hvalwaters' };
       }
       // Unknown prefix (e.g. magnit:) — show label only; do not invent links.
       return { kind: 'plain', label, store: null };
@@ -318,7 +376,7 @@
   }
 
   /**
-   * Turn [[product]] / [[vipfish:name]] / [[befit:slug]] into chips; leave [[partner:id]] alone.
+   * Turn [[product]] / [[vipfish:name]] / [[befit:slug]] / [[hval:slug]] into chips; leave [[partner:id]] alone.
    * Incomplete trailing [[… is left as plain text while streaming.
    */
   function renderProductDeeplinks(text) {
@@ -337,6 +395,12 @@
         href = buildAdmitadUlpUrl(parsed.label, vipfishDeeplink);
       } else if (parsed.kind === 'product' && parsed.store === 'befit' && befitDeeplink.enabled) {
         href = buildBefitAdmitadUrl(parsed.label);
+      } else if (
+        parsed.kind === 'product' &&
+        parsed.store === 'hvalwaters' &&
+        hvalwatersDeeplink.enabled
+      ) {
+        href = buildHvalwatersAdmitadUrl(parsed.label);
       }
       hits.push({
         start: m.index,
@@ -353,6 +417,7 @@
     let vvCount = 0;
     let fishCount = 0;
     let befitCount = 0;
+    let hvalCount = 0;
 
     const pushText = (chunk) => {
       if (!chunk) return;
@@ -380,6 +445,10 @@
           a.title = `${befitDeeplink.name || 'BeFit'} — программа / поиск`;
           a.dataset.partner = 'befit';
           befitCount += 1;
+        } else if (hit.store === 'hvalwaters') {
+          a.title = `${hvalwatersDeeplink.name || 'Хваловская вода'} — товар / поиск`;
+          a.dataset.partner = 'hvalwaters';
+          hvalCount += 1;
         } else {
           a.title = 'ВкусВилл — поиск';
           a.dataset.partner = 'vkusvill';
@@ -408,19 +477,25 @@
       const line = disclosureLine(befitDeeplink, 'ООО «АЛ-МУЛК»');
       if (line) disclosures.push(line);
     }
+    if (hvalCount >= 1) {
+      const line = disclosureLine(hvalwatersDeeplink, 'ООО «АКВАСИТИ»');
+      if (line) disclosures.push(line);
+    }
 
     return {
       fragment: root,
-      linkCount: vvCount + fishCount + befitCount,
+      linkCount: vvCount + fishCount + befitCount + hvalCount,
       disclosures,
       erid:
-        befitCount >= 1
-          ? befitDeeplink.erid || ''
-          : fishCount >= 1
-            ? vipfishDeeplink.erid || ''
-            : vvCount >= 1
-              ? vkusvillDeeplink.erid || ''
-              : '',
+        hvalCount >= 1
+          ? hvalwatersDeeplink.erid || ''
+          : befitCount >= 1
+            ? befitDeeplink.erid || ''
+            : fishCount >= 1
+              ? vipfishDeeplink.erid || ''
+              : vvCount >= 1
+                ? vkusvillDeeplink.erid || ''
+                : '',
     };
   }
 
@@ -442,7 +517,7 @@
     }
   }
 
-  /** Paint assistant bubble: product chips from [[name]] / [[vipfish:…]] / [[befit:…]]; plain text otherwise. */
+  /** Paint assistant bubble: product chips from [[name]] / [[vipfish:…]] / [[befit:…]] / [[hval:…]]; plain text otherwise. */
   function fillAssistantBubble(bubble, text, wrap) {
     const { fragment, disclosures } = renderProductDeeplinks(text);
     bubble.replaceChildren(fragment);
@@ -641,6 +716,42 @@
           tagPrefixes: prefixes.length ? prefixes : ['befit', 'letbefit'],
           promoCode: bf.promoCode ? String(bf.promoCode).trim() : null,
           promos: Array.isArray(bf.promos) ? bf.promos : [],
+        };
+      }
+      const hv = data.hvalwatersDeeplink;
+      if (hv && typeof hv === 'object') {
+        const prefixes = Array.isArray(hv.tagPrefixes)
+          ? hv.tagPrefixes.map((p) => String(p || '').trim().toLowerCase()).filter(Boolean)
+          : ['hval', 'water', 'hvalwaters'];
+        const aliases =
+          hv.productAliases && typeof hv.productAliases === 'object' ? hv.productAliases : {};
+        const aliasNorm = {};
+        for (const [k, v] of Object.entries(aliases)) {
+          const key = String(k || '')
+            .trim()
+            .toLowerCase();
+          const val = String(v || '').trim();
+          if (key && val) aliasNorm[key] = val;
+        }
+        hvalwatersDeeplink = {
+          enabled: Boolean(hv.enabled && hv.admitadBase),
+          admitadBase: String(hv.admitadBase || '').trim(),
+          erid: String(hv.erid || '').trim(),
+          searchPrefix: String(hv.searchPrefix || 'https://hvalwaters.ru/?s=').trim(),
+          productPrefix: String(hv.productPrefix || 'https://hvalwaters.ru/water/').trim(),
+          productSlugs: Array.isArray(hv.productSlugs)
+            ? hv.productSlugs.map((s) => String(s || '').trim()).filter(Boolean)
+            : [],
+          productAliases: aliasNorm,
+          disclaimer: String(hv.disclaimer || '').trim(),
+          legalName: String(hv.legalName || 'ООО «АКВАСИТИ»').trim(),
+          inn: String(hv.inn || '7816714891').trim(),
+          name: String(hv.name || 'Хваловская вода').trim(),
+          tagPrefixes: prefixes.length ? prefixes : ['hval', 'water', 'hvalwaters'],
+          promoCode: hv.promoCode ? String(hv.promoCode).trim() : null,
+          couponAdmitadBase: hv.couponAdmitadBase
+            ? String(hv.couponAdmitadBase).trim()
+            : null,
         };
       }
       if (!data.hasKey) {
