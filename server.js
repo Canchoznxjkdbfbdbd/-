@@ -640,6 +640,24 @@ ${mode.overlay}`;
 }
 
 app.use(express.json({ limit: '256kb' }));
+
+/** PWA manifest: correct MIME for Chromium install / home-screen icons. */
+app.get('/manifest.webmanifest', (_req, res) => {
+  res.type('application/manifest+json');
+  res.sendFile(path.join(ROOT, 'public', 'manifest.webmanifest'));
+});
+
+/** SEO: robots + sitemap must not fall through to the SPA catch-all HTML. */
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain; charset=utf-8');
+  res.sendFile(path.join(ROOT, 'public', 'robots.txt'));
+});
+
+app.get('/sitemap.xml', (_req, res) => {
+  res.type('application/xml; charset=utf-8');
+  res.sendFile(path.join(ROOT, 'public', 'sitemap.xml'));
+});
+
 app.use(express.static(path.join(ROOT, 'public')));
 
 const CHAT_RATE_WINDOW_MS = 15 * 60 * 1000;
