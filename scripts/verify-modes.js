@@ -53,6 +53,13 @@ assert.strictEqual(modeOverlayBlock(plain), '');
 const kidsBlock = modeOverlayBlock(CHAT_MODES.kids);
 assert.ok(kidsBlock.includes('Режим-надстройка'));
 assert.ok(kidsBlock.includes('детский'));
+assert.ok(/ТОЛЬКО 1–2/.test(CHAT_MODES.kids.overlay), 'kids overlay must clarify-first');
+assert.ok(/ТОЛЬКО 1–2/.test(CHAT_MODES.notime.overlay), 'notime overlay must clarify-first');
+assert.ok(/ТОЛЬКО 1–2/.test(CHAT_MODES.grocery.overlay), 'grocery overlay must clarify-first');
+assert.ok(
+  !/2–4 готовых или почти готовых варианта на сегодня/.test(CHAT_MODES.notime.overlay),
+  'notime must not dump 2–4 options on first reply'
+);
 
 const system = buildSystemInstruction(CHAT_MODES.grocery);
 assert.ok(system.includes('НутриКод'));

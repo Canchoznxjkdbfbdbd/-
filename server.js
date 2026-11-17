@@ -552,7 +552,9 @@ const CHAT_MODES = {
     label: 'Детский стол',
     overlay:
       'Режим-надстройка: детский / семейный стол.\n' +
-      'Подстрой ответ: одно блюдо или набор на всех, мягкий вкус; без отдельного «детского меню» как диеты. ' +
+      'На первом ответе (стартер / мало данных) — ТОЛЬКО 1–2 коротких уточнения: возраст детей?, аллергии?, на сегодня или на неделю? ' +
+      'Без меню, без стены рациона, без брендов, без [[меток]] и корзины. ' +
+      'После ответов: одно блюдо или набор на всех, мягкий вкус; без отдельного «детского меню» как диеты. ' +
       'Для детей — общие принципы еды и коротко: это не замена педиатру или нутрициологу.',
   },
   notime: {
@@ -560,16 +562,21 @@ const CHAT_MODES = {
     label: 'Нет времени',
     overlay:
       'Режим-надстройка: нет времени.\n' +
-      'Подстрой ответ: 2–4 готовых или почти готовых варианта на сегодня (15–20 мин или сборка без плиты): ' +
-      'что есть / что купить по пути, без длинных рецептов.',
+      'На первом ответе (стартер / мало данных) — ТОЛЬКО 1–2 коротких уточняющих вопроса: город (MSK/SPb?), ' +
+      'готовить самим быстро или готовая доставка на неделю?, аллергии одной фразой. ' +
+      'Запрещено в первом ответе: 2–4 варианта меню, тосты/йогурт/авокадо списком, лекция про БЖУ, бренды (BeFit и др.), [[метки]], корзина. ' +
+      'После ответов: если MSK/SPb и человек открыт к готовой еде на неделю — мягко недельные пакеты BeFit; ' +
+      'если готовят сами — 2–4 очень коротких варианта без длинных рецептов; корзину — только по явному шопингу.',
   },
   grocery: {
     id: 'grocery',
     label: 'Список покупок',
     overlay:
       'Режим-надстройка: список покупок.\n' +
-      'Подстрой ответ: короткий список на 3–7 дней (или срок из запроса): группы продуктов, порции-ориентиры, ' +
-      'без брендов и выдуманных ссылок в магазины.',
+      'На первом ответе — ТОЛЬКО 1–2 уточнения: на сейчас/день/неделю? на сколько человек? ограничения? ' +
+      'Без длинного эссе, без [[меток]], без BeFit, пока человек не ответил. ' +
+      'После уточнений — короткий маркированный список продуктов (не портянка), без брендов и выдуманных ссылок; ' +
+      'BeFit weekly только если MSK/SPb + нет времени готовить + человек открыт.',
   },
 };
 
@@ -911,11 +918,12 @@ function buildHvalwatersAdmitadUrl(label, cfg = HVALWATERS_DEEPLINK) {
 }
 
 /**
- * Intent only: готовое / заказать / нет времени готовить.
- * Avoid \\b — JS word boundaries ignore Cyrillic and break matches.
+ * Soft-offer intent: готовая еда / заказ / доставка / недельный пакет.
+ * Do NOT match bare «нет времени» from a starter chip — only clear ready-food wording
+ * in the latest user reply (see pickPartner). Avoid \\b — JS word boundaries break Cyrillic.
  */
 const INTENT_RE =
-  /готов(?:ое|ый|ую|ые|ого)|заказ(?:ать|аю|аем|ите)|заказы|нет времени(?:\s+готовить)?|некогда(?:\s+готовить)?/i;
+  /готов(?:ое|ый|ую|ые|ого)(?:\s+(?:питан\w*|ед\w*|рацион\w*|пакет\w*))?|заказ(?:ать|аю|аем|ите)|заказы|доставк\w*|недельн\w*\s*(?:рацион\w*|пакет\w*)|нет времени готовить|некогда готовить|готовый\s+рацион|befit|летбифит|letbefit/i;
 
 /** Placeholder / demo hosts must never ship as live offers. */
 const PLACEHOLDER_LINK_RE = /^https?:\/\/(www\.)?example\.com(\/|$)/i;
@@ -946,6 +954,7 @@ function countUserTurns(messages) {
 
 /**
  * Pick 0–1 live partner on intent. Never on first user turn.
+ * Intent must appear in the latest user message (not only in an earlier starter).
  * Demo rows (live:false / example.com) are skipped — no invented links.
  */
 function pickPartner(messages, { allowPartner = false } = {}) {
@@ -956,8 +965,11 @@ function pickPartner(messages, { allowPartner = false } = {}) {
   const live = PARTNERS.filter(isLivePartner);
   if (!live.length) return null;
 
+  // Starter «Нет времени» alone must not unlock ads — check the latest reply.
+  const latest = String(lastUserText(messages) || '').toLowerCase();
+  if (!INTENT_RE.test(latest)) return null;
+
   const text = conversationText(messages);
-  if (!INTENT_RE.test(text)) return null;
 
   let best = null;
   let bestScore = 0;
