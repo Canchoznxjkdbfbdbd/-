@@ -75,19 +75,19 @@ npm start
 | `DONATE_URL`                 | ссылка на оплату доната (заглушка `#donate`)                             |
 | `COMMUNITY_VK_URL`           | ссылка на сообщество ВК в футере                                         |
 | `ADMITAD_VKUSVILL_BASE`      | Admitad webmaster base для `ulp=` (kdbov…, не email-лендинг vkusvill.ru) |
-| `ADMITAD_VKUSVILL_ERID`      | erid для дисклеймера «Реклама…» под чипами VV                            |
+| `ADMITAD_VKUSVILL_ERID`      | erid для дисклеймера «Реклама…» у блока корзины VV                       |
 | `ADMITAD_VIPFISH_BASE`       | Admitad webmaster base Важной рыбы (dorinebeaumont…, не vipfish.ru)      |
-| `ADMITAD_VIPFISH_ERID`       | erid для дисклеймера под чипами Важной рыбы                              |
+| `ADMITAD_VIPFISH_ERID`       | erid для дисклеймера у блока ссылок Важной рыбы                          |
 | `ADMITAD_BEFIT_BASE`         | Admitad webmaster base BeFit (uuwgc…, не letbefit.ru)                    |
-| `ADMITAD_BEFIT_ERID`         | erid для дисклеймера под чипами BeFit                                    |
+| `ADMITAD_BEFIT_ERID`         | erid для дисклеймера у блока ссылок BeFit                                |
 | `ADMITAD_HVALWATERS_BASE`    | Admitad webmaster base Хваловской воды (xmknb… без i=3, не hvalwaters.ru)|
-| `ADMITAD_HVALWATERS_ERID`    | erid для дисклеймера под чипами Хваловской воды                          |
+| `ADMITAD_HVALWATERS_ERID`    | erid для дисклеймера у блока ссылок Хваловской воды                      |
 
 `gemini-3.8-flash` — опционально через `GEMINI_MODEL` или `GEMINI_MODEL_CHAIN` (см. `.env.example`).
 
 ### Автодиплинк ВкусВилл, Важная рыба, BeFit и Хваловская вода
 
-Модель помечает товары метками (без сырых Admitad URL). Клиент (`renderProductDeeplinks`) собирает:
+Модель помечает товары метками (без сырых Admitad URL). Клиент (`renderProductDeeplinks`) снимает `[[…]]` из текста (оставляет обычные названия) и собирает блок «Собрать корзину» / «Полезные ссылки» под ответом:
 
 1. целевой URL на витрине (поиск или страница товара/программы);
 2. Admitad webmaster base + `&ulp=` + `encodeURIComponent(targetUrl)`.
@@ -141,7 +141,7 @@ README.md
 - История чата только в `localStorage` браузера: восстанавливается после перезагрузки, очищается кнопкой «Очистить чат»; аккаунтов нет, на сервере диалоги не хранятся
 - Стриминг ответа (SSE): сначала спокойные статусы («Думает…» → «Печатает…»), потом текст по словам
 - Тихий блок партнёра под ответом ассистента — только по сигналу сервера, вне медицинского совета
-- Чипы `[[продукт]]` → ВкусВилл; `[[vipfish:…]]` / `[[ryba:…]]` → Важная рыба; `[[befit:…]]` / `[[letbefit:…]]` → BeFit; `[[hval:…]]` / `[[water:…]]` / `[[hvalwaters:…]]` → Хваловская вода; серый дисклеймер «Реклама…» + erid (и юрлицо из `partners.json`), если есть хотя бы одна ссылка
+- Метки `[[продукт]]` → ВкусВилл; `[[vipfish:…]]` / `[[ryba:…]]` → Важная рыба; `[[befit:…]]` / `[[letbefit:…]]` → BeFit; `[[hval:…]]` / `[[water:…]]` / `[[hvalwaters:…]]` → Хваловская вода: в тексте — имена без скобок, чипы в блоке под ответом; одна промо-плашка (если есть) внутри/под блоком; серый дисклеймер «Реклама…» + erid (и юрлицо из `partners.json`), если есть хотя бы одна ссылка
 - Анонимные 👍/👎 в `localStorage`
 - Тихая полоска доната под чатом после 3 сообщений (100 / 300 / 500 ₽)
 - В промпте — редкая мягкая шутка про донат только в конце удачного диалога или после «спасибо»
