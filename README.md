@@ -75,18 +75,27 @@ npm start
 | `DONATE_URL`                 | ссылка на оплату доната (заглушка `#donate`)                             |
 | `COMMUNITY_VK_URL`           | ссылка на сообщество ВК в футере                                         |
 | `ADMITAD_VKUSVILL_BASE`      | Admitad webmaster base для `ulp=` (kdbov…, не email-лендинг vkusvill.ru) |
-| `ADMITAD_VKUSVILL_ERID`      | erid для дисклеймера «Реклама…» под чипами                               |
+| `ADMITAD_VKUSVILL_ERID`      | erid для дисклеймера «Реклама…» под чипами VV                            |
+| `ADMITAD_VIPFISH_BASE`       | Admitad webmaster base Важной рыбы (dorinebeaumont…, не vipfish.ru)      |
+| `ADMITAD_VIPFISH_ERID`       | erid для дисклеймера под чипами Важной рыбы                              |
 
 `gemini-3.8-flash` — опционально через `GEMINI_MODEL` или `GEMINI_MODEL_CHAIN` (см. `.env.example`).
 
-### Автодиплинк ВкусВилл
+### Автодиплинк ВкусВилл и Важная рыба
 
-Модель помечает товары как `[[авокадо]]` (без сырых Admitad URL). Клиент (`renderProductDeeplinks`) собирает:
+Модель помечает товары метками (без сырых Admitad URL). Клиент (`renderProductDeeplinks`) собирает:
 
-1. поиск: `https://vkusvill.ru/search/?q=` + `encodeURIComponent(название)` (проверено: путь `/search/?q=` отвечает 200);
-2. Admitad: `ADMITAD_VKUSVILL_BASE` + `&ulp=` + `encodeURIComponent(searchUrl)`.
+1. поиск на витрине + `encodeURIComponent(название)`;
+2. Admitad webmaster base + `&ulp=` + `encodeURIComponent(searchUrl)`.
 
-База берётся из env → `partners.json` (`admitad_base` / Admitad-`link`) → дефолт в коде. URL вида `vkusvill.ru/?utm_…` (email-лендинг) **не** считаются базой. Промокод `VSC7247` — только для плашки (`promo_code`), не для ulp.
+| Метка | Поиск (проверено 200) | Admitad base |
+|-------|------------------------|--------------|
+| `[[авокадо]]` | `https://vkusvill.ru/search/?q=` | `ADMITAD_VKUSVILL_BASE` (kdbov…) |
+| `[[vipfish:лосось]]` / `[[ryba:лосось]]` | `https://vipfish.ru/search/?q=` | `ADMITAD_VIPFISH_BASE` (dorinebeaumont…) |
+
+База берётся из env → `partners.json` (`admitad_base` / Admitad-`link`) → дефолт в коде. URL вида `vkusvill.ru/?utm_…` или `vipfish.ru/…` (merchant-лендинг) **не** считаются базой. Промокод VV `VSC7247` — только для плашки, не для ulp.
+
+Важная рыба — soft-geo: только города из баннера зон (СПб, Мурино, Бугры, Пушкин, Петергоф, Всеволожск, Кудрово, Шушары, Сестрорецк); модель не ставит `vipfish`/`ryba` вне зоны. В одном ответе не мешать VV и рыбу. Магнит/Лавка/Perfluence — не подключены.
 
 ## Структура
 
@@ -126,7 +135,7 @@ README.md
 - История чата только в `localStorage` браузера: восстанавливается после перезагрузки, очищается кнопкой «Очистить чат»; аккаунтов нет, на сервере диалоги не хранятся
 - Стриминг ответа (SSE): сначала спокойные статусы («Думает…» → «Печатает…»), потом текст по словам
 - Тихий блок партнёра под ответом ассистента — только по сигналу сервера, вне медицинского совета
-- Чипы `[[продукт]]` → Admitad deeplink во ВкусВилл + серый erid-дисклеймер, если в ответе есть хотя бы одна ссылка
+- Чипы `[[продукт]]` → ВкусВилл; `[[vipfish:…]]` / `[[ryba:…]]` → Важная рыба; серый дисклеймер «Реклама…» + erid (и юрлицо из `partners.json`), если есть хотя бы одна ссылка
 - Анонимные 👍/👎 в `localStorage`
 - Тихая полоска доната под чатом после 3 сообщений (100 / 300 / 500 ₽)
 - В промпте — редкая мягкая шутка про донат только в конце удачного диалога или после «спасибо»

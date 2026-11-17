@@ -35,14 +35,32 @@ const DONATE_URL = process.env.DONATE_URL || '#donate';
 const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.ru/ai.nutricode';
 
 /**
- * VkusVill product auto-deeplink (Admitad ulp).
- * Verified search path: https://vkusvill.ru/search/?q=… (sites without slash 301 → with slash).
- * Defaults = live Admitad offer from Project store; override via env or partners.json id=vkusvill.
+ * Product auto-deeplink (Admitad ulp).
+ * Pattern: merchant search URL → encodeURIComponent into webmaster base as &ulp=.
+ * VkusVill search (verified 200): https://vkusvill.ru/search/?q=
+ * Важная рыба search (verified 200): https://vipfish.ru/search/?q=
  */
 const VKUSVILL_SEARCH_PREFIX = 'https://vkusvill.ru/search/?q=';
 const DEFAULT_ADMITAD_VKUSVILL_BASE =
   'https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx';
 const DEFAULT_ADMITAD_VKUSVILL_ERID = '2bL9aMPo2e49hMef4phUrdrQCx';
+
+const VIPFISH_SEARCH_PREFIX = 'https://vipfish.ru/search/?q=';
+const DEFAULT_ADMITAD_VIPFISH_BASE =
+  'https://dorinebeaumont.com/g/lqb6l7197z268e100ca094cf89477e/?erid=2bL9aMPo2e49hMef4peVndVUPr';
+const DEFAULT_ADMITAD_VIPFISH_ERID = '2bL9aMPo2e49hMef4peVndVUPr';
+/** Owner banner zones — soft-gate in prompt; chips use [[vipfish:…]] / [[ryba:…]]. */
+const VIPFISH_GEO_CITIES = [
+  'Санкт-Петербург',
+  'Мурино',
+  'Бугры',
+  'Пушкин',
+  'Петергоф',
+  'Всеволожск',
+  'Кудрово',
+  'Шушары',
+  'Сестрорецк',
+];
 
 /** Strip ulp so we can append a fresh double-encoded target; keep erid and other params. */
 function normalizeAdmitadBase(raw) {
@@ -71,43 +89,100 @@ function eridFromUrl(raw) {
   }
 }
 
-/** Admitad webmaster hosts only — never a raw vkusvill.ru email/landing URL. */
+/**
+ * Admitad webmaster hosts only — never raw merchant landings (vkusvill.ru / vipfish.ru).
+ * Live VV uses kdbov.com; Важная рыба — dorinebeaumont.com; classic admitad.com also ok.
+ */
 function looksLikeAdmitadWebmaster(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (!value) return false;
-  if (/vkusvill\.ru/i.test(value)) return false;
-  // Live offer uses kdbov.com; classic admitad.com / ad.admitad.com also ok if owner pastes those.
-  return /kdbov\.com|admitad\.com|ad\.admitad\.com/i.test(value);
+  if (/vkusvill\.ru|vipfish\.ru/i.test(value)) return false;
+  return /kdbov\.com|dorinebeaumont\.com|admitad\.com|ad\.admitad\.com/i.test(value);
 }
 
-function resolveVkusvillDeeplinkConfig(partners) {
-  const row = Array.isArray(partners)
-    ? partners.find((p) => p && String(p.id || '').toLowerCase() === 'vkusvill')
-    : null;
-  const fromEnvBase = String(process.env.ADMITAD_VKUSVILL_BASE || '').trim();
+function findPartnerRow(partners, id) {
+  const needle = String(id || '')
+    .trim()
+    .toLowerCase();
+  if (!needle || !Array.isArray(partners)) return null;
+  return (
+    partners.find((p) => p && String(p.id || '').toLowerCase() === needle) || null
+  );
+}
+
+function resolveAdmitadDeeplinkConfig({
+  partners,
+  partnerId,
+  envBaseKey,
+  envEridKey,
+  defaultBase,
+  defaultErid,
+  searchPrefix,
+  extra = {},
+}) {
+  const row = findPartnerRow(partners, partnerId);
+  const fromEnvBase = String(process.env[envBaseKey] || '').trim();
   const fromPartnerAdmitad = String((row && row.admitad_base) || '').trim();
   const fromPartnerLink = String((row && row.link) || '').trim();
-  // Prefer explicit admitad_base / env. Ignore vkusvill.ru landings (promo email clicks ≠ ulp base).
   const candidate =
     (looksLikeAdmitadWebmaster(fromEnvBase) && fromEnvBase) ||
     (looksLikeAdmitadWebmaster(fromPartnerAdmitad) && fromPartnerAdmitad) ||
     (looksLikeAdmitadWebmaster(fromPartnerLink) && fromPartnerLink) ||
-    DEFAULT_ADMITAD_VKUSVILL_BASE;
+    defaultBase;
   const base = normalizeAdmitadBase(candidate);
-  const fromEnvErid = String(process.env.ADMITAD_VKUSVILL_ERID || '').trim();
+  const fromEnvErid = String(process.env[envEridKey] || '').trim();
   const fromPartnerErid = String((row && row.erid) || '').trim();
   const erid =
-    fromEnvErid ||
-    fromPartnerErid ||
-    eridFromUrl(base) ||
-    DEFAULT_ADMITAD_VKUSVILL_ERID;
+    fromEnvErid || fromPartnerErid || eridFromUrl(base) || defaultErid;
   return {
     admitadBase: base,
     erid,
-    searchPrefix: VKUSVILL_SEARCH_PREFIX,
+    searchPrefix,
     enabled: Boolean(base),
-    /** Optional plaque promo from partners.json — not used in ulp URL build. */
     promoCode: String((row && row.promo_code) || '').trim() || null,
+    disclaimer: String((row && row.disclaimer) || '').trim() || null,
+    legalName: String((row && row.legal_name) || '').trim() || null,
+    inn: String((row && row.inn) || '').trim() || null,
+    ...extra,
+  };
+}
+
+function resolveVkusvillDeeplinkConfig(partners) {
+  return resolveAdmitadDeeplinkConfig({
+    partners,
+    partnerId: 'vkusvill',
+    envBaseKey: 'ADMITAD_VKUSVILL_BASE',
+    envEridKey: 'ADMITAD_VKUSVILL_ERID',
+    defaultBase: DEFAULT_ADMITAD_VKUSVILL_BASE,
+    defaultErid: DEFAULT_ADMITAD_VKUSVILL_ERID,
+    searchPrefix: VKUSVILL_SEARCH_PREFIX,
+  });
+}
+
+function resolveVipfishDeeplinkConfig(partners) {
+  const row =
+    findPartnerRow(partners, 'vazhnaya-ryba') ||
+    findPartnerRow(partners, 'vipfish');
+  const geoFromPartner = Array.isArray(row && row.geo) ? row.geo : null;
+  const cities =
+    geoFromPartner && geoFromPartner.length
+      ? geoFromPartner.map((c) => String(c || '').trim()).filter(Boolean)
+      : VIPFISH_GEO_CITIES.slice();
+  const cfg = resolveAdmitadDeeplinkConfig({
+    partners: row ? [row] : partners,
+    partnerId: (row && row.id) || 'vazhnaya-ryba',
+    envBaseKey: 'ADMITAD_VIPFISH_BASE',
+    envEridKey: 'ADMITAD_VIPFISH_ERID',
+    defaultBase: DEFAULT_ADMITAD_VIPFISH_BASE,
+    defaultErid: DEFAULT_ADMITAD_VIPFISH_ERID,
+    searchPrefix: VIPFISH_SEARCH_PREFIX,
+  });
+  return {
+    ...cfg,
+    id: 'vazhnaya-ryba',
+    name: String((row && row.name) || 'Важная рыба'),
+    cities,
+    tagPrefixes: ['vipfish', 'ryba'],
   };
 }
 
@@ -189,6 +264,7 @@ const ROOT = __dirname;
 const SYSTEM_PROMPT = fs.readFileSync(path.join(ROOT, 'prompt.txt'), 'utf8');
 const PARTNERS = JSON.parse(fs.readFileSync(path.join(ROOT, 'partners.json'), 'utf8'));
 const VKUSVILL_DEEPLINK = resolveVkusvillDeeplinkConfig(PARTNERS);
+const VIPFISH_DEEPLINK = resolveVipfishDeeplinkConfig(PARTNERS);
 
 /**
  * Quiet chat-mode overlays (надстройки). Same bot + short context block.
@@ -439,19 +515,50 @@ app.get('/api/config', (_req, res) => {
       erid: VKUSVILL_DEEPLINK.erid,
       searchPrefix: VKUSVILL_DEEPLINK.searchPrefix,
       promoCode: VKUSVILL_DEEPLINK.promoCode,
+      disclaimer: VKUSVILL_DEEPLINK.disclaimer,
+      legalName: VKUSVILL_DEEPLINK.legalName,
+      inn: VKUSVILL_DEEPLINK.inn,
+    },
+    /** Важная рыба (vipfish.ru) — СПб зона; chips via [[vipfish:…]] / [[ryba:…]]. */
+    vipfishDeeplink: {
+      enabled: VIPFISH_DEEPLINK.enabled,
+      admitadBase: VIPFISH_DEEPLINK.admitadBase,
+      erid: VIPFISH_DEEPLINK.erid,
+      searchPrefix: VIPFISH_DEEPLINK.searchPrefix,
+      cities: VIPFISH_DEEPLINK.cities,
+      tagPrefixes: VIPFISH_DEEPLINK.tagPrefixes,
+      disclaimer: VIPFISH_DEEPLINK.disclaimer,
+      legalName: VIPFISH_DEEPLINK.legalName,
+      inn: VIPFISH_DEEPLINK.inn,
+      name: VIPFISH_DEEPLINK.name,
     },
   });
 });
 
-/** Exported for scripts/verify-vkusvill-deeplink.js */
-function buildVkusvillAdmitadUrl(productName, cfg = VKUSVILL_DEEPLINK) {
+/** Shared Admitad ulp builder: searchPrefix + name → &ulp=encodeURIComponent(target). */
+function buildAdmitadUlpUrl(productName, cfg) {
   const name = String(productName || '').trim();
   const base = normalizeAdmitadBase(cfg && cfg.admitadBase);
-  const prefix = String((cfg && cfg.searchPrefix) || VKUSVILL_SEARCH_PREFIX);
-  if (!name || !base) return null;
+  const prefix = String((cfg && cfg.searchPrefix) || '').trim();
+  if (!name || !base || !prefix) return null;
   const target = `${prefix}${encodeURIComponent(name)}`;
   const sep = base.includes('?') ? '&' : '?';
   return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+}
+
+/** Exported for scripts/verify-*-deeplink.js */
+function buildVkusvillAdmitadUrl(productName, cfg = VKUSVILL_DEEPLINK) {
+  return buildAdmitadUlpUrl(productName, {
+    ...(cfg || {}),
+    searchPrefix: (cfg && cfg.searchPrefix) || VKUSVILL_SEARCH_PREFIX,
+  });
+}
+
+function buildVipfishAdmitadUrl(productName, cfg = VIPFISH_DEEPLINK) {
+  return buildAdmitadUlpUrl(productName, {
+    ...(cfg || {}),
+    searchPrefix: (cfg && cfg.searchPrefix) || VIPFISH_SEARCH_PREFIX,
+  });
 }
 
 /**
@@ -1074,9 +1181,16 @@ module.exports = {
   resolveChatMode,
   modeOverlayBlock,
   buildSystemInstruction,
+  buildAdmitadUlpUrl,
   buildVkusvillAdmitadUrl,
+  buildVipfishAdmitadUrl,
   normalizeAdmitadBase,
+  looksLikeAdmitadWebmaster,
   resolveVkusvillDeeplinkConfig,
+  resolveVipfishDeeplinkConfig,
   VKUSVILL_SEARCH_PREFIX,
   VKUSVILL_DEEPLINK,
+  VIPFISH_SEARCH_PREFIX,
+  VIPFISH_DEEPLINK,
+  VIPFISH_GEO_CITIES,
 };
