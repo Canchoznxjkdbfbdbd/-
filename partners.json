@@ -167,5 +167,37 @@
     "legal_name": "ООО «АЛ-МУЛК»",
     "inn": "7713441603",
     "disclaimer": "Реклама. ООО «АЛ-МУЛК», ИНН 7713441603. erid: 25H8d7vbP8SRTvJZjHsUpp. Партнёрская ссылка Admitad."
+  },
+  {
+    "id": "hvalwaters",
+    "name": "Хваловская вода",
+    "geo": ["Москва", "Санкт-Петербург"],
+    "geo_mode": "cities",
+    "tags": [
+      "hvalwaters",
+      "hval",
+      "water",
+      "хваловская",
+      "вода",
+      "19л",
+      "бутыль",
+      "кулер",
+      "помпа",
+      "доставка воды",
+      "питьевая вода"
+    ],
+    "offer_type": "grocery",
+    "promo_code": null,
+    "promo_terms": "Стартовые наборы для новых клиентов (ориентир 99 ₽ — условия у партнёра); кулеры/помпы в каталоге",
+    "live": false,
+    "admitad_base": "https://xmknb.com/g/b0173jl262268e100ca000dcac28d3/?erid=2bL9aMPo2e49hMef4pfVDKbKSL",
+    "admitad_coupon_base": "https://xmknb.com/g/b4m98x4q7s268e100ca000dcac28d3/?i=3&erid=2bL9aMPo2e49hMef4pgUkgcvSC",
+    "erid": "2bL9aMPo2e49hMef4pfVDKbKSL",
+    "link": "https://xmknb.com/g/b0173jl262268e100ca000dcac28d3/?erid=2bL9aMPo2e49hMef4pfVDKbKSL",
+    "landing_url": "https://hvalwaters.ru/",
+    "blurb": "Доставка воды 19 л Хваловская Premium (и кулеры/помпы) — Москва и Санкт-Петербург + ближние регионы.",
+    "legal_name": "ООО «АКВАСИТИ»",
+    "inn": "7816714891",
+    "disclaimer": "Реклама. ООО «АКВАСИТИ», ИНН 7816714891. erid: 2bL9aMPo2e49hMef4pfVDKbKSL. Партнёрская ссылка Admitad."
   }
 ]
