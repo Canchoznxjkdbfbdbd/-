@@ -38,7 +38,6 @@
   const form = document.getElementById('composer');
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
-  const voiceBtn = document.getElementById('voice-input');
   const clearChatBtn = document.getElementById('clear-chat');
   const donateBanner = document.getElementById('donate-banner');
   const donateCopy = document.getElementById('donate-copy');
@@ -48,13 +47,6 @@
   const modeBar = document.getElementById('mode-bar');
   const modeChips = Array.from(document.querySelectorAll('.mode-chip'));
   const starterChips = Array.from(document.querySelectorAll('.starter-chip'));
-
-  // STT only (no TTS). iOS Safari often has neither SpeechRecognition nor webkitSpeechRecognition.
-  const SpeechRecognitionCtor =
-    typeof window !== 'undefined'
-      ? window.SpeechRecognition || window.webkitSpeechRecognition || null
-      : null;
-  const voiceSupported = Boolean(SpeechRecognitionCtor && voiceBtn);
 
   /** @type {{role: string, content: string}[]} */
   let history = [];
@@ -922,9 +914,7 @@
 
   async function streamReply() {
     streaming = true;
-    stopVoiceInput();
     sendBtn.disabled = true;
-    if (voiceBtn) voiceBtn.disabled = true;
     syncSessionChrome();
 
     let full = '';
@@ -1118,7 +1108,6 @@
       bubble.classList.remove('typing');
       streaming = false;
       sendBtn.disabled = false;
-      if (voiceBtn && voiceSupported) voiceBtn.disabled = false;
       syncSessionChrome();
       input.focus();
       showDonateBanner();
@@ -1179,114 +1168,9 @@
     }
   });
 
-  // --- Voice input (STT only, no TTS). Button stays hidden when API is missing. ---
-  /** @type {InstanceType<NonNullable<typeof SpeechRecognitionCtor>> | null} */
-  let recognition = null;
-  let voiceListening = false;
-  let voiceBaseText = '';
-  let voiceFinalText = '';
-
-  function setVoiceUi(listening) {
-    voiceListening = listening;
-    if (!voiceBtn) return;
-    voiceBtn.setAttribute('aria-pressed', listening ? 'true' : 'false');
-    voiceBtn.setAttribute('aria-label', listening ? 'Остановить запись' : 'Голосовой ввод');
-    voiceBtn.title = listening ? 'Остановить запись' : 'Голосовой ввод';
-  }
-
-  function joinVoiceText(base, spoken) {
-    const a = String(base || '').trim();
-    const b = String(spoken || '').replace(/\s+/g, ' ').trim();
-    if (!a) return b;
-    if (!b) return a;
-    return `${a} ${b}`;
-  }
-
-  function paintVoiceTranscript(spoken) {
-    input.value = joinVoiceText(voiceBaseText, spoken).slice(0, 4000);
-    autoGrow();
-  }
-
-  function stopVoiceInput() {
-    if (!recognition || !voiceListening) {
-      setVoiceUi(false);
-      return;
-    }
-    try {
-      recognition.stop();
-    } catch {
-      /* already stopped */
-    }
-    setVoiceUi(false);
-  }
-
-  function startVoiceInput() {
-    if (!recognition || streaming || voiceListening) return;
-    voiceBaseText = String(input.value || '').trim();
-    voiceFinalText = '';
-    try {
-      recognition.start();
-      setVoiceUi(true);
-    } catch {
-      setVoiceUi(false);
-    }
-  }
-
-  function toggleVoiceInput() {
-    if (!voiceSupported || streaming) return;
-    if (voiceListening) stopVoiceInput();
-    else startVoiceInput();
-  }
-
-  function initVoiceInput() {
-    if (!voiceSupported) return;
-
-    recognition = new SpeechRecognitionCtor();
-    recognition.lang = 'ru-RU';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (event) => {
-      let finals = '';
-      let interim = '';
-      for (let i = 0; i < event.results.length; i += 1) {
-        const result = event.results[i];
-        const piece = (result[0] && result[0].transcript) || '';
-        if (result.isFinal) finals += `${piece} `;
-        else interim += piece;
-      }
-      voiceFinalText = finals.replace(/\s+/g, ' ').trim();
-      const preview = `${voiceFinalText}${interim ? ` ${interim}` : ''}`.replace(/\s+/g, ' ').trim();
-      paintVoiceTranscript(preview);
-    };
-
-    recognition.onerror = () => {
-      // permission-denied / not-allowed / network — stop quietly; typing still works
-      setVoiceUi(false);
-    };
-
-    recognition.onend = () => {
-      setVoiceUi(false);
-      paintVoiceTranscript(voiceFinalText);
-    };
-
-    voiceBtn.hidden = false;
-    form.classList.add('composer--voice');
-    voiceBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      toggleVoiceInput();
-    });
-  }
-
-  form.addEventListener('submit', () => {
-    stopVoiceInput();
-  });
-
   async function boot() {
     await loadConfig();
     setMode(readStoredMode());
-    initVoiceInput();
 
     const saved = HistoryStore ? HistoryStore.load(window.localStorage) : null;
     if (saved && saved.messages.some((m) => m.role === 'user')) {
