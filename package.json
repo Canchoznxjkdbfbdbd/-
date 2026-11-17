@@ -16,6 +16,7 @@
     "verify:befit": "node scripts/verify-befit-deeplink.js",
     "verify:hvalwaters": "node scripts/verify-hvalwaters-deeplink.js",
     "verify:cart-block": "node scripts/verify-cart-block-ux.js",
+    "verify:scroll-starters": "node scripts/verify-chat-scroll-starters.js",
     "verify:robots": "node scripts/verify-robots-sitemap.js",
     "verify:voice": "node scripts/verify-voice-input.js"
   },

@@ -251,6 +251,23 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  /** Near the bottom of the transcript (user is following the latest lines). */
+  function isNearBottom(threshold = 72) {
+    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight <= threshold;
+  }
+
+  /** Keep the start of a streaming reply in view (first paragraph), not the growing tail. */
+  function scrollToMessageStart(wrap) {
+    if (!wrap || !messagesEl) return;
+    const parentRect = messagesEl.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    const delta = wrapRect.top - parentRect.top;
+    messagesEl.scrollTop += delta - 6;
+  }
+
+  /** While streaming: pin to bottom only if the user is (or stays) at the bottom. */
+  let streamPinBottom = false;
+
   /**
    * Build Admitad deeplink: search URL → double-encode into admitadBase as ulp=.
    * Base must be Admitad webmaster (kdbov… / dorinebeaumont… / uuwgc… / xmknb…), never raw merchant landing.
@@ -760,7 +777,7 @@
     const cart = wrap.querySelector(':scope > .cart-block');
     if (cart) cart.appendChild(box);
     else insertBeforeMessageMeta(wrap, box);
-    scrollBottom();
+    if (streamPinBottom) scrollBottom();
   }
 
   function showDonateBanner() {
@@ -922,6 +939,13 @@
     bubble.classList.add('typing');
     bubble.dataset.stage = 'thinking';
 
+    // Pin to bottom only if the user was already following the latest lines.
+    streamPinBottom = isNearBottom();
+    const onStreamScroll = () => {
+      streamPinBottom = isNearBottom();
+    };
+    messagesEl.addEventListener('scroll', onStreamScroll, { passive: true });
+
     const setStatus = (next, phrase) => {
       if (gotToken || stage === 'reply') return;
       // Only advance (or keep) — never flicker a new random phrase for the same stage.
@@ -931,7 +955,7 @@
       bubble.dataset.stage = next;
       bubble.textContent = phrase;
       bubble.classList.add('typing');
-      scrollBottom();
+      if (streamPinBottom) scrollBottom();
     };
 
     const beginReply = () => {
@@ -946,11 +970,15 @@
       bubble.classList.remove('typing');
       // Only clear the placeholder once — never wipe accumulated tokens later.
       bubble.textContent = '';
+      // Stay on the first paragraph while tokens arrive; do not chase the growing tail.
+      // Pin-to-bottom resumes only if the user themselves scrolls to the bottom.
+      scrollToMessageStart(wrap);
+      streamPinBottom = false;
     };
 
     const paint = () => {
       fillAssistantBubble(bubble, full, wrap);
-      scrollBottom();
+      if (streamPinBottom) scrollBottom();
     };
 
     // If the server is slow to signal “typing”, still advance the stage locally.
@@ -1081,6 +1109,8 @@
         paint();
       }
     } finally {
+      messagesEl.removeEventListener('scroll', onStreamScroll);
+      streamPinBottom = false;
       if (typingFallbackTimer) {
         clearTimeout(typingFallbackTimer);
         typingFallbackTimer = 0;
