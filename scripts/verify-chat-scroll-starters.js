@@ -39,8 +39,8 @@ assert.ok(
   'composer focus after stream must preventScroll'
 );
 assert.ok(
-  /webkitSpeechRecognition|SpeechRecognition/.test(script) && script.includes('initVoiceInput'),
-  'voice mic wiring must stay intact'
+  !/webkitSpeechRecognition|SpeechRecognition|initVoiceInput|voice-input/.test(script),
+  'voice STT must stay removed'
 );
 assert.ok(script.includes('function syncCartBlock'), 'cart block must stay intact');
 
