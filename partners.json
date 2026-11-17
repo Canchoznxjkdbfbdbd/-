@@ -61,6 +61,47 @@
     "link": "https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx",
     "landing_url": "https://vkusvill.ru/?utm_medium=677297&utm_source=partners&utm_campaign=16031&utm_content=381&promo_code=VSC7247&web_id=2603881&click_id=3b650a472375dbe278075b7ea2f168b6",
     "blurb": "Продукты и доставка: супермаркет здоровой еды ВкусВилл.",
+    "legal_name": "АО «ВкусВилл»",
+    "inn": "7734443270",
     "disclaimer": "Реклама. АО «ВкусВилл», ИНН 7734443270. erid: 2bL9aMPo2e49hMef4phUrdrQCx. Партнёрская ссылка Admitad."
+  },
+  {
+    "id": "vazhnaya-ryba",
+    "name": "Важная рыба",
+    "geo": [
+      "Санкт-Петербург",
+      "Мурино",
+      "Бугры",
+      "Пушкин",
+      "Петергоф",
+      "Всеволожск",
+      "Кудрово",
+      "Шушары",
+      "Сестрорецк"
+    ],
+    "geo_mode": "cities",
+    "tags": [
+      "рыба",
+      "морепродукты",
+      "лосось",
+      "суши",
+      "роллы",
+      "vipfish",
+      "важная рыба",
+      "seafood",
+      "доставка",
+      "готовое"
+    ],
+    "offer_type": "grocery",
+    "promo_code": null,
+    "live": false,
+    "admitad_base": "https://dorinebeaumont.com/g/lqb6l7197z268e100ca094cf89477e/?erid=2bL9aMPo2e49hMef4peVndVUPr",
+    "erid": "2bL9aMPo2e49hMef4peVndVUPr",
+    "link": "https://dorinebeaumont.com/g/lqb6l7197z268e100ca094cf89477e/?erid=2bL9aMPo2e49hMef4peVndVUPr",
+    "landing_url": "https://vipfish.ru/",
+    "blurb": "Доставка рыбы, суши и готовых блюд — Важная рыба (vipfish.ru), зона СПб и пригороды.",
+    "legal_name": "ООО «Кейтеринг-Рент»",
+    "inn": "7804597213",
+    "disclaimer": "Реклама. ООО «Кейтеринг-Рент», ИНН 7804597213. erid: 2bL9aMPo2e49hMef4peVndVUPr. Партнёрская ссылка Admitad."
   }
 ]

@@ -54,12 +54,27 @@
   let partnerShown = false;
   let donateUrl = '#donate';
   let communityVkUrl = COMMUNITY_VK_URL_DEFAULT;
-  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string}} */
+  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,disclaimer:string,legalName:string,inn:string}} */
   let vkusvillDeeplink = {
     enabled: false,
     admitadBase: '',
     erid: '',
     searchPrefix: 'https://vkusvill.ru/search/?q=',
+    disclaimer: '',
+    legalName: 'АО «ВкусВилл»',
+    inn: '7734443270',
+  };
+  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,disclaimer:string,legalName:string,inn:string,name:string,tagPrefixes:string[]}} */
+  let vipfishDeeplink = {
+    enabled: false,
+    admitadBase: '',
+    erid: '',
+    searchPrefix: 'https://vipfish.ru/search/?q=',
+    disclaimer: '',
+    legalName: 'ООО «Кейтеринг-Рент»',
+    inn: '7804597213',
+    name: 'Важная рыба',
+    tagPrefixes: ['vipfish', 'ryba'],
   };
   let userTurns = 0;
   let selectedMode = 'normal';
@@ -196,44 +211,87 @@
 
   /**
    * Build Admitad deeplink: search URL → double-encode into admitadBase as ulp=.
-   * Base must be Admitad webmaster (kdbov…), never a raw vkusvill.ru email landing.
+   * Base must be Admitad webmaster (kdbov… / dorinebeaumont…), never raw merchant landing.
    */
-  function buildVkusvillAdmitadUrl(productName) {
+  function buildAdmitadUlpUrl(productName, cfg) {
     const name = String(productName || '').trim();
-    const base = String(vkusvillDeeplink.admitadBase || '').trim();
-    const prefix = String(vkusvillDeeplink.searchPrefix || 'https://vkusvill.ru/search/?q=');
-    if (!name || !base) return null;
+    const base = String((cfg && cfg.admitadBase) || '').trim();
+    const prefix = String((cfg && cfg.searchPrefix) || '').trim();
+    if (!name || !base || !prefix) return null;
     const target = `${prefix}${encodeURIComponent(name)}`;
     const sep = base.includes('?') ? '&' : '?';
     return `${base}${sep}ulp=${encodeURIComponent(target)}`;
   }
 
+  function parseProductTag(inner) {
+    const raw = String(inner || '').trim();
+    if (!raw) return null;
+    if (/^\s*partner\s*:/i.test(raw)) {
+      return { kind: 'partner', label: raw, store: null };
+    }
+    const prefixed = raw.match(/^\s*([a-z][a-z0-9_-]*)\s*:\s*(.+)$/i);
+    if (prefixed) {
+      const prefix = String(prefixed[1] || '')
+        .trim()
+        .toLowerCase();
+      const label = String(prefixed[2] || '').trim();
+      if (!label) return null;
+      const fishPrefixes = (vipfishDeeplink.tagPrefixes || ['vipfish', 'ryba']).map((p) =>
+        String(p).toLowerCase()
+      );
+      if (fishPrefixes.includes(prefix)) {
+        return { kind: 'product', label, store: 'vipfish' };
+      }
+      // Unknown prefix (e.g. magnit:) — show label only; do not invent links.
+      return { kind: 'plain', label, store: null };
+    }
+    return { kind: 'product', label: raw, store: 'vkusvill' };
+  }
+
+  function disclosureLine(cfg, fallbackName) {
+    if (!cfg || !cfg.erid) return '';
+    if (cfg.disclaimer) return String(cfg.disclaimer).trim();
+    const legal = String(cfg.legalName || fallbackName || '').trim();
+    const inn = String(cfg.inn || '').trim();
+    const bits = ['Реклама.'];
+    if (legal) bits.push(inn ? `${legal}, ИНН ${inn}.` : `${legal}.`);
+    bits.push(`erid: ${cfg.erid}`);
+    return bits.join(' ');
+  }
+
   /**
-   * Turn [[product]] into clickable chips; leave [[partner:id]] alone (other handlers).
+   * Turn [[product]] / [[vipfish:name]] into chips; leave [[partner:id]] alone.
    * Incomplete trailing [[… is left as plain text while streaming.
    */
   function renderProductDeeplinks(text) {
     const src = String(text || '');
     const re = /\[\[([^\]]+)\]\]/g;
-    /** @type {{start:number,end:number,name:string,href:string|null,partner:boolean}[]} */
+    /** @type {{start:number,end:number,label:string,store:string|null,kind:string,href:string|null}[]} */
     const hits = [];
     let m;
     while ((m = re.exec(src))) {
-      const inner = String(m[1] || '').trim();
-      if (!inner) continue;
-      const partner = /^\s*partner\s*:/i.test(inner);
+      const parsed = parseProductTag(m[1]);
+      if (!parsed) continue;
+      let href = null;
+      if (parsed.kind === 'product' && parsed.store === 'vkusvill' && vkusvillDeeplink.enabled) {
+        href = buildAdmitadUlpUrl(parsed.label, vkusvillDeeplink);
+      } else if (parsed.kind === 'product' && parsed.store === 'vipfish' && vipfishDeeplink.enabled) {
+        href = buildAdmitadUlpUrl(parsed.label, vipfishDeeplink);
+      }
       hits.push({
         start: m.index,
         end: m.index + m[0].length,
-        name: inner,
-        partner,
-        href: partner ? null : buildVkusvillAdmitadUrl(inner),
+        label: parsed.label,
+        store: parsed.store,
+        kind: parsed.kind,
+        href,
       });
     }
 
     const root = document.createDocumentFragment();
-    let linkCount = 0;
     let cursor = 0;
+    let vvCount = 0;
+    let fishCount = 0;
 
     const pushText = (chunk) => {
       if (!chunk) return;
@@ -243,34 +301,62 @@
     for (const hit of hits) {
       if (hit.start < cursor) continue;
       pushText(src.slice(cursor, hit.start));
-      if (hit.partner) {
+      if (hit.kind === 'partner') {
         // Keep raw [[partner:id]] for strip/partner UI on richer branches; hide visibly.
         pushText('');
-      } else if (hit.href && vkusvillDeeplink.enabled) {
+      } else if (hit.href) {
         const a = document.createElement('a');
         a.className = 'product-chip';
         a.href = hit.href;
         a.target = '_blank';
         a.rel = 'noopener noreferrer sponsored';
-        a.textContent = hit.name;
-        a.title = 'ВкусВилл — поиск';
+        a.textContent = hit.label;
+        a.title =
+          hit.store === 'vipfish'
+            ? `${vipfishDeeplink.name || 'Важная рыба'} — поиск`
+            : 'ВкусВилл — поиск';
+        if (hit.store === 'vipfish') a.dataset.partner = 'vazhnaya-ryba';
+        else if (hit.store === 'vkusvill') a.dataset.partner = 'vkusvill';
         root.appendChild(a);
-        linkCount += 1;
+        if (hit.store === 'vipfish') fishCount += 1;
+        else vvCount += 1;
       } else {
-        // No Admitad base yet — show product name without raw brackets.
-        pushText(hit.name);
+        // No Admitad base / unknown prefix — show product name without raw brackets.
+        pushText(hit.label);
       }
       cursor = hit.end;
     }
     pushText(src.slice(cursor));
 
-    return { fragment: root, linkCount, erid: vkusvillDeeplink.erid || '' };
+    /** @type {string[]} */
+    const disclosures = [];
+    if (vvCount >= 1) {
+      const line = disclosureLine(vkusvillDeeplink, 'АО «ВкусВилл»');
+      if (line) disclosures.push(line);
+    }
+    if (fishCount >= 1) {
+      const line = disclosureLine(vipfishDeeplink, 'ООО «Кейтеринг-Рент»');
+      if (line) disclosures.push(line);
+    }
+
+    return {
+      fragment: root,
+      linkCount: vvCount + fishCount,
+      disclosures,
+      erid:
+        fishCount >= 1
+          ? vipfishDeeplink.erid || ''
+          : vvCount >= 1
+            ? vkusvillDeeplink.erid || ''
+            : '',
+    };
   }
 
-  function syncAdDisclosure(wrap, linkCount, erid) {
+  function syncAdDisclosure(wrap, disclosures) {
     if (!wrap) return;
+    const lines = Array.isArray(disclosures) ? disclosures.filter(Boolean) : [];
     let tip = wrap.querySelector(':scope > .ad-disclosure');
-    if (linkCount >= 1 && erid) {
+    if (lines.length) {
       if (!tip) {
         tip = document.createElement('p');
         tip.className = 'ad-disclosure';
@@ -278,17 +364,17 @@
         if (feedback) wrap.insertBefore(tip, feedback);
         else wrap.appendChild(tip);
       }
-      tip.textContent = `Реклама. АО «ВкусВилл», ИНН 7734443270. erid: ${erid}`;
+      tip.textContent = lines.join(' ');
     } else if (tip) {
       tip.remove();
     }
   }
 
-  /** Paint assistant bubble: product chips from [[name]]; plain text otherwise. */
+  /** Paint assistant bubble: product chips from [[name]] / [[vipfish:name]]; plain text otherwise. */
   function fillAssistantBubble(bubble, text, wrap) {
-    const { fragment, linkCount, erid } = renderProductDeeplinks(text);
+    const { fragment, disclosures } = renderProductDeeplinks(text);
     bubble.replaceChildren(fragment);
-    if (wrap) syncAdDisclosure(wrap, linkCount, erid);
+    if (wrap) syncAdDisclosure(wrap, disclosures);
   }
 
   function addMessage(role, text, opts = {}) {
@@ -429,6 +515,26 @@
           admitadBase: String(dl.admitadBase || '').trim(),
           erid: String(dl.erid || '').trim(),
           searchPrefix: String(dl.searchPrefix || 'https://vkusvill.ru/search/?q=').trim(),
+          disclaimer: String(dl.disclaimer || '').trim(),
+          legalName: String(dl.legalName || 'АО «ВкусВилл»').trim(),
+          inn: String(dl.inn || '7734443270').trim(),
+        };
+      }
+      const fish = data.vipfishDeeplink;
+      if (fish && typeof fish === 'object') {
+        const prefixes = Array.isArray(fish.tagPrefixes)
+          ? fish.tagPrefixes.map((p) => String(p || '').trim().toLowerCase()).filter(Boolean)
+          : ['vipfish', 'ryba'];
+        vipfishDeeplink = {
+          enabled: Boolean(fish.enabled && fish.admitadBase),
+          admitadBase: String(fish.admitadBase || '').trim(),
+          erid: String(fish.erid || '').trim(),
+          searchPrefix: String(fish.searchPrefix || 'https://vipfish.ru/search/?q=').trim(),
+          disclaimer: String(fish.disclaimer || '').trim(),
+          legalName: String(fish.legalName || 'ООО «Кейтеринг-Рент»').trim(),
+          inn: String(fish.inn || '7804597213').trim(),
+          name: String(fish.name || 'Важная рыба').trim(),
+          tagPrefixes: prefixes.length ? prefixes : ['vipfish', 'ryba'],
         };
       }
       if (!data.hasKey) {
