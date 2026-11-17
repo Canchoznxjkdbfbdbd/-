@@ -239,22 +239,44 @@
     input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
   }
 
+  /**
+   * Programmatic scroll must not re-enable streamPinBottom via the scroll listener
+   * (that was the #30 failure: scrollToMessageStart → near-bottom → chase cart).
+   */
+  let ignoreScrollEvent = false;
+  let ignoreScrollTimer = 0;
+
+  function markProgrammaticScroll() {
+    ignoreScrollEvent = true;
+    if (ignoreScrollTimer) window.clearTimeout(ignoreScrollTimer);
+    // Clear after the browser has delivered the synthetic scroll event (2 frames),
+    // so a real user scroll-up is not swallowed by a long timeout.
+    ignoreScrollTimer = window.setTimeout(() => {
+      requestAnimationFrame(() => {
+        ignoreScrollEvent = false;
+        ignoreScrollTimer = 0;
+      });
+    }, 0);
+  }
+
   function scrollBottom() {
+    if (!messagesEl) return;
+    markProgrammaticScroll();
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
   /** Near the bottom of the transcript (user is following the latest lines). */
-  function isNearBottom(threshold = 72) {
+  function isNearBottom(threshold = 96) {
+    if (!messagesEl) return true;
     return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight <= threshold;
   }
 
-  /** Keep the start of a streaming reply in view (first paragraph), not the growing tail. */
-  function scrollToMessageStart(wrap) {
-    if (!wrap || !messagesEl) return;
-    const parentRect = messagesEl.getBoundingClientRect();
-    const wrapRect = wrap.getBoundingClientRect();
-    const delta = wrapRect.top - parentRect.top;
-    messagesEl.scrollTop += delta - 6;
+  /**
+   * Autoscroll only when already following the bottom. Never force to cart / last
+   * paragraph; never yank the viewport if the person scrolled up to read.
+   */
+  function maybeFollowBottom() {
+    if (streamPinBottom) scrollBottom();
   }
 
   /** While streaming: pin to bottom only if the user is (or stays) at the bottom. */
@@ -707,7 +729,8 @@
     }
 
     messagesEl.appendChild(wrap);
-    scrollBottom();
+    // User just sent → show their bubble. Assistant/notice → only if already near bottom.
+    if (role === 'user' || isNearBottom()) scrollBottom();
     return { wrap, bubble };
   }
 
@@ -769,7 +792,8 @@
     const cart = wrap.querySelector(':scope > .cart-block');
     if (cart) cart.appendChild(box);
     else insertBeforeMessageMeta(wrap, box);
-    if (streamPinBottom) scrollBottom();
+    // Partner/cart growth must not yank scroll unless the user is already following.
+    maybeFollowBottom();
   }
 
   function showDonateBanner() {
@@ -930,8 +954,12 @@
     bubble.dataset.stage = 'thinking';
 
     // Pin to bottom only if the user was already following the latest lines.
+    // Never force scroll to message start / cart (that jump survived #30).
     streamPinBottom = isNearBottom();
     const onStreamScroll = () => {
+      // Ignore our own scrollBottom writes — otherwise a short first paint re-pins
+      // and later cart growth yanks the viewport to the last paragraph.
+      if (ignoreScrollEvent) return;
       streamPinBottom = isNearBottom();
     };
     messagesEl.addEventListener('scroll', onStreamScroll, { passive: true });
@@ -945,7 +973,7 @@
       bubble.dataset.stage = next;
       bubble.textContent = phrase;
       bubble.classList.add('typing');
-      if (streamPinBottom) scrollBottom();
+      maybeFollowBottom();
     };
 
     const beginReply = () => {
@@ -960,15 +988,17 @@
       bubble.classList.remove('typing');
       // Only clear the placeholder once — never wipe accumulated tokens later.
       bubble.textContent = '';
-      // Stay on the first paragraph while tokens arrive; do not chase the growing tail.
-      // Pin-to-bottom resumes only if the user themselves scrolls to the bottom.
-      scrollToMessageStart(wrap);
-      streamPinBottom = false;
+      // Do NOT force scrollToMessageStart / scrollBottom here — that re-fired the
+      // scroll listener in #30, re-enabled pin-to-bottom, then chased the cart.
+      // Follow only via maybeFollowBottom while streamPinBottom stays true.
     };
 
     const paint = () => {
+      // Snapshot before layout grows (cart under reply). Only follow if the user
+      // was already pinned/near bottom — never yank a scrolled-up reader to cart.
+      const follow = streamPinBottom;
       fillAssistantBubble(bubble, full, wrap);
-      if (streamPinBottom) scrollBottom();
+      if (follow) scrollBottom();
     };
 
     // If the server is slow to signal “typing”, still advance the stage locally.
@@ -1101,6 +1131,11 @@
     } finally {
       messagesEl.removeEventListener('scroll', onStreamScroll);
       streamPinBottom = false;
+      ignoreScrollEvent = false;
+      if (ignoreScrollTimer) {
+        window.clearTimeout(ignoreScrollTimer);
+        ignoreScrollTimer = 0;
+      }
       if (typingFallbackTimer) {
         clearTimeout(typingFallbackTimer);
         typingFallbackTimer = 0;
@@ -1109,7 +1144,8 @@
       streaming = false;
       sendBtn.disabled = false;
       syncSessionChrome();
-      input.focus();
+      // Focus composer for typing; do not scroll the transcript to cart.
+      input.focus({ preventScroll: true });
       showDonateBanner();
     }
   }

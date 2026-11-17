@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Offline contracts: near-bottom stream scroll + short starter intents + no cart dump on soft starters.
+ * Offline contracts: near-bottom-only stream scroll (no force-to-cart) +
+ * soft starter clarifying flow + BeFit weekly / cart when picture clear.
  * Run: node scripts/verify-chat-scroll-starters.js
  */
 
@@ -16,19 +17,26 @@ const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
 const prompt = fs.readFileSync(path.join(root, 'prompt.txt'), 'utf8');
 
 assert.ok(script.includes('function isNearBottom'), 'isNearBottom missing');
-assert.ok(script.includes('function scrollToMessageStart'), 'scrollToMessageStart missing');
+assert.ok(script.includes('function maybeFollowBottom'), 'maybeFollowBottom missing');
+assert.ok(script.includes('ignoreScrollEvent'), 'ignoreScrollEvent guard missing');
+assert.ok(script.includes('markProgrammaticScroll'), 'markProgrammaticScroll missing');
 assert.ok(script.includes('let streamPinBottom'), 'streamPinBottom missing');
 assert.ok(
-  /if \(streamPinBottom\) scrollBottom\(\)/.test(script),
-  'paint/status must guard scrollBottom with streamPinBottom'
+  !script.includes('function scrollToMessageStart'),
+  'scrollToMessageStart must be removed (forced jump / re-pin bug)'
+);
+assert.ok(!/scrollToMessageStart\s*\(/.test(script), 'no scrollToMessageStart calls');
+assert.ok(
+  /if \(ignoreScrollEvent\) return/.test(script),
+  'stream scroll listener must ignore programmatic scrolls'
 );
 assert.ok(
-  /scrollToMessageStart\(wrap\);\s*streamPinBottom = false/.test(script),
-  'beginReply must pin to message start and clear stream pin'
+  /role === 'user' \|\| isNearBottom\(\)/.test(script),
+  'addMessage must not always force scrollBottom'
 );
 assert.ok(
-  script.includes("messagesEl.removeEventListener('scroll', onStreamScroll)"),
-  'stream scroll listener must be removed in finally'
+  /preventScroll:\s*true/.test(script),
+  'composer focus after stream must preventScroll'
 );
 assert.ok(
   !/webkitSpeechRecognition|SpeechRecognition|initVoiceInput|voice-input/.test(script),
@@ -49,9 +57,18 @@ for (const p of prompts) {
   );
 }
 
+assert.ok(/7b\./.test(prompt) && /уточняющ/.test(prompt), 'prompt must ask soft clarifying questions first (7b)');
 assert.ok(
-  /первом ответе диалога|короткого стартера|без двойных квадратных скобок/.test(prompt),
-  'prompt must forbid [[tags]] / cart dump on first soft starter'
+  /мягкого стартера[\s\S]{0,500}без \[\[/.test(prompt),
+  'prompt must forbid [[tags]] / cart dump on soft starter'
+);
+assert.ok(
+  /недельные?/.test(prompt) && /BeFit/.test(prompt) && /пакет|рацион/.test(prompt),
+  'prompt must emphasize BeFit weekly packs'
+);
+assert.ok(
+  /на сейчас|на день|на неделю/.test(prompt),
+  'prompt must offer cart horizon now/day/week'
 );
 assert.ok(
   /явно просит купить|список покупок|корзину/.test(prompt),
