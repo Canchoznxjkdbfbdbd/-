@@ -110,6 +110,23 @@
     promoCode: null,
     couponAdmitadBase: null,
   };
+  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,programPrefix:string,programSlugs:string[],programAliases:Record<string,string>,disclaimer:string,legalName:string,inn:string,name:string,tagPrefixes:string[],promoCode:string|null,promos:object[]}} */
+  let growfoodDeeplink = {
+    enabled: false,
+    admitadBase: '',
+    erid: '',
+    searchPrefix: 'https://growfood.pro/#menu-plans',
+    programPrefix: 'https://growfood.pro/new-order/',
+    programSlugs: [],
+    programAliases: {},
+    disclaimer: '',
+    legalName: 'ООО «ГФ Трейд»',
+    inn: '7811715411',
+    name: 'GrowFood',
+    tagPrefixes: ['growfood', 'gf'],
+    promoCode: null,
+    promos: [],
+  };
   let userTurns = 0;
   let selectedMode = 'normal';
 
@@ -284,7 +301,7 @@
 
   /**
    * Build Admitad deeplink: search URL → double-encode into admitadBase as ulp=.
-   * Base must be Admitad webmaster (kdbov… / dorinebeaumont… / uuwgc… / xmknb…), never raw merchant landing.
+   * Base must be Admitad webmaster (kdbov… / dorinebeaumont… / uuwgc… / xmknb… / naiawork…), never raw merchant landing.
    */
   function buildAdmitadUlpUrl(productName, cfg) {
     const name = String(productName || '').trim();
@@ -366,6 +383,40 @@
     return `${base}${sep}ulp=${encodeURIComponent(target)}`;
   }
 
+  /** GrowFood: known line slug → /new-order/{slug}; else catalog #menu-plans. */
+  function resolveGrowfoodTargetUrl(label) {
+    const raw = String(label || '').trim();
+    if (!raw) return null;
+    let key = raw.toLowerCase().replace(/^\/+/, '');
+    key = key.replace(/^new-order\//i, '').replace(/\/+$/, '');
+    key = key.replace(/\s+/g, ' ').trim();
+    const aliases = growfoodDeeplink.programAliases || {};
+    const slugs = Array.isArray(growfoodDeeplink.programSlugs)
+      ? growfoodDeeplink.programSlugs.map((s) => String(s).toLowerCase())
+      : [];
+    const slugSet = new Set(slugs);
+    let slug = aliases[key] || aliases[key.replace(/\s+/g, '')] || null;
+    if (!slug && slugSet.has(key)) slug = key;
+    if (!slug && /^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
+      slug = key.toLowerCase();
+    }
+    if (slug) {
+      const programPrefix = String(
+        growfoodDeeplink.programPrefix || 'https://growfood.pro/new-order/'
+      ).replace(/\/?$/, '/');
+      return `${programPrefix}${slug}`;
+    }
+    return String(growfoodDeeplink.searchPrefix || 'https://growfood.pro/#menu-plans');
+  }
+
+  function buildGrowfoodAdmitadUrl(label) {
+    const target = resolveGrowfoodTargetUrl(label);
+    const base = String(growfoodDeeplink.admitadBase || '').trim();
+    if (!target || !base) return null;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+  }
+
   function parseProductTag(inner) {
     const raw = String(inner || '').trim();
     if (!raw) return null;
@@ -388,6 +439,9 @@
       const hvalPrefixes = (hvalwatersDeeplink.tagPrefixes || ['hval', 'water', 'hvalwaters']).map(
         (p) => String(p).toLowerCase()
       );
+      const gfPrefixes = (growfoodDeeplink.tagPrefixes || ['growfood', 'gf']).map((p) =>
+        String(p).toLowerCase()
+      );
       if (fishPrefixes.includes(prefix)) {
         return { kind: 'product', label, store: 'vipfish' };
       }
@@ -396,6 +450,9 @@
       }
       if (hvalPrefixes.includes(prefix)) {
         return { kind: 'product', label, store: 'hvalwaters' };
+      }
+      if (gfPrefixes.includes(prefix)) {
+        return { kind: 'product', label, store: 'growfood' };
       }
       // Unknown prefix (e.g. magnit:) — show label only; do not invent links.
       return { kind: 'plain', label, store: null };
@@ -418,6 +475,7 @@
     if (store === 'vipfish') return 'vazhnaya-ryba';
     if (store === 'befit') return 'befit';
     if (store === 'hvalwaters') return 'hvalwaters';
+    if (store === 'growfood') return 'growfood';
     if (store === 'vkusvill') return 'vkusvill';
     return '';
   }
@@ -426,13 +484,16 @@
     if (store === 'vipfish') return vipfishDeeplink.name || 'Важная рыба';
     if (store === 'befit') return befitDeeplink.name || 'BeFit';
     if (store === 'hvalwaters') return hvalwatersDeeplink.name || 'Хваловская вода';
+    if (store === 'growfood') return growfoodDeeplink.name || 'GrowFood';
     if (store === 'vkusvill') return 'ВкусВилл';
     return '';
   }
 
   function cartBlockTitleForStore(store) {
     // Grocery / fish basket vs ready programs & water delivery.
-    if (store === 'befit' || store === 'hvalwaters') return 'Полезные ссылки';
+    if (store === 'befit' || store === 'hvalwaters' || store === 'growfood') {
+      return 'Полезные ссылки';
+    }
     return 'Собрать корзину';
   }
 
@@ -449,6 +510,7 @@
     if (hit.store === 'vipfish') a.title = `${name} — поиск`;
     else if (hit.store === 'befit') a.title = `${name} — программа / поиск`;
     else if (hit.store === 'hvalwaters') a.title = `${name} — товар / поиск`;
+    else if (hit.store === 'growfood') a.title = `${name} — линейка / каталог`;
     else a.title = 'ВкусВилл — поиск';
     return a;
   }
@@ -464,8 +526,8 @@
   }
 
   /**
-   * Strip [[product]] / [[vipfish:…]] / [[befit:…]] / [[hval:…]] from prose (plain names);
-   * collect Admitad chips for the cart block under the message. Hide [[partner:id]].
+   * Strip [[product]] / [[vipfish:…]] / [[befit:…]] / [[hval:…]] / [[growfood:…]] from prose
+   * (plain names); collect Admitad chips for the cart block under the message. Hide [[partner:id]].
    * Incomplete trailing [[… stays plain text while streaming.
    * @param {string} text
    * @param {{ allowChips?: boolean }} [opts] — allowChips=false: plain names only, empty chip list
@@ -494,6 +556,13 @@
         hvalwatersDeeplink.enabled
       ) {
         href = buildHvalwatersAdmitadUrl(parsed.label);
+      } else if (
+        allowChips &&
+        parsed.kind === 'product' &&
+        parsed.store === 'growfood' &&
+        growfoodDeeplink.enabled
+      ) {
+        href = buildGrowfoodAdmitadUrl(parsed.label);
       }
       hits.push({
         start: m.index,
@@ -511,6 +580,7 @@
     let fishCount = 0;
     let befitCount = 0;
     let hvalCount = 0;
+    let gfCount = 0;
     /** @type {{label:string,store:string,href:string}[]} */
     const chips = [];
 
@@ -532,6 +602,7 @@
         if (hit.store === 'vipfish') fishCount += 1;
         else if (hit.store === 'befit') befitCount += 1;
         else if (hit.store === 'hvalwaters') hvalCount += 1;
+        else if (hit.store === 'growfood') gfCount += 1;
         else vvCount += 1;
       } else {
         // No Admitad base / unknown prefix — show product name without raw brackets.
@@ -559,10 +630,15 @@
       const line = disclosureLine(hvalwatersDeeplink, 'ООО «АКВАСИТИ»');
       if (line) disclosures.push(line);
     }
+    if (gfCount >= 1) {
+      const line = disclosureLine(growfoodDeeplink, 'ООО «ГФ Трейд»');
+      if (line) disclosures.push(line);
+    }
 
     /** @type {string|null} */
     let primaryStore = null;
-    if (hvalCount >= 1) primaryStore = 'hvalwaters';
+    if (gfCount >= 1) primaryStore = 'growfood';
+    else if (hvalCount >= 1) primaryStore = 'hvalwaters';
     else if (befitCount >= 1) primaryStore = 'befit';
     else if (fishCount >= 1) primaryStore = 'vipfish';
     else if (vvCount >= 1) primaryStore = 'vkusvill';
@@ -571,18 +647,20 @@
       fragment: root,
       chips,
       primaryStore,
-      linkCount: vvCount + fishCount + befitCount + hvalCount,
+      linkCount: vvCount + fishCount + befitCount + hvalCount + gfCount,
       disclosures,
       erid:
-        hvalCount >= 1
-          ? hvalwatersDeeplink.erid || ''
-          : befitCount >= 1
-            ? befitDeeplink.erid || ''
-            : fishCount >= 1
-              ? vipfishDeeplink.erid || ''
-              : vvCount >= 1
-                ? vkusvillDeeplink.erid || ''
-                : '',
+        gfCount >= 1
+          ? growfoodDeeplink.erid || ''
+          : hvalCount >= 1
+            ? hvalwatersDeeplink.erid || ''
+            : befitCount >= 1
+              ? befitDeeplink.erid || ''
+              : fishCount >= 1
+                ? vipfishDeeplink.erid || ''
+                : vvCount >= 1
+                  ? vkusvillDeeplink.erid || ''
+                  : '',
     };
   }
 
@@ -942,6 +1020,40 @@
           couponAdmitadBase: hv.couponAdmitadBase
             ? String(hv.couponAdmitadBase).trim()
             : null,
+        };
+      }
+      const gf = data.growfoodDeeplink;
+      if (gf && typeof gf === 'object') {
+        const prefixes = Array.isArray(gf.tagPrefixes)
+          ? gf.tagPrefixes.map((p) => String(p || '').trim().toLowerCase()).filter(Boolean)
+          : ['growfood', 'gf'];
+        const aliases =
+          gf.programAliases && typeof gf.programAliases === 'object' ? gf.programAliases : {};
+        const aliasNorm = {};
+        for (const [k, v] of Object.entries(aliases)) {
+          const key = String(k || '')
+            .trim()
+            .toLowerCase();
+          const val = String(v || '').trim();
+          if (key && val) aliasNorm[key] = val;
+        }
+        growfoodDeeplink = {
+          enabled: Boolean(gf.enabled && gf.admitadBase),
+          admitadBase: String(gf.admitadBase || '').trim(),
+          erid: String(gf.erid || '').trim(),
+          searchPrefix: String(gf.searchPrefix || 'https://growfood.pro/#menu-plans').trim(),
+          programPrefix: String(gf.programPrefix || 'https://growfood.pro/new-order/').trim(),
+          programSlugs: Array.isArray(gf.programSlugs)
+            ? gf.programSlugs.map((s) => String(s || '').trim()).filter(Boolean)
+            : [],
+          programAliases: aliasNorm,
+          disclaimer: String(gf.disclaimer || '').trim(),
+          legalName: String(gf.legalName || 'ООО «ГФ Трейд»').trim(),
+          inn: String(gf.inn || '7811715411').trim(),
+          name: String(gf.name || 'GrowFood').trim(),
+          tagPrefixes: prefixes.length ? prefixes : ['growfood', 'gf'],
+          promoCode: gf.promoCode ? String(gf.promoCode).trim() : null,
+          promos: Array.isArray(gf.promos) ? gf.promos : [],
         };
       }
       if (!data.hasKey) {

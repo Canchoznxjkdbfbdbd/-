@@ -82,10 +82,12 @@ npm start
 | `ADMITAD_BEFIT_ERID`         | erid для дисклеймера у блока ссылок BeFit                                |
 | `ADMITAD_HVALWATERS_BASE`    | Admitad webmaster base Хваловской воды (xmknb… без i=3, не hvalwaters.ru)|
 | `ADMITAD_HVALWATERS_ERID`    | erid для дисклеймера у блока ссылок Хваловской воды                      |
+| `ADMITAD_GROWFOOD_BASE`      | Admitad webmaster base GrowFood (naiawork…, не growfood.pro / gf.ru)     |
+| `ADMITAD_GROWFOOD_ERID`      | erid для дисклеймера у блока ссылок GrowFood                             |
 
 `gemini-3.8-flash` — опционально через `GEMINI_MODEL` или `GEMINI_MODEL_CHAIN` (см. `.env.example`).
 
-### Автодиплинк ВкусВилл, Важная рыба, BeFit и Хваловская вода
+### Автодиплинк ВкусВилл, Важная рыба, BeFit, Хваловская вода и GrowFood
 
 Модель помечает товары метками (без сырых Admitad URL). Клиент (`renderProductDeeplinks`) снимает `[[…]]` из текста (оставляет обычные названия) и собирает блок «Собрать корзину» / «Полезные ссылки» под ответом:
 
@@ -98,10 +100,11 @@ npm start
 | `[[vipfish:лосось]]` / `[[ryba:лосось]]` | `https://vipfish.ru/search/?q=` | `ADMITAD_VIPFISH_BASE` (dorinebeaumont…) |
 | `[[befit:keto-start]]` / `[[letbefit:superstrongpremium]]` | `/programmy/{slug}/` или WP `https://letbefit.ru/?s=` (`/search/?q=` → 404) | `ADMITAD_BEFIT_BASE` (uuwgc…) |
 | `[[hval:premium]]` / `[[water:premium]]` / `[[hvalwaters:premium]]` | `/water/{slug}/` или WP `https://hvalwaters.ru/?s=` (`/search/?q=` → 404) | `ADMITAD_HVALWATERS_BASE` (xmknb…, prefer без i=3) |
+| `[[growfood:super-fit]]` / `[[gf:daily]]` | `/new-order/{slug}` или каталог `https://growfood.pro/#menu-plans` (поиска нет) | `ADMITAD_GROWFOOD_BASE` (naiawork…) |
 
-База берётся из env → `partners.json` (`admitad_base` / Admitad-`link`) → дефолт в коде. URL вида `vkusvill.ru/?utm_…`, `vipfish.ru/…`, `letbefit.ru/…` или `hvalwaters.ru/…` (merchant-лендинг) **не** считаются базой. Промокод VV `VSC7247` и BeFit shortlist (`promos` + `promo_code=ADMBF2026`) — для плашки/`/api/config`, не для ulp. Coupon-ish Hvalwaters (`admitad_coupon_base`, i=3) — справочно, чипы используют base без i=3.
+База берётся из env → `partners.json` (`admitad_base` / Admitad-`link`) → дефолт в коде. URL вида `vkusvill.ru/?utm_…`, `vipfish.ru/…`, `letbefit.ru/…`, `hvalwaters.ru/…` или `growfood.pro/…` (merchant-лендинг) **не** считаются базой. Промокод VV `VSC7247`, BeFit shortlist (`promos` + `promo_code=ADMBF2026`) и GrowFood shortlist (`ДВОЙНОЙБОНУС` / `БИГБОНУС`) — для плашки/`/api/config`, не для ulp. Coupon-ish Hvalwaters (`admitad_coupon_base`, i=3) — справочно, чипы используют base без i=3.
 
-Важная рыба — soft-geo: только города из баннера зон (СПб, Мурино, Бугры, Пушкин, Петергоф, Всеволожск, Кудрово, Шушары, Сестрорецк). BeFit и Хваловская вода — soft-geo Москва и Санкт-Петербург. В одном ответе не мешать VV / рыбу / BeFit / Хваловскую. Магнит/Лавка/Perfluence — не подключены.
+Важная рыба — soft-geo: только города из баннера зон (СПб, Мурино, Бугры, Пушкин, Петергоф, Всеволожск, Кудрово, Шушары, Сестрорецк). BeFit, GrowFood и Хваловская вода — soft-geo Москва и Санкт-Петербург. В одном ответе не мешать VV / рыбу / BeFit / GrowFood / Хваловскую (готовая еда — один бренд). Магнит/Лавка/Perfluence — не подключены.
 
 ## Структура
 
@@ -141,7 +144,7 @@ README.md
 - История чата только в `localStorage` браузера: восстанавливается после перезагрузки, очищается кнопкой «Очистить чат»; аккаунтов нет, на сервере диалоги не хранятся
 - Стриминг ответа (SSE): сначала спокойные статусы («Думает…» → «Печатает…»), потом текст по словам
 - Тихий блок партнёра под ответом ассистента — только по сигналу сервера, вне медицинского совета
-- Метки `[[продукт]]` → ВкусВилл; `[[vipfish:…]]` / `[[ryba:…]]` → Важная рыба; `[[befit:…]]` / `[[letbefit:…]]` → BeFit; `[[hval:…]]` / `[[water:…]]` / `[[hvalwaters:…]]` → Хваловская вода: в тексте — имена без скобок, чипы в блоке под ответом; одна промо-плашка (если есть) внутри/под блоком; серый дисклеймер «Реклама…» + erid (и юрлицо из `partners.json`), если есть хотя бы одна ссылка
+- Метки `[[продукт]]` → ВкусВилл; `[[vipfish:…]]` / `[[ryba:…]]` → Важная рыба; `[[befit:…]]` / `[[letbefit:…]]` → BeFit; `[[growfood:…]]` / `[[gf:…]]` → GrowFood; `[[hval:…]]` / `[[water:…]]` / `[[hvalwaters:…]]` → Хваловская вода: в тексте — имена без скобок, чипы в блоке под ответом; одна промо-плашка (если есть) внутри/под блоком; серый дисклеймер «Реклама…» + erid (и юрлицо из `partners.json`), если есть хотя бы одна ссылка
 - Анонимные 👍/👎 в `localStorage`
 - Тихая полоска доната под чатом после 3 сообщений (100 / 300 / 500 ₽)
 - В промпте — редкая мягкая шутка про донат только в конце удачного диалога или после «спасибо»

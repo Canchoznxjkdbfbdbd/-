@@ -199,5 +199,52 @@
     "legal_name": "ООО «АКВАСИТИ»",
     "inn": "7816714891",
     "disclaimer": "Реклама. ООО «АКВАСИТИ», ИНН 7816714891. erid: 2bL9aMPo2e49hMef4pfVDKbKSL. Партнёрская ссылка Admitad."
+  },
+  {
+    "id": "growfood",
+    "name": "GrowFood",
+    "geo": ["Москва", "Санкт-Петербург"],
+    "geo_mode": "cities",
+    "tags": [
+      "growfood",
+      "gf",
+      "готовое",
+      "пп",
+      "рацион",
+      "программа питания",
+      "похудение",
+      "набор массы",
+      "спорт",
+      "доставка",
+      "нет времени",
+      "superfit",
+      "daily",
+      "balance",
+      "power"
+    ],
+    "offer_type": "meal_plan",
+    "promo_code": "ДВОЙНОЙБОНУС",
+    "promo_terms": "до 20.11.2026 23:59; новые — ДВОЙНОЙБОНУС; вернувшиеся — БИГБОНУС (условия у партнёра)",
+    "promos": [
+      {
+        "code": "ДВОЙНОЙБОНУС",
+        "discount": "до 4000 ₽ бонусов + 10%",
+        "when": "новые клиенты; заказ 2 или 6 дней любой линейки — default try"
+      },
+      {
+        "code": "БИГБОНУС",
+        "discount": "до 2000 ₽ бонусов",
+        "when": "вернувшиеся (без заказов 28 дней); 2 или 6 дней любой линейки"
+      }
+    ],
+    "live": false,
+    "admitad_base": "https://naiawork.com/g/36wusytszy268e100ca0aeb982cd0a/?erid=MvGzQC98w3Z1gMq1kxQwfCfT",
+    "erid": "MvGzQC98w3Z1gMq1kxQwfCfT",
+    "link": "https://naiawork.com/g/36wusytszy268e100ca0aeb982cd0a/?erid=MvGzQC98w3Z1gMq1kxQwfCfT",
+    "landing_url": "https://growfood.pro/",
+    "blurb": "Готовые ПП-рационы GrowFood (growfood.pro): SuperFit/Fit, Daily, Balance, Power — доставка Москва и СПб.",
+    "legal_name": "ООО «ГФ Трейд»",
+    "inn": "7811715411",
+    "disclaimer": "Реклама. ООО «ГФ Трейд», ИНН 7811715411. erid: MvGzQC98w3Z1gMq1kxQwfCfT. Партнёрская ссылка Admitad."
   }
 ]
