@@ -144,6 +144,33 @@
             placeholder="Или напишите своё…"
             required
           ></textarea>
+          <button
+            type="button"
+            id="voice-input"
+            class="voice-input"
+            hidden
+            aria-label="Голосовой ввод"
+            aria-pressed="false"
+            title="Голосовой ввод"
+          >
+            <svg class="voice-icon-mic" viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+              <path
+                d="M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M5 11a7 7 0 0014 0M12 18v3"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span class="voice-icon-stop" aria-hidden="true"></span>
+          </button>
           <button type="submit" id="send" class="send" aria-label="Отправить">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
               <path
