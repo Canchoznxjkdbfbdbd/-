@@ -15,6 +15,7 @@
     "verify:vipfish": "node scripts/verify-vipfish-deeplink.js",
     "verify:befit": "node scripts/verify-befit-deeplink.js",
     "verify:hvalwaters": "node scripts/verify-hvalwaters-deeplink.js",
+    "verify:cart-block": "node scripts/verify-cart-block-ux.js",
     "verify:robots": "node scripts/verify-robots-sitemap.js"
   },
   "engines": {

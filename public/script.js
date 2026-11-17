@@ -375,9 +375,49 @@
     return bits.join(' ');
   }
 
+  function storePartnerId(store) {
+    if (store === 'vipfish') return 'vazhnaya-ryba';
+    if (store === 'befit') return 'befit';
+    if (store === 'hvalwaters') return 'hvalwaters';
+    if (store === 'vkusvill') return 'vkusvill';
+    return '';
+  }
+
+  function storeDisplayName(store) {
+    if (store === 'vipfish') return vipfishDeeplink.name || 'Важная рыба';
+    if (store === 'befit') return befitDeeplink.name || 'BeFit';
+    if (store === 'hvalwaters') return hvalwatersDeeplink.name || 'Хваловская вода';
+    if (store === 'vkusvill') return 'ВкусВилл';
+    return '';
+  }
+
+  function cartBlockTitleForStore(store) {
+    // Grocery / fish basket vs ready programs & water delivery.
+    if (store === 'befit' || store === 'hvalwaters') return 'Полезные ссылки';
+    return 'Собрать корзину';
+  }
+
+  function makeProductChip(hit) {
+    const a = document.createElement('a');
+    a.className = 'product-chip';
+    a.href = hit.href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer sponsored';
+    a.textContent = hit.label;
+    const partnerId = storePartnerId(hit.store);
+    if (partnerId) a.dataset.partner = partnerId;
+    const name = storeDisplayName(hit.store);
+    if (hit.store === 'vipfish') a.title = `${name} — поиск`;
+    else if (hit.store === 'befit') a.title = `${name} — программа / поиск`;
+    else if (hit.store === 'hvalwaters') a.title = `${name} — товар / поиск`;
+    else a.title = 'ВкусВилл — поиск';
+    return a;
+  }
+
   /**
-   * Turn [[product]] / [[vipfish:name]] / [[befit:slug]] / [[hval:slug]] into chips; leave [[partner:id]] alone.
-   * Incomplete trailing [[… is left as plain text while streaming.
+   * Strip [[product]] / [[vipfish:…]] / [[befit:…]] / [[hval:…]] from prose (plain names);
+   * collect Admitad chips for the cart block under the message. Hide [[partner:id]].
+   * Incomplete trailing [[… stays plain text while streaming.
    */
   function renderProductDeeplinks(text) {
     const src = String(text || '');
@@ -418,6 +458,8 @@
     let fishCount = 0;
     let befitCount = 0;
     let hvalCount = 0;
+    /** @type {{label:string,store:string,href:string}[]} */
+    const chips = [];
 
     const pushText = (chunk) => {
       if (!chunk) return;
@@ -430,31 +472,14 @@
       if (hit.kind === 'partner') {
         // Keep raw [[partner:id]] for strip/partner UI on richer branches; hide visibly.
         pushText('');
-      } else if (hit.href) {
-        const a = document.createElement('a');
-        a.className = 'product-chip';
-        a.href = hit.href;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer sponsored';
-        a.textContent = hit.label;
-        if (hit.store === 'vipfish') {
-          a.title = `${vipfishDeeplink.name || 'Важная рыба'} — поиск`;
-          a.dataset.partner = 'vazhnaya-ryba';
-          fishCount += 1;
-        } else if (hit.store === 'befit') {
-          a.title = `${befitDeeplink.name || 'BeFit'} — программа / поиск`;
-          a.dataset.partner = 'befit';
-          befitCount += 1;
-        } else if (hit.store === 'hvalwaters') {
-          a.title = `${hvalwatersDeeplink.name || 'Хваловская вода'} — товар / поиск`;
-          a.dataset.partner = 'hvalwaters';
-          hvalCount += 1;
-        } else {
-          a.title = 'ВкусВилл — поиск';
-          a.dataset.partner = 'vkusvill';
-          vvCount += 1;
-        }
-        root.appendChild(a);
+      } else if (hit.href && hit.store) {
+        // Prose stays readable plain names; clickable chips live in the cart block.
+        pushText(hit.label);
+        chips.push({ label: hit.label, store: hit.store, href: hit.href });
+        if (hit.store === 'vipfish') fishCount += 1;
+        else if (hit.store === 'befit') befitCount += 1;
+        else if (hit.store === 'hvalwaters') hvalCount += 1;
+        else vvCount += 1;
       } else {
         // No Admitad base / unknown prefix — show product name without raw brackets.
         pushText(hit.label);
@@ -482,8 +507,17 @@
       if (line) disclosures.push(line);
     }
 
+    /** @type {string|null} */
+    let primaryStore = null;
+    if (hvalCount >= 1) primaryStore = 'hvalwaters';
+    else if (befitCount >= 1) primaryStore = 'befit';
+    else if (fishCount >= 1) primaryStore = 'vipfish';
+    else if (vvCount >= 1) primaryStore = 'vkusvill';
+
     return {
       fragment: root,
+      chips,
+      primaryStore,
       linkCount: vvCount + fishCount + befitCount + hvalCount,
       disclosures,
       erid:
@@ -497,6 +531,14 @@
                 ? vkusvillDeeplink.erid || ''
                 : '',
     };
+  }
+
+  function insertBeforeMessageMeta(wrap, el) {
+    const tip = wrap.querySelector(':scope > .ad-disclosure');
+    const feedback = wrap.querySelector(':scope > .feedback');
+    if (tip) wrap.insertBefore(el, tip);
+    else if (feedback) wrap.insertBefore(el, feedback);
+    else wrap.appendChild(el);
   }
 
   function syncAdDisclosure(wrap, disclosures) {
@@ -517,11 +559,98 @@
     }
   }
 
-  /** Paint assistant bubble: product chips from [[name]] / [[vipfish:…]] / [[befit:…]] / [[hval:…]]; plain text otherwise. */
+  /**
+   * Cart / useful-links block under the assistant message.
+   * Preserves an existing .partner plaque (moves it in/out as chips appear).
+   */
+  function syncCartBlock(wrap, chips, primaryStore) {
+    if (!wrap) return;
+    const list = Array.isArray(chips) ? chips.filter((c) => c && c.href && c.label) : [];
+    let block = wrap.querySelector(':scope > .cart-block');
+
+    if (!list.length) {
+      if (block) {
+        const orphan = block.querySelector('.partner');
+        if (orphan) {
+          insertBeforeMessageMeta(wrap, orphan);
+        }
+        block.remove();
+      }
+      return;
+    }
+
+    if (!block) {
+      block = document.createElement('div');
+      block.className = 'cart-block';
+      block.setAttribute('role', 'complementary');
+      insertBeforeMessageMeta(wrap, block);
+      // If a partner plaque already landed on the wrap, nest it into the cart block.
+      const loosePartner = wrap.querySelector(':scope > .partner');
+      if (loosePartner) block.appendChild(loosePartner);
+    }
+
+    block.setAttribute('aria-label', cartBlockTitleForStore(primaryStore));
+
+    let title = block.querySelector(':scope > .cart-block-title');
+    if (!title) {
+      title = document.createElement('div');
+      title.className = 'cart-block-title';
+      block.insertBefore(title, block.firstChild);
+    }
+    title.textContent = cartBlockTitleForStore(primaryStore);
+
+    let cta = block.querySelector(':scope > .cart-block-cta');
+    if (!cta) {
+      cta = document.createElement('p');
+      cta.className = 'cart-block-cta';
+      title.after(cta);
+    }
+    cta.textContent =
+      'Когда рацион уже ясен — эти ссылки помогут сэкономить время и деньги.';
+
+    let storeHint = block.querySelector(':scope > .cart-block-store');
+    const storeName = storeDisplayName(primaryStore);
+    if (storeName) {
+      if (!storeHint) {
+        storeHint = document.createElement('p');
+        storeHint.className = 'cart-block-store';
+        cta.after(storeHint);
+      }
+      storeHint.textContent = storeName;
+    } else if (storeHint) {
+      storeHint.remove();
+      storeHint = null;
+    }
+
+    let chipRow = block.querySelector(':scope > .cart-block-chips');
+    if (!chipRow) {
+      chipRow = document.createElement('div');
+      chipRow.className = 'cart-block-chips';
+      const partner = block.querySelector(':scope > .partner');
+      if (partner) block.insertBefore(chipRow, partner);
+      else block.appendChild(chipRow);
+    } else {
+      // Keep chip row above partner plaque if both exist.
+      const partner = block.querySelector(':scope > .partner');
+      if (partner && chipRow.nextElementSibling !== partner) {
+        block.insertBefore(chipRow, partner);
+      }
+    }
+
+    chipRow.replaceChildren();
+    for (const hit of list) {
+      chipRow.appendChild(makeProductChip(hit));
+    }
+  }
+
+  /** Paint assistant bubble: plain names in prose; chips + soft CTA in cart block under the message. */
   function fillAssistantBubble(bubble, text, wrap) {
-    const { fragment, disclosures } = renderProductDeeplinks(text);
+    const { fragment, chips, primaryStore, disclosures } = renderProductDeeplinks(text);
     bubble.replaceChildren(fragment);
-    if (wrap) syncAdDisclosure(wrap, disclosures);
+    if (wrap) {
+      syncCartBlock(wrap, chips, primaryStore);
+      syncAdDisclosure(wrap, disclosures);
+    }
   }
 
   function addMessage(role, text, opts = {}) {
@@ -573,10 +702,12 @@
     return true;
   }
 
-  /** Quiet offer below the assistant bubble — not inside medical advice text. */
+  /** Quiet offer below the assistant bubble — nest into cart block when present. */
   function attachPartner(wrap, partner) {
     if (!partner || !wrap) return;
     if (!isRealPartnerLink(partner.link)) return;
+    // One promo plaque per reply.
+    if (wrap.querySelector('.partner')) return;
 
     const box = document.createElement('div');
     box.className = 'partner';
@@ -618,7 +749,9 @@
       box.appendChild(tip);
     }
 
-    wrap.appendChild(box);
+    const cart = wrap.querySelector(':scope > .cart-block');
+    if (cart) cart.appendChild(box);
+    else insertBeforeMessageMeta(wrap, box);
     scrollBottom();
   }
 
