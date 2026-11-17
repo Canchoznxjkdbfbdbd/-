@@ -41,6 +41,7 @@ const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.ru/ai.nutri
  * Важная рыба search (verified 200): https://vipfish.ru/search/?q=
  * BeFit: WP search https://letbefit.ru/?s= ( /search/?q= → 404); programs /programmy/{slug}/.
  * Хваловская вода: WP https://hvalwaters.ru/?s= (/search/?q= → 404); products /water/{slug}/.
+ * GrowFood: catalog https://growfood.pro/#menu-plans (no WP search); lines /new-order/{slug}.
  */
 const VKUSVILL_SEARCH_PREFIX = 'https://vkusvill.ru/search/?q=';
 const DEFAULT_ADMITAD_VKUSVILL_BASE =
@@ -110,6 +111,47 @@ const HVALWATERS_PRODUCT_ALIASES = {
   делюкс: 'deluxe',
   'хваловская deluxe': 'deluxe',
   'хваловская делюкс': 'deluxe',
+};
+
+/**
+ * GrowFood (growfood.pro) — chips [[growfood:…]] / [[gf:…]].
+ * SPA route new-order/:goal; no WP search ( /search/?q= → 404). Unknown → #menu-plans.
+ */
+const GROWFOOD_CATALOG_URL = 'https://growfood.pro/#menu-plans';
+const GROWFOOD_SEARCH_PREFIX = GROWFOOD_CATALOG_URL;
+const GROWFOOD_PROGRAM_PREFIX = 'https://growfood.pro/new-order/';
+const DEFAULT_ADMITAD_GROWFOOD_BASE =
+  'https://naiawork.com/g/36wusytszy268e100ca0aeb982cd0a/?erid=MvGzQC98w3Z1gMq1kxQwfCfT';
+const DEFAULT_ADMITAD_GROWFOOD_ERID = 'MvGzQC98w3Z1gMq1kxQwfCfT';
+/** Soft-geo from owner dump (MSK + SPb only for now). */
+const GROWFOOD_GEO_CITIES = ['Москва', 'Санкт-Петербург'];
+/** Owner lines + SPA-verified /new-order/{slug} (2026-11-17). */
+const GROWFOOD_PROGRAM_SLUGS = ['super-fit', 'fit', 'daily', 'balance', 'power'];
+/** Friendly aliases → verified /new-order/ slug. */
+const GROWFOOD_PROGRAM_ALIASES = {
+  superfit: 'super-fit',
+  'super fit': 'super-fit',
+  'super-fit': 'super-fit',
+  суперфит: 'super-fit',
+  'супер фит': 'super-fit',
+  'супер-фит': 'super-fit',
+  fit: 'fit',
+  фит: 'fit',
+  похудение: 'super-fit',
+  'сбросить вес': 'super-fit',
+  daily: 'daily',
+  дейли: 'daily',
+  дэйли: 'daily',
+  balance: 'balance',
+  баланс: 'balance',
+  спорт: 'balance',
+  рельеф: 'balance',
+  power: 'power',
+  пауэр: 'power',
+  павер: 'power',
+  масса: 'power',
+  'набор массы': 'power',
+  'набор мышечной массы': 'power',
 };
 
 /** Verified program slugs from letbefit.ru home (2026-11-17). */
@@ -185,15 +227,21 @@ function eridFromUrl(raw) {
 
 /**
  * Admitad webmaster hosts only — never raw merchant landings
- * (vkusvill.ru / vipfish.ru / letbefit.ru / hvalwaters.ru).
+ * (vkusvill.ru / vipfish.ru / letbefit.ru / hvalwaters.ru / growfood.pro / gf.ru).
  * VV kdbov.com; рыба dorinebeaumont.com; BeFit uuwgc.com; Hvalwaters xmknb.com;
- * classic admitad.com also ok.
+ * GrowFood naiawork.com; classic admitad.com also ok.
  */
 function looksLikeAdmitadWebmaster(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (!value) return false;
-  if (/vkusvill\.ru|vipfish\.ru|letbefit\.ru|hvalwaters\.ru/i.test(value)) return false;
-  return /kdbov\.com|dorinebeaumont\.com|uuwgc\.com|xmknb\.com|admitad\.com|ad\.admitad\.com/i.test(
+  if (
+    /vkusvill\.ru|vipfish\.ru|letbefit\.ru|hvalwaters\.ru|growfood\.pro|gf\.ru/i.test(
+      value
+    )
+  ) {
+    return false;
+  }
+  return /kdbov\.com|dorinebeaumont\.com|uuwgc\.com|xmknb\.com|naiawork\.com|admitad\.com|ad\.admitad\.com/i.test(
     value
   );
 }
@@ -455,6 +503,80 @@ function resolveHvalwatersDeeplinkConfig(partners) {
   };
 }
 
+function resolveGrowfoodProgramSlug(
+  label,
+  aliases = GROWFOOD_PROGRAM_ALIASES,
+  slugs = GROWFOOD_PROGRAM_SLUGS
+) {
+  const raw = String(label || '').trim();
+  if (!raw) return null;
+  let key = raw.toLowerCase().replace(/^\/+/, '');
+  key = key.replace(/^new-order\//i, '').replace(/\/+$/, '');
+  key = key.replace(/\s+/g, ' ').trim();
+  const aliasMap = aliases && typeof aliases === 'object' ? aliases : GROWFOOD_PROGRAM_ALIASES;
+  const slugList = Array.isArray(slugs) && slugs.length ? slugs : GROWFOOD_PROGRAM_SLUGS;
+  const slugSet = new Set(slugList.map((s) => String(s).toLowerCase()));
+  if (aliasMap[key]) return aliasMap[key];
+  const compact = key.replace(/\s+/g, '');
+  if (aliasMap[compact]) return aliasMap[compact];
+  if (slugSet.has(key)) return key;
+  if (slugSet.has(compact)) return compact;
+  if (/^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
+    return key.toLowerCase();
+  }
+  return null;
+}
+
+function resolveGrowfoodTargetUrl(label, cfg = {}) {
+  const raw = String(label || '').trim();
+  if (!raw) return null;
+  const slug = resolveGrowfoodProgramSlug(
+    raw,
+    (cfg && cfg.programAliases) || GROWFOOD_PROGRAM_ALIASES,
+    (cfg && cfg.programSlugs) || GROWFOOD_PROGRAM_SLUGS
+  );
+  if (slug) {
+    const programPrefix = String(
+      (cfg && cfg.programPrefix) || GROWFOOD_PROGRAM_PREFIX
+    ).replace(/\/?$/, '/');
+    // SPA routes are /new-order/{slug} without trailing slash (Admitad-verified).
+    return `${programPrefix}${slug}`;
+  }
+  return String((cfg && cfg.searchPrefix) || GROWFOOD_CATALOG_URL);
+}
+
+function resolveGrowfoodDeeplinkConfig(partners) {
+  const row =
+    findPartnerRow(partners, 'growfood') ||
+    findPartnerRow(partners, 'gf') ||
+    findPartnerRow(partners, 'letgrowfood');
+  const geoFromPartner = Array.isArray(row && row.geo) ? row.geo : null;
+  const cities =
+    geoFromPartner && geoFromPartner.length
+      ? geoFromPartner.map((c) => String(c || '').trim()).filter(Boolean)
+      : GROWFOOD_GEO_CITIES.slice();
+  const cfg = resolveAdmitadDeeplinkConfig({
+    partners: row ? [row] : partners,
+    partnerId: (row && row.id) || 'growfood',
+    envBaseKey: 'ADMITAD_GROWFOOD_BASE',
+    envEridKey: 'ADMITAD_GROWFOOD_ERID',
+    defaultBase: DEFAULT_ADMITAD_GROWFOOD_BASE,
+    defaultErid: DEFAULT_ADMITAD_GROWFOOD_ERID,
+    searchPrefix: GROWFOOD_SEARCH_PREFIX,
+  });
+  return {
+    ...cfg,
+    id: 'growfood',
+    name: String((row && row.name) || 'GrowFood'),
+    cities,
+    tagPrefixes: ['growfood', 'gf'],
+    programPrefix: GROWFOOD_PROGRAM_PREFIX,
+    programSlugs: GROWFOOD_PROGRAM_SLUGS.slice(),
+    programAliases: { ...GROWFOOD_PROGRAM_ALIASES },
+    promos: normalizeBefitPromos(row),
+  };
+}
+
 /** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
 const MAX_OUTPUT_TOKENS = Math.min(
   Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 1024),
@@ -536,6 +658,7 @@ const VKUSVILL_DEEPLINK = resolveVkusvillDeeplinkConfig(PARTNERS);
 const VIPFISH_DEEPLINK = resolveVipfishDeeplinkConfig(PARTNERS);
 const BEFIT_DEEPLINK = resolveBefitDeeplinkConfig(PARTNERS);
 const HVALWATERS_DEEPLINK = resolveHvalwatersDeeplinkConfig(PARTNERS);
+const GROWFOOD_DEEPLINK = resolveGrowfoodDeeplinkConfig(PARTNERS);
 
 /**
  * Quiet chat-mode overlays (надстройки). Same bot + short context block.
@@ -565,11 +688,12 @@ const CHAT_MODES = {
       'На первом ответе (стартер / мало данных) — ТОЛЬКО 1–2 коротких уточняющих вопроса БЕЗ города: ' +
       'готовить самим быстро или готовая доставка на неделю?, аллергии одной фразой. ' +
       'Запрещено в первом ответе: город / «откуда вы?» / «укажите город» / MSK·SPb-опрос, ' +
-      '2–4 варианта меню, тосты/йогурт/авокадо списком, лекция про БЖУ, бренды (BeFit и др.), [[метки]], корзина. ' +
+      '2–4 варианта меню, тосты/йогурт/авокадо списком, лекция про БЖУ, бренды (BeFit / GrowFood и др.), [[метки]], корзина. ' +
       'Город спроси позже и мягко (помощь: что реально привезут, без пустых ссылок) — только когда уже ясна ' +
       'доставка / готовые рационы / корзина / партнёрские ссылки, а город ещё неизвестен. ' +
-      'После clarifications: если MSK/SPb и человек открыт к готовой еде на неделю — мягко недельные пакеты BeFit; ' +
-      'если готовят сами — 2–4 очень коротких варианта без длинных рецептов; корзину — только по явному шопингу.',
+      'После clarifications: если MSK/SPb и человек открыт к готовой еде на неделю — мягко один недельный пакет ' +
+      '(BeFit ИЛИ GrowFood, не оба); если готовят сами — 2–4 очень коротких варианта без длинных рецептов; ' +
+      'корзину — только по явному шопингу.',
   },
   grocery: {
     id: 'grocery',
@@ -577,10 +701,10 @@ const CHAT_MODES = {
     overlay:
       'Режим-надстройка: список покупок.\n' +
       'На первом ответе — ТОЛЬКО 1–2 уточнения БЕЗ города: на сейчас/день/неделю? на сколько человек? ограничения? ' +
-      'Без длинного эссе, без [[меток]], без BeFit, пока человек не ответил. ' +
+      'Без длинного эссе, без [[меток]], без BeFit/GrowFood, пока человек не ответил. ' +
       'Город — позже и мягко (что реально доставят / без пустых ссылок), если нужны партнёрские ссылки и город неизвестен. ' +
       'После уточнений — короткий маркированный список продуктов (не портянка), без брендов и выдуманных ссылок; ' +
-      'BeFit weekly только если MSK/SPb + нет времени готовить + человек открыт.',
+      'недельный пакет BeFit или GrowFood — только если MSK/SPb + нет времени готовить + человек открыт (один бренд).',
   },
 };
 
@@ -874,6 +998,24 @@ app.get('/api/config', (_req, res) => {
       inn: HVALWATERS_DEEPLINK.inn,
       name: HVALWATERS_DEEPLINK.name,
     },
+    /** GrowFood (growfood.pro) — MSK+SPb; chips [[growfood:…]] / [[gf:…]]. */
+    growfoodDeeplink: {
+      enabled: GROWFOOD_DEEPLINK.enabled,
+      admitadBase: GROWFOOD_DEEPLINK.admitadBase,
+      erid: GROWFOOD_DEEPLINK.erid,
+      searchPrefix: GROWFOOD_DEEPLINK.searchPrefix,
+      programPrefix: GROWFOOD_DEEPLINK.programPrefix,
+      programSlugs: GROWFOOD_DEEPLINK.programSlugs,
+      programAliases: GROWFOOD_DEEPLINK.programAliases,
+      cities: GROWFOOD_DEEPLINK.cities,
+      tagPrefixes: GROWFOOD_DEEPLINK.tagPrefixes,
+      promoCode: GROWFOOD_DEEPLINK.promoCode,
+      promos: GROWFOOD_DEEPLINK.promos,
+      disclaimer: GROWFOOD_DEEPLINK.disclaimer,
+      legalName: GROWFOOD_DEEPLINK.legalName,
+      inn: GROWFOOD_DEEPLINK.inn,
+      name: GROWFOOD_DEEPLINK.name,
+    },
   });
 });
 
@@ -921,13 +1063,22 @@ function buildHvalwatersAdmitadUrl(label, cfg = HVALWATERS_DEEPLINK) {
   return `${base}${sep}ulp=${encodeURIComponent(target)}`;
 }
 
+/** GrowFood: program slug → /new-order/{slug}; else catalog #menu-plans. */
+function buildGrowfoodAdmitadUrl(label, cfg = GROWFOOD_DEEPLINK) {
+  const target = resolveGrowfoodTargetUrl(label, cfg || GROWFOOD_DEEPLINK);
+  const base = normalizeAdmitadBase(cfg && cfg.admitadBase);
+  if (!target || !base) return null;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+}
+
 /**
  * Soft-offer intent: готовая еда / заказ / доставка / недельный пакет.
  * Do NOT match bare «нет времени» from a starter chip — only clear ready-food wording
  * in the latest user reply (see pickPartner). Avoid \\b — JS word boundaries break Cyrillic.
  */
 const INTENT_RE =
-  /готов(?:ое|ый|ую|ые|ого)(?:\s+(?:питан\w*|ед\w*|рацион\w*|пакет\w*))?|заказ(?:ать|аю|аем|ите)|заказы|доставк\w*|недельн\w*\s*(?:рацион\w*|пакет\w*)|нет времени готовить|некогда готовить|готовый\s+рацион|befit|летбифит|letbefit/i;
+  /готов(?:ое|ый|ую|ые|ого)(?:\s+(?:питан\w*|ед\w*|рацион\w*|пакет\w*))?|заказ(?:ать|аю|аем|ите)|заказы|доставк\w*|недельн\w*\s*(?:рацион\w*|пакет\w*)|нет времени готовить|некогда готовить|готовый\s+рацион|befit|летбифит|letbefit|growfood|гроуфуд|grow\s*food/i;
 
 /** Placeholder / demo hosts must never ship as live offers. */
 const PLACEHOLDER_LINK_RE = /^https?:\/\/(www\.)?example\.com(\/|$)/i;
@@ -1555,12 +1706,16 @@ module.exports = {
   buildHvalwatersAdmitadUrl,
   resolveHvalwatersTargetUrl,
   resolveHvalwatersProductSlug,
+  buildGrowfoodAdmitadUrl,
+  resolveGrowfoodTargetUrl,
+  resolveGrowfoodProgramSlug,
   normalizeAdmitadBase,
   looksLikeAdmitadWebmaster,
   resolveVkusvillDeeplinkConfig,
   resolveVipfishDeeplinkConfig,
   resolveBefitDeeplinkConfig,
   resolveHvalwatersDeeplinkConfig,
+  resolveGrowfoodDeeplinkConfig,
   VKUSVILL_SEARCH_PREFIX,
   VKUSVILL_DEEPLINK,
   VIPFISH_SEARCH_PREFIX,
@@ -1578,4 +1733,11 @@ module.exports = {
   HVALWATERS_GEO_CITIES,
   HVALWATERS_PRODUCT_SLUGS,
   HVALWATERS_PRODUCT_ALIASES,
+  GROWFOOD_SEARCH_PREFIX,
+  GROWFOOD_CATALOG_URL,
+  GROWFOOD_PROGRAM_PREFIX,
+  GROWFOOD_DEEPLINK,
+  GROWFOOD_GEO_CITIES,
+  GROWFOOD_PROGRAM_SLUGS,
+  GROWFOOD_PROGRAM_ALIASES,
 };
