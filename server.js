@@ -36,9 +36,10 @@ const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.ru/ai.nutri
 
 /**
  * Product auto-deeplink (Admitad ulp).
- * Pattern: merchant search URL → encodeURIComponent into webmaster base as &ulp=.
+ * Pattern: merchant search/program URL → encodeURIComponent into webmaster base as &ulp=.
  * VkusVill search (verified 200): https://vkusvill.ru/search/?q=
  * Важная рыба search (verified 200): https://vipfish.ru/search/?q=
+ * BeFit: WP search https://letbefit.ru/?s= ( /search/?q= → 404); programs /programmy/{slug}/.
  */
 const VKUSVILL_SEARCH_PREFIX = 'https://vkusvill.ru/search/?q=';
 const DEFAULT_ADMITAD_VKUSVILL_BASE =
@@ -61,6 +62,58 @@ const VIPFISH_GEO_CITIES = [
   'Шушары',
   'Сестрорецк',
 ];
+
+/** BeFit (letbefit.ru) — WP search works; /search/?q= 404. Chips: [[befit:…]] / [[letbefit:…]]. */
+const BEFIT_SEARCH_PREFIX = 'https://letbefit.ru/?s=';
+const BEFIT_PROGRAM_PREFIX = 'https://letbefit.ru/programmy/';
+const DEFAULT_ADMITAD_BEFIT_BASE =
+  'https://uuwgc.com/g/qm29jzxwek268e100ca0fcd3300043/?erid=25H8d7vbP8SRTvJZjHsUpp';
+const DEFAULT_ADMITAD_BEFIT_ERID = '25H8d7vbP8SRTvJZjHsUpp';
+/** Soft-geo from partner brief (MSK + SPb). */
+const BEFIT_GEO_CITIES = ['Москва', 'Санкт-Петербург'];
+/** Verified program slugs from letbefit.ru home (2026-11-17). */
+const BEFIT_PROGRAM_SLUGS = [
+  'balance',
+  'balancepremium',
+  'daily',
+  'everydaily',
+  'extralightpremium',
+  'fish',
+  'fishpremium',
+  'gluten_free',
+  'gotovoe-menyu-dlya-pohudeniya',
+  'gotovoe-menyu-dlya-sportsmenov',
+  'keto-start',
+  'light',
+  'lightpremium',
+  'middlesea',
+  'nabor-myshechnoj-massy',
+  'normal',
+  'normalpremium',
+  'strong',
+  'strongpremium',
+  'superstrongpremium',
+  'vegetarian',
+  'veggi',
+];
+/** Friendly aliases → verified slug (Energy* → sports page; no /programmy/energy*). */
+const BEFIT_PROGRAM_ALIASES = {
+  keto: 'keto-start',
+  ketostart: 'keto-start',
+  'keto start': 'keto-start',
+  energy: 'gotovoe-menyu-dlya-sportsmenov',
+  'energy max': 'gotovoe-menyu-dlya-sportsmenov',
+  energymax: 'gotovoe-menyu-dlya-sportsmenov',
+  'energy-max': 'gotovoe-menyu-dlya-sportsmenov',
+  sport: 'gotovoe-menyu-dlya-sportsmenov',
+  sports: 'gotovoe-menyu-dlya-sportsmenov',
+  спорт: 'gotovoe-menyu-dlya-sportsmenov',
+  кето: 'keto-start',
+  'super strong premium': 'superstrongpremium',
+  superstrong: 'superstrongpremium',
+  'набор массы': 'nabor-myshechnoj-massy',
+  похудение: 'gotovoe-menyu-dlya-pohudeniya',
+};
 
 /** Strip ulp so we can append a fresh double-encoded target; keep erid and other params. */
 function normalizeAdmitadBase(raw) {
@@ -90,14 +143,17 @@ function eridFromUrl(raw) {
 }
 
 /**
- * Admitad webmaster hosts only — never raw merchant landings (vkusvill.ru / vipfish.ru).
- * Live VV uses kdbov.com; Важная рыба — dorinebeaumont.com; classic admitad.com also ok.
+ * Admitad webmaster hosts only — never raw merchant landings
+ * (vkusvill.ru / vipfish.ru / letbefit.ru).
+ * VV kdbov.com; рыба dorinebeaumont.com; BeFit uuwgc.com; classic admitad.com also ok.
  */
 function looksLikeAdmitadWebmaster(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (!value) return false;
-  if (/vkusvill\.ru|vipfish\.ru/i.test(value)) return false;
-  return /kdbov\.com|dorinebeaumont\.com|admitad\.com|ad\.admitad\.com/i.test(value);
+  if (/vkusvill\.ru|vipfish\.ru|letbefit\.ru/i.test(value)) return false;
+  return /kdbov\.com|dorinebeaumont\.com|uuwgc\.com|admitad\.com|ad\.admitad\.com/i.test(
+    value
+  );
 }
 
 function findPartnerRow(partners, id) {
@@ -186,6 +242,97 @@ function resolveVipfishDeeplinkConfig(partners) {
   };
 }
 
+function normalizeBefitPromos(row) {
+  const fromRow = Array.isArray(row && row.promos) ? row.promos : null;
+  if (fromRow && fromRow.length) {
+    return fromRow
+      .map((p) => {
+        if (!p || typeof p !== 'object') return null;
+        const codeRaw = p.code;
+        const code =
+          codeRaw == null || codeRaw === ''
+            ? null
+            : String(codeRaw).trim() || null;
+        return {
+          code,
+          discount: String(p.discount || '').trim() || null,
+          when: String(p.when || '').trim() || null,
+        };
+      })
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function resolveBefitProgramSlug(label, aliases = BEFIT_PROGRAM_ALIASES, slugs = BEFIT_PROGRAM_SLUGS) {
+  const raw = String(label || '').trim();
+  if (!raw) return null;
+  let key = raw.toLowerCase().replace(/^\/+/, '');
+  key = key.replace(/^programmy\//i, '').replace(/\/+$/, '');
+  key = key.replace(/\s+/g, ' ').trim();
+  const aliasMap = aliases && typeof aliases === 'object' ? aliases : BEFIT_PROGRAM_ALIASES;
+  const slugList = Array.isArray(slugs) && slugs.length ? slugs : BEFIT_PROGRAM_SLUGS;
+  const slugSet = new Set(slugList.map((s) => String(s).toLowerCase()));
+  if (aliasMap[key]) return aliasMap[key];
+  const compact = key.replace(/\s+/g, '');
+  if (aliasMap[compact]) return aliasMap[compact];
+  if (slugSet.has(key)) return key;
+  if (slugSet.has(compact)) return compact;
+  // Bare verified slug with hyphens/underscores only.
+  if (/^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
+    return key.toLowerCase();
+  }
+  return null;
+}
+
+function resolveBefitTargetUrl(label, cfg = {}) {
+  const raw = String(label || '').trim();
+  if (!raw) return null;
+  const slug = resolveBefitProgramSlug(
+    raw,
+    (cfg && cfg.programAliases) || BEFIT_PROGRAM_ALIASES,
+    (cfg && cfg.programSlugs) || BEFIT_PROGRAM_SLUGS
+  );
+  if (slug) {
+    const programPrefix = String(
+      (cfg && cfg.programPrefix) || BEFIT_PROGRAM_PREFIX
+    ).replace(/\/?$/, '/');
+    return `${programPrefix}${slug}/`;
+  }
+  const prefix = String((cfg && cfg.searchPrefix) || BEFIT_SEARCH_PREFIX);
+  return `${prefix}${encodeURIComponent(raw)}`;
+}
+
+function resolveBefitDeeplinkConfig(partners) {
+  const row =
+    findPartnerRow(partners, 'befit') || findPartnerRow(partners, 'letbefit');
+  const geoFromPartner = Array.isArray(row && row.geo) ? row.geo : null;
+  const cities =
+    geoFromPartner && geoFromPartner.length
+      ? geoFromPartner.map((c) => String(c || '').trim()).filter(Boolean)
+      : BEFIT_GEO_CITIES.slice();
+  const cfg = resolveAdmitadDeeplinkConfig({
+    partners: row ? [row] : partners,
+    partnerId: (row && row.id) || 'befit',
+    envBaseKey: 'ADMITAD_BEFIT_BASE',
+    envEridKey: 'ADMITAD_BEFIT_ERID',
+    defaultBase: DEFAULT_ADMITAD_BEFIT_BASE,
+    defaultErid: DEFAULT_ADMITAD_BEFIT_ERID,
+    searchPrefix: BEFIT_SEARCH_PREFIX,
+  });
+  return {
+    ...cfg,
+    id: 'befit',
+    name: String((row && row.name) || 'BeFit'),
+    cities,
+    tagPrefixes: ['befit', 'letbefit'],
+    programPrefix: BEFIT_PROGRAM_PREFIX,
+    programSlugs: BEFIT_PROGRAM_SLUGS.slice(),
+    programAliases: { ...BEFIT_PROGRAM_ALIASES },
+    promos: normalizeBefitPromos(row),
+  };
+}
+
 /** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
 const MAX_OUTPUT_TOKENS = Math.min(
   Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 1024),
@@ -265,6 +412,7 @@ const SYSTEM_PROMPT = fs.readFileSync(path.join(ROOT, 'prompt.txt'), 'utf8');
 const PARTNERS = JSON.parse(fs.readFileSync(path.join(ROOT, 'partners.json'), 'utf8'));
 const VKUSVILL_DEEPLINK = resolveVkusvillDeeplinkConfig(PARTNERS);
 const VIPFISH_DEEPLINK = resolveVipfishDeeplinkConfig(PARTNERS);
+const BEFIT_DEEPLINK = resolveBefitDeeplinkConfig(PARTNERS);
 
 /**
  * Quiet chat-mode overlays (надстройки). Same bot + short context block.
@@ -532,6 +680,24 @@ app.get('/api/config', (_req, res) => {
       inn: VIPFISH_DEEPLINK.inn,
       name: VIPFISH_DEEPLINK.name,
     },
+    /** BeFit (letbefit.ru) — MSK+SPb; chips via [[befit:…]] / [[letbefit:…]]. */
+    befitDeeplink: {
+      enabled: BEFIT_DEEPLINK.enabled,
+      admitadBase: BEFIT_DEEPLINK.admitadBase,
+      erid: BEFIT_DEEPLINK.erid,
+      searchPrefix: BEFIT_DEEPLINK.searchPrefix,
+      programPrefix: BEFIT_DEEPLINK.programPrefix,
+      programSlugs: BEFIT_DEEPLINK.programSlugs,
+      programAliases: BEFIT_DEEPLINK.programAliases,
+      cities: BEFIT_DEEPLINK.cities,
+      tagPrefixes: BEFIT_DEEPLINK.tagPrefixes,
+      promoCode: BEFIT_DEEPLINK.promoCode,
+      promos: BEFIT_DEEPLINK.promos,
+      disclaimer: BEFIT_DEEPLINK.disclaimer,
+      legalName: BEFIT_DEEPLINK.legalName,
+      inn: BEFIT_DEEPLINK.inn,
+      name: BEFIT_DEEPLINK.name,
+    },
   });
 });
 
@@ -559,6 +725,15 @@ function buildVipfishAdmitadUrl(productName, cfg = VIPFISH_DEEPLINK) {
     ...(cfg || {}),
     searchPrefix: (cfg && cfg.searchPrefix) || VIPFISH_SEARCH_PREFIX,
   });
+}
+
+/** BeFit: program slug → /programmy/{slug}/; else WP search ?s=. */
+function buildBefitAdmitadUrl(label, cfg = BEFIT_DEEPLINK) {
+  const target = resolveBefitTargetUrl(label, cfg || BEFIT_DEEPLINK);
+  const base = normalizeAdmitadBase(cfg && cfg.admitadBase);
+  if (!target || !base) return null;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}ulp=${encodeURIComponent(target)}`;
 }
 
 /**
@@ -1184,13 +1359,23 @@ module.exports = {
   buildAdmitadUlpUrl,
   buildVkusvillAdmitadUrl,
   buildVipfishAdmitadUrl,
+  buildBefitAdmitadUrl,
+  resolveBefitTargetUrl,
+  resolveBefitProgramSlug,
   normalizeAdmitadBase,
   looksLikeAdmitadWebmaster,
   resolveVkusvillDeeplinkConfig,
   resolveVipfishDeeplinkConfig,
+  resolveBefitDeeplinkConfig,
   VKUSVILL_SEARCH_PREFIX,
   VKUSVILL_DEEPLINK,
   VIPFISH_SEARCH_PREFIX,
   VIPFISH_DEEPLINK,
   VIPFISH_GEO_CITIES,
+  BEFIT_SEARCH_PREFIX,
+  BEFIT_PROGRAM_PREFIX,
+  BEFIT_DEEPLINK,
+  BEFIT_GEO_CITIES,
+  BEFIT_PROGRAM_SLUGS,
+  BEFIT_PROGRAM_ALIASES,
 };

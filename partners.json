@@ -103,5 +103,69 @@
     "legal_name": "ООО «Кейтеринг-Рент»",
     "inn": "7804597213",
     "disclaimer": "Реклама. ООО «Кейтеринг-Рент», ИНН 7804597213. erid: 2bL9aMPo2e49hMef4peVndVUPr. Партнёрская ссылка Admitad."
+  },
+  {
+    "id": "befit",
+    "name": "BeFit",
+    "geo": ["Москва", "Санкт-Петербург"],
+    "geo_mode": "cities",
+    "tags": [
+      "befit",
+      "letbefit",
+      "пп",
+      "готовое",
+      "рацион",
+      "программа питания",
+      "похудение",
+      "набор массы",
+      "кето",
+      "спорт",
+      "доставка",
+      "нет времени"
+    ],
+    "offer_type": "meal_plan",
+    "promo_code": "ADMBF2026",
+    "promo_terms": "−2026 ₽ на первый заказ для новых клиентов (условия у партнёра)",
+    "promos": [
+      {
+        "code": "ADMBF2026",
+        "discount": "−2026 ₽",
+        "when": "первый заказ, новые клиенты — default try"
+      },
+      {
+        "code": "ADM15",
+        "discount": "−15%",
+        "when": "общий"
+      },
+      {
+        "code": "KETOADM",
+        "discount": "−15%",
+        "when": "Keto Start / низкоуглеводное похудение"
+      },
+      {
+        "code": "ADMSPORT",
+        "discount": "−15%",
+        "when": "Energy / Energy Max, выносливость / спорт"
+      },
+      {
+        "code": "MOBADM",
+        "discount": "−11%",
+        "when": "мобильное приложение"
+      },
+      {
+        "code": null,
+        "discount": "−14%",
+        "when": "программа на 2 месяца, код не нужен"
+      }
+    ],
+    "live": false,
+    "admitad_base": "https://uuwgc.com/g/qm29jzxwek268e100ca0fcd3300043/?erid=25H8d7vbP8SRTvJZjHsUpp",
+    "erid": "25H8d7vbP8SRTvJZjHsUpp",
+    "link": "https://uuwgc.com/g/qm29jzxwek268e100ca0fcd3300043/?erid=25H8d7vbP8SRTvJZjHsUpp",
+    "landing_url": "https://letbefit.ru/",
+    "blurb": "Готовые ПП-рационы BeFit (letbefit.ru): похудение, набор массы, спорт — доставка Москва и СПб.",
+    "legal_name": "ООО «АЛ-МУЛК»",
+    "inn": "7713441603",
+    "disclaimer": "Реклама. ООО «АЛ-МУЛК», ИНН 7713441603. erid: 25H8d7vbP8SRTvJZjHsUpp. Партнёрская ссылка Admitad."
   }
 ]
