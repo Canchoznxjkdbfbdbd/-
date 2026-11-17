@@ -59,21 +59,57 @@ for (const p of prompts) {
 
 assert.ok(/7b\./.test(prompt) && /уточняющ/.test(prompt), 'prompt must ask soft clarifying questions first (7b)');
 assert.ok(
-  /мягкого стартера[\s\S]{0,500}без \[\[/.test(prompt),
+  /ТОЛЬКО 1–2|ТОЛЬКО 1-2/.test(prompt) && /Запрещено в этом ответе/.test(prompt),
+  'prompt 7b must hard-require questions-only first reply'
+);
+assert.ok(
+  /мягкого стартера[\s\S]{0,800}без \[\[/.test(prompt) || /без \[\[…\]\]/.test(prompt),
   'prompt must forbid [[tags]] / cart dump on soft starter'
 );
 assert.ok(
+  !/сразу польза по запросу/.test(prompt),
+  'old “immediate value before clarify” rule must be gone'
+);
+assert.ok(
   /недельные?/.test(prompt) && /BeFit/.test(prompt) && /пакет|рацион/.test(prompt),
-  'prompt must emphasize BeFit weekly packs'
+  'prompt must still allow BeFit weekly packs after clarifications'
 );
 assert.ok(
   /на сейчас|на день|на неделю/.test(prompt),
   'prompt must offer cart horizon now/day/week'
 );
 assert.ok(
-  /явно просит купить|список покупок|корзину/.test(prompt),
+  /список покупок|корзин/.test(prompt),
   'prompt must still allow tags for real shopping turns'
 );
 assert.ok(prompt.includes('Собрать корзину'), 'cart block mention must remain');
+
+assert.ok(script.includes('function stripBracketTags'), 'stripBracketTags hard gate missing');
+assert.ok(
+  /allowChipsThisReply|userTurns >= 2/.test(script),
+  'first-reply chip suppress gate missing'
+);
+assert.ok(
+  /allowChips:\s*allowChipsThisReply|allowChipsThisReply/.test(script),
+  'stream paint must pass allowChipsThisReply'
+);
+
+const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+assert.ok(
+  /ТОЛЬКО 1–2 коротких уточняющ/.test(server),
+  'notime/grocery/kids overlays must clarify-first (not dump menu)'
+);
+assert.ok(
+  !/Подстрой ответ: 2–4 готовых или почти готовых варианта на сегодня/.test(server),
+  'old notime overlay that forced 2–4 options must be gone'
+);
+assert.ok(
+  /latest user message|lastUserText\(messages\)/.test(server),
+  'pickPartner must gate on latest user text, not starter alone'
+);
+assert.ok(
+  !/нет времени\(\?:\\s\+готовить\)\?\|некогда\(\?:\\s\+готовить\)\?/.test(server),
+  'INTENT_RE must not match bare «нет времени» from starter'
+);
 
 console.log('verify-chat-scroll-starters: ok');

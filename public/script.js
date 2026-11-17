@@ -453,12 +453,25 @@
     return a;
   }
 
+  /** Strip [[…]] to plain product names (no chips) — hard kill cart dump on first soft reply. */
+  function stripBracketTags(text) {
+    return String(text || '').replace(/\[\[([^\]]+)\]\]/g, (_, inner) => {
+      const parsed = parseProductTag(inner);
+      if (!parsed) return String(inner || '').trim();
+      if (parsed.kind === 'partner') return '';
+      return parsed.label || String(inner || '').trim();
+    });
+  }
+
   /**
    * Strip [[product]] / [[vipfish:…]] / [[befit:…]] / [[hval:…]] from prose (plain names);
    * collect Admitad chips for the cart block under the message. Hide [[partner:id]].
    * Incomplete trailing [[… stays plain text while streaming.
+   * @param {string} text
+   * @param {{ allowChips?: boolean }} [opts] — allowChips=false: plain names only, empty chip list
    */
-  function renderProductDeeplinks(text) {
+  function renderProductDeeplinks(text, opts = {}) {
+    const allowChips = opts.allowChips !== false;
     const src = String(text || '');
     const re = /\[\[([^\]]+)\]\]/g;
     /** @type {{start:number,end:number,label:string,store:string|null,kind:string,href:string|null}[]} */
@@ -468,13 +481,14 @@
       const parsed = parseProductTag(m[1]);
       if (!parsed) continue;
       let href = null;
-      if (parsed.kind === 'product' && parsed.store === 'vkusvill' && vkusvillDeeplink.enabled) {
+      if (allowChips && parsed.kind === 'product' && parsed.store === 'vkusvill' && vkusvillDeeplink.enabled) {
         href = buildAdmitadUlpUrl(parsed.label, vkusvillDeeplink);
-      } else if (parsed.kind === 'product' && parsed.store === 'vipfish' && vipfishDeeplink.enabled) {
+      } else if (allowChips && parsed.kind === 'product' && parsed.store === 'vipfish' && vipfishDeeplink.enabled) {
         href = buildAdmitadUlpUrl(parsed.label, vipfishDeeplink);
-      } else if (parsed.kind === 'product' && parsed.store === 'befit' && befitDeeplink.enabled) {
+      } else if (allowChips && parsed.kind === 'product' && parsed.store === 'befit' && befitDeeplink.enabled) {
         href = buildBefitAdmitadUrl(parsed.label);
       } else if (
+        allowChips &&
         parsed.kind === 'product' &&
         parsed.store === 'hvalwaters' &&
         hvalwatersDeeplink.enabled
@@ -683,8 +697,10 @@
   }
 
   /** Paint assistant bubble: plain names in prose; chips + soft CTA in cart block under the message. */
-  function fillAssistantBubble(bubble, text, wrap) {
-    const { fragment, chips, primaryStore, disclosures } = renderProductDeeplinks(text);
+  function fillAssistantBubble(bubble, text, wrap, opts = {}) {
+    // First user turn (starter / opening) — never paint cart chips even if the model dumped [[tags]].
+    const allowChips = opts.allowChips != null ? Boolean(opts.allowChips) : userTurns >= 2;
+    const { fragment, chips, primaryStore, disclosures } = renderProductDeeplinks(text, { allowChips });
     bubble.replaceChildren(fragment);
     if (wrap) {
       syncCartBlock(wrap, chips, primaryStore);
@@ -993,11 +1009,14 @@
       // Follow only via maybeFollowBottom while streamPinBottom stays true.
     };
 
+    // Hard gate: first reply after a starter must not grow a cart/BeFit chip row.
+    const allowChipsThisReply = userTurns >= 2;
+
     const paint = () => {
       // Snapshot before layout grows (cart under reply). Only follow if the user
       // was already pinned/near bottom — never yank a scrolled-up reader to cart.
       const follow = streamPinBottom;
-      fillAssistantBubble(bubble, full, wrap);
+      fillAssistantBubble(bubble, full, wrap, { allowChips: allowChipsThisReply });
       if (follow) scrollBottom();
     };
 
@@ -1032,8 +1051,11 @@
         paint();
       } else if (payload.type === 'partner' && payload.partner) {
         // Do not treat partner as the start of reply text — avoids wiping status into empty.
-        partnerShown = true;
-        attachPartner(wrap, payload.partner);
+        // Never attach soft ads on the first user turn (starter dump path).
+        if (userTurns >= 2 && allowChipsThisReply) {
+          partnerShown = true;
+          attachPartner(wrap, payload.partner);
+        }
       } else if (payload.type === 'error') {
         if (typingFallbackTimer) {
           clearTimeout(typingFallbackTimer);
@@ -1109,7 +1131,9 @@
       drainBuffer(state, true);
 
       if (full) {
-        history.push({ role: 'assistant', content: full });
+        // Persist without [[tags]] on first soft reply so restore can't resurrect chips.
+        const content = allowChipsThisReply ? full : stripBracketTags(full);
+        history.push({ role: 'assistant', content });
         persistChat();
         paint();
       } else if (!wrap.classList.contains('error')) {
