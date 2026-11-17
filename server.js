@@ -647,13 +647,19 @@ app.get('/manifest.webmanifest', (_req, res) => {
   res.sendFile(path.join(ROOT, 'public', 'manifest.webmanifest'));
 });
 
-/** SEO: robots + sitemap must not fall through to the SPA catch-all HTML. */
+/**
+ * SEO: robots + sitemap must return 200 text/xml — never SPA HTML and never
+ * a redirect. Explicit routes stay ahead of express.static and the `*` catch-all.
+ * Nginx must also proxy these on :80 without HTTPS 301 (see deploy/nginx-nutricode.conf).
+ */
 app.get('/robots.txt', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
   res.type('text/plain; charset=utf-8');
   res.sendFile(path.join(ROOT, 'public', 'robots.txt'));
 });
 
 app.get('/sitemap.xml', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
   res.type('application/xml; charset=utf-8');
   res.sendFile(path.join(ROOT, 'public', 'sitemap.xml'));
 });
