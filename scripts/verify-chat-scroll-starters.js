@@ -70,6 +70,15 @@ assert.ok(
   !/сразу польза по запросу/.test(prompt),
   'old “immediate value before clarify” rule must be gone'
 );
+assert.ok(/7c\./.test(prompt), 'prompt must have soft delayed city rule (7c)');
+assert.ok(
+  /БЕЗ города/.test(prompt) && /реально привезут/.test(prompt),
+  'prompt must delay city ask and frame it as delivery help'
+);
+assert.ok(
+  !/Спроси по делу: город \(MSK\/SPb или другой\)\?/.test(prompt),
+  'old aggressive first-turn city ask must be gone from 7b'
+);
 assert.ok(
   /недельные?/.test(prompt) && /BeFit/.test(prompt) && /пакет|рацион/.test(prompt),
   'prompt must still allow BeFit weekly packs after clarifications'
@@ -102,6 +111,10 @@ assert.ok(
 assert.ok(
   !/Подстрой ответ: 2–4 готовых или почти готовых варианта на сегодня/.test(server),
   'old notime overlay that forced 2–4 options must be gone'
+);
+assert.ok(
+  /БЕЗ города/.test(server) && !/город \(MSK\/SPb\?\)/.test(server),
+  'server overlays must delay city ask (no first-turn MSK/SPb)'
 );
 assert.ok(
   /latest user message|lastUserText\(messages\)/.test(server),

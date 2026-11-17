@@ -60,6 +60,22 @@ assert.ok(
   !/2–4 готовых или почти готовых варианта на сегодня/.test(CHAT_MODES.notime.overlay),
   'notime must not dump 2–4 options on first reply'
 );
+assert.ok(
+  /БЕЗ города/.test(CHAT_MODES.notime.overlay),
+  'notime must not ask city on first reply'
+);
+assert.ok(
+  !/город \(MSK\/SPb\?\)/.test(CHAT_MODES.notime.overlay),
+  'old notime first-turn MSK/SPb city ask must be gone'
+);
+assert.ok(
+  /Город спроси позже|позже и мягко/.test(CHAT_MODES.notime.overlay),
+  'notime must delay soft city ask until delivery/cart'
+);
+assert.ok(
+  /БЕЗ города/.test(CHAT_MODES.grocery.overlay),
+  'grocery must not ask city on first reply'
+);
 
 const system = buildSystemInstruction(CHAT_MODES.grocery);
 assert.ok(system.includes('НутриКод'));
