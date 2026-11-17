@@ -12,7 +12,8 @@
     "verify:history": "node scripts/verify-chat-history.js",
     "verify:privacy": "node scripts/verify-privacy.js",
     "verify:vkusvill": "node scripts/verify-vkusvill-deeplink.js",
-    "verify:vipfish": "node scripts/verify-vipfish-deeplink.js"
+    "verify:vipfish": "node scripts/verify-vipfish-deeplink.js",
+    "verify:befit": "node scripts/verify-befit-deeplink.js"
   },
   "engines": {
     "node": ">=18"

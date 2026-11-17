@@ -78,24 +78,27 @@ npm start
 | `ADMITAD_VKUSVILL_ERID`      | erid для дисклеймера «Реклама…» под чипами VV                            |
 | `ADMITAD_VIPFISH_BASE`       | Admitad webmaster base Важной рыбы (dorinebeaumont…, не vipfish.ru)      |
 | `ADMITAD_VIPFISH_ERID`       | erid для дисклеймера под чипами Важной рыбы                              |
+| `ADMITAD_BEFIT_BASE`         | Admitad webmaster base BeFit (uuwgc…, не letbefit.ru)                    |
+| `ADMITAD_BEFIT_ERID`         | erid для дисклеймера под чипами BeFit                                    |
 
 `gemini-3.8-flash` — опционально через `GEMINI_MODEL` или `GEMINI_MODEL_CHAIN` (см. `.env.example`).
 
-### Автодиплинк ВкусВилл и Важная рыба
+### Автодиплинк ВкусВилл, Важная рыба и BeFit
 
 Модель помечает товары метками (без сырых Admitad URL). Клиент (`renderProductDeeplinks`) собирает:
 
-1. поиск на витрине + `encodeURIComponent(название)`;
-2. Admitad webmaster base + `&ulp=` + `encodeURIComponent(searchUrl)`.
+1. целевой URL на витрине (поиск или страница программы);
+2. Admitad webmaster base + `&ulp=` + `encodeURIComponent(targetUrl)`.
 
-| Метка | Поиск (проверено 200) | Admitad base |
-|-------|------------------------|--------------|
+| Метка | Target (проверено) | Admitad base |
+|-------|--------------------|--------------|
 | `[[авокадо]]` | `https://vkusvill.ru/search/?q=` | `ADMITAD_VKUSVILL_BASE` (kdbov…) |
 | `[[vipfish:лосось]]` / `[[ryba:лосось]]` | `https://vipfish.ru/search/?q=` | `ADMITAD_VIPFISH_BASE` (dorinebeaumont…) |
+| `[[befit:keto-start]]` / `[[letbefit:superstrongpremium]]` | `/programmy/{slug}/` или WP `https://letbefit.ru/?s=` (`/search/?q=` → 404) | `ADMITAD_BEFIT_BASE` (uuwgc…) |
 
-База берётся из env → `partners.json` (`admitad_base` / Admitad-`link`) → дефолт в коде. URL вида `vkusvill.ru/?utm_…` или `vipfish.ru/…` (merchant-лендинг) **не** считаются базой. Промокод VV `VSC7247` — только для плашки, не для ulp.
+База берётся из env → `partners.json` (`admitad_base` / Admitad-`link`) → дефолт в коде. URL вида `vkusvill.ru/?utm_…`, `vipfish.ru/…` или `letbefit.ru/…` (merchant-лендинг) **не** считаются базой. Промокод VV `VSC7247` и BeFit shortlist (`promos` + `promo_code=ADMBF2026`) — для плашки/`/api/config`, не для ulp.
 
-Важная рыба — soft-geo: только города из баннера зон (СПб, Мурино, Бугры, Пушкин, Петергоф, Всеволожск, Кудрово, Шушары, Сестрорецк); модель не ставит `vipfish`/`ryba` вне зоны. В одном ответе не мешать VV и рыбу. Магнит/Лавка/Perfluence — не подключены.
+Важная рыба — soft-geo: только города из баннера зон (СПб, Мурино, Бугры, Пушкин, Петергоф, Всеволожск, Кудрово, Шушары, Сестрорецк). BeFit — soft-geo Москва и Санкт-Петербург (бриф партнёра). В одном ответе не мешать VV / рыбу / BeFit. Магнит/Лавка/Perfluence — не подключены.
 
 ## Структура
 
@@ -135,7 +138,7 @@ README.md
 - История чата только в `localStorage` браузера: восстанавливается после перезагрузки, очищается кнопкой «Очистить чат»; аккаунтов нет, на сервере диалоги не хранятся
 - Стриминг ответа (SSE): сначала спокойные статусы («Думает…» → «Печатает…»), потом текст по словам
 - Тихий блок партнёра под ответом ассистента — только по сигналу сервера, вне медицинского совета
-- Чипы `[[продукт]]` → ВкусВилл; `[[vipfish:…]]` / `[[ryba:…]]` → Важная рыба; серый дисклеймер «Реклама…» + erid (и юрлицо из `partners.json`), если есть хотя бы одна ссылка
+- Чипы `[[продукт]]` → ВкусВилл; `[[vipfish:…]]` / `[[ryba:…]]` → Важная рыба; `[[befit:…]]` / `[[letbefit:…]]` → BeFit; серый дисклеймер «Реклама…» + erid (и юрлицо из `partners.json`), если есть хотя бы одна ссылка
 - Анонимные 👍/👎 в `localStorage`
 - Тихая полоска доната под чатом после 3 сообщений (100 / 300 / 500 ₽)
 - В промпте — редкая мягкая шутка про донат только в конце удачного диалога или после «спасибо»

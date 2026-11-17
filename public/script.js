@@ -76,6 +76,23 @@
     name: 'Важная рыба',
     tagPrefixes: ['vipfish', 'ryba'],
   };
+  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,programPrefix:string,programSlugs:string[],programAliases:Record<string,string>,disclaimer:string,legalName:string,inn:string,name:string,tagPrefixes:string[],promoCode:string|null,promos:object[]}} */
+  let befitDeeplink = {
+    enabled: false,
+    admitadBase: '',
+    erid: '',
+    searchPrefix: 'https://letbefit.ru/?s=',
+    programPrefix: 'https://letbefit.ru/programmy/',
+    programSlugs: [],
+    programAliases: {},
+    disclaimer: '',
+    legalName: 'ООО «АЛ-МУЛК»',
+    inn: '7713441603',
+    name: 'BeFit',
+    tagPrefixes: ['befit', 'letbefit'],
+    promoCode: null,
+    promos: [],
+  };
   let userTurns = 0;
   let selectedMode = 'normal';
 
@@ -211,7 +228,7 @@
 
   /**
    * Build Admitad deeplink: search URL → double-encode into admitadBase as ulp=.
-   * Base must be Admitad webmaster (kdbov… / dorinebeaumont…), never raw merchant landing.
+   * Base must be Admitad webmaster (kdbov… / dorinebeaumont… / uuwgc…), never raw merchant landing.
    */
   function buildAdmitadUlpUrl(productName, cfg) {
     const name = String(productName || '').trim();
@@ -219,6 +236,41 @@
     const prefix = String((cfg && cfg.searchPrefix) || '').trim();
     if (!name || !base || !prefix) return null;
     const target = `${prefix}${encodeURIComponent(name)}`;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+  }
+
+  /** BeFit: known program slug → /programmy/{slug}/; else WP ?s= search. */
+  function resolveBefitTargetUrl(label) {
+    const raw = String(label || '').trim();
+    if (!raw) return null;
+    let key = raw.toLowerCase().replace(/^\/+/, '');
+    key = key.replace(/^programmy\//i, '').replace(/\/+$/, '');
+    key = key.replace(/\s+/g, ' ').trim();
+    const aliases = befitDeeplink.programAliases || {};
+    const slugs = Array.isArray(befitDeeplink.programSlugs)
+      ? befitDeeplink.programSlugs.map((s) => String(s).toLowerCase())
+      : [];
+    const slugSet = new Set(slugs);
+    let slug = aliases[key] || aliases[key.replace(/\s+/g, '')] || null;
+    if (!slug && slugSet.has(key)) slug = key;
+    if (!slug && /^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
+      slug = key.toLowerCase();
+    }
+    if (slug) {
+      const programPrefix = String(
+        befitDeeplink.programPrefix || 'https://letbefit.ru/programmy/'
+      ).replace(/\/?$/, '/');
+      return `${programPrefix}${slug}/`;
+    }
+    const prefix = String(befitDeeplink.searchPrefix || 'https://letbefit.ru/?s=');
+    return `${prefix}${encodeURIComponent(raw)}`;
+  }
+
+  function buildBefitAdmitadUrl(label) {
+    const target = resolveBefitTargetUrl(label);
+    const base = String(befitDeeplink.admitadBase || '').trim();
+    if (!target || !base) return null;
     const sep = base.includes('?') ? '&' : '?';
     return `${base}${sep}ulp=${encodeURIComponent(target)}`;
   }
@@ -239,8 +291,14 @@
       const fishPrefixes = (vipfishDeeplink.tagPrefixes || ['vipfish', 'ryba']).map((p) =>
         String(p).toLowerCase()
       );
+      const befitPrefixes = (befitDeeplink.tagPrefixes || ['befit', 'letbefit']).map((p) =>
+        String(p).toLowerCase()
+      );
       if (fishPrefixes.includes(prefix)) {
         return { kind: 'product', label, store: 'vipfish' };
+      }
+      if (befitPrefixes.includes(prefix)) {
+        return { kind: 'product', label, store: 'befit' };
       }
       // Unknown prefix (e.g. magnit:) — show label only; do not invent links.
       return { kind: 'plain', label, store: null };
@@ -260,7 +318,7 @@
   }
 
   /**
-   * Turn [[product]] / [[vipfish:name]] into chips; leave [[partner:id]] alone.
+   * Turn [[product]] / [[vipfish:name]] / [[befit:slug]] into chips; leave [[partner:id]] alone.
    * Incomplete trailing [[… is left as plain text while streaming.
    */
   function renderProductDeeplinks(text) {
@@ -277,6 +335,8 @@
         href = buildAdmitadUlpUrl(parsed.label, vkusvillDeeplink);
       } else if (parsed.kind === 'product' && parsed.store === 'vipfish' && vipfishDeeplink.enabled) {
         href = buildAdmitadUlpUrl(parsed.label, vipfishDeeplink);
+      } else if (parsed.kind === 'product' && parsed.store === 'befit' && befitDeeplink.enabled) {
+        href = buildBefitAdmitadUrl(parsed.label);
       }
       hits.push({
         start: m.index,
@@ -292,6 +352,7 @@
     let cursor = 0;
     let vvCount = 0;
     let fishCount = 0;
+    let befitCount = 0;
 
     const pushText = (chunk) => {
       if (!chunk) return;
@@ -311,15 +372,20 @@
         a.target = '_blank';
         a.rel = 'noopener noreferrer sponsored';
         a.textContent = hit.label;
-        a.title =
-          hit.store === 'vipfish'
-            ? `${vipfishDeeplink.name || 'Важная рыба'} — поиск`
-            : 'ВкусВилл — поиск';
-        if (hit.store === 'vipfish') a.dataset.partner = 'vazhnaya-ryba';
-        else if (hit.store === 'vkusvill') a.dataset.partner = 'vkusvill';
+        if (hit.store === 'vipfish') {
+          a.title = `${vipfishDeeplink.name || 'Важная рыба'} — поиск`;
+          a.dataset.partner = 'vazhnaya-ryba';
+          fishCount += 1;
+        } else if (hit.store === 'befit') {
+          a.title = `${befitDeeplink.name || 'BeFit'} — программа / поиск`;
+          a.dataset.partner = 'befit';
+          befitCount += 1;
+        } else {
+          a.title = 'ВкусВилл — поиск';
+          a.dataset.partner = 'vkusvill';
+          vvCount += 1;
+        }
         root.appendChild(a);
-        if (hit.store === 'vipfish') fishCount += 1;
-        else vvCount += 1;
       } else {
         // No Admitad base / unknown prefix — show product name without raw brackets.
         pushText(hit.label);
@@ -338,17 +404,23 @@
       const line = disclosureLine(vipfishDeeplink, 'ООО «Кейтеринг-Рент»');
       if (line) disclosures.push(line);
     }
+    if (befitCount >= 1) {
+      const line = disclosureLine(befitDeeplink, 'ООО «АЛ-МУЛК»');
+      if (line) disclosures.push(line);
+    }
 
     return {
       fragment: root,
-      linkCount: vvCount + fishCount,
+      linkCount: vvCount + fishCount + befitCount,
       disclosures,
       erid:
-        fishCount >= 1
-          ? vipfishDeeplink.erid || ''
-          : vvCount >= 1
-            ? vkusvillDeeplink.erid || ''
-            : '',
+        befitCount >= 1
+          ? befitDeeplink.erid || ''
+          : fishCount >= 1
+            ? vipfishDeeplink.erid || ''
+            : vvCount >= 1
+              ? vkusvillDeeplink.erid || ''
+              : '',
     };
   }
 
@@ -370,7 +442,7 @@
     }
   }
 
-  /** Paint assistant bubble: product chips from [[name]] / [[vipfish:name]]; plain text otherwise. */
+  /** Paint assistant bubble: product chips from [[name]] / [[vipfish:…]] / [[befit:…]]; plain text otherwise. */
   function fillAssistantBubble(bubble, text, wrap) {
     const { fragment, disclosures } = renderProductDeeplinks(text);
     bubble.replaceChildren(fragment);
@@ -535,6 +607,40 @@
           inn: String(fish.inn || '7804597213').trim(),
           name: String(fish.name || 'Важная рыба').trim(),
           tagPrefixes: prefixes.length ? prefixes : ['vipfish', 'ryba'],
+        };
+      }
+      const bf = data.befitDeeplink;
+      if (bf && typeof bf === 'object') {
+        const prefixes = Array.isArray(bf.tagPrefixes)
+          ? bf.tagPrefixes.map((p) => String(p || '').trim().toLowerCase()).filter(Boolean)
+          : ['befit', 'letbefit'];
+        const aliases =
+          bf.programAliases && typeof bf.programAliases === 'object' ? bf.programAliases : {};
+        const aliasNorm = {};
+        for (const [k, v] of Object.entries(aliases)) {
+          const key = String(k || '')
+            .trim()
+            .toLowerCase();
+          const val = String(v || '').trim();
+          if (key && val) aliasNorm[key] = val;
+        }
+        befitDeeplink = {
+          enabled: Boolean(bf.enabled && bf.admitadBase),
+          admitadBase: String(bf.admitadBase || '').trim(),
+          erid: String(bf.erid || '').trim(),
+          searchPrefix: String(bf.searchPrefix || 'https://letbefit.ru/?s=').trim(),
+          programPrefix: String(bf.programPrefix || 'https://letbefit.ru/programmy/').trim(),
+          programSlugs: Array.isArray(bf.programSlugs)
+            ? bf.programSlugs.map((s) => String(s || '').trim()).filter(Boolean)
+            : [],
+          programAliases: aliasNorm,
+          disclaimer: String(bf.disclaimer || '').trim(),
+          legalName: String(bf.legalName || 'ООО «АЛ-МУЛК»').trim(),
+          inn: String(bf.inn || '7713441603').trim(),
+          name: String(bf.name || 'BeFit').trim(),
+          tagPrefixes: prefixes.length ? prefixes : ['befit', 'letbefit'],
+          promoCode: bf.promoCode ? String(bf.promoCode).trim() : null,
+          promos: Array.isArray(bf.promos) ? bf.promos : [],
         };
       }
       if (!data.hasKey) {
