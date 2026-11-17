@@ -14,7 +14,8 @@
     "verify:vkusvill": "node scripts/verify-vkusvill-deeplink.js",
     "verify:vipfish": "node scripts/verify-vipfish-deeplink.js",
     "verify:befit": "node scripts/verify-befit-deeplink.js",
-    "verify:hvalwaters": "node scripts/verify-hvalwaters-deeplink.js"
+    "verify:hvalwaters": "node scripts/verify-hvalwaters-deeplink.js",
+    "verify:robots": "node scripts/verify-robots-sitemap.js"
   },
   "engines": {
     "node": ">=18"
