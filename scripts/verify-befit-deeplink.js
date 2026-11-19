@@ -63,7 +63,15 @@ assert.strictEqual(resolveBefitProgramSlug('Keto Start'), 'keto-start');
 assert.strictEqual(resolveBefitProgramSlug('кето'), 'keto-start');
 assert.strictEqual(resolveBefitProgramSlug('Energy Max'), 'gotovoe-menyu-dlya-sportsmenov');
 assert.strictEqual(resolveBefitProgramSlug('superstrongpremium'), 'superstrongpremium');
+assert.strictEqual(resolveBefitProgramSlug('extralight'), 'extralight');
 assert.strictEqual(resolveBefitProgramSlug('неизвестная-каша'), null);
+// Owner dead-link ground truth: SEO hub → product program.
+assert.strictEqual(resolveBefitProgramSlug('gotovoe-menyu-dlya-pohudeniya'), 'extralight');
+assert.strictEqual(resolveBefitProgramSlug('похудение'), 'extralight');
+assert.strictEqual(resolveBefitProgramSlug('nabor-myshechnoj-massy'), 'strong');
+assert.strictEqual(resolveBefitProgramSlug('набор массы'), 'strong');
+assert.ok(!BEFIT_DEEPLINK.programSlugs.includes('gotovoe-menyu-dlya-pohudeniya'));
+assert.ok(BEFIT_DEEPLINK.programSlugs.includes('extralight'));
 
 assert.strictEqual(
   resolveBefitTargetUrl('superstrongpremium'),
@@ -72,6 +80,14 @@ assert.strictEqual(
 assert.strictEqual(
   resolveBefitTargetUrl('keto-start'),
   'https://letbefit.ru/programmy/keto-start/'
+);
+assert.strictEqual(
+  resolveBefitTargetUrl('похудение'),
+  'https://letbefit.ru/programmy/extralight/'
+);
+assert.strictEqual(
+  resolveBefitTargetUrl('gotovoe-menyu-dlya-pohudeniya'),
+  'https://letbefit.ru/programmy/extralight/'
 );
 assert.strictEqual(
   resolveBefitTargetUrl('кето рацион'),
@@ -85,6 +101,17 @@ assert.ok(url.includes('erid=25H8d7vbP8SRTvJZjHsUpp'));
 assert.ok(url.includes('ulp='));
 const ulp = new URL(url).searchParams.get('ulp');
 assert.strictEqual(ulp, 'https://letbefit.ru/programmy/superstrongpremium/');
+
+// Before (owner dead): …ulp=…/programmy/gotovoe-menyu-dlya-pohudeniya/
+// After: product Extralight.
+const fixedHub = buildBefitAdmitadUrl('gotovoe-menyu-dlya-pohudeniya');
+const fixedHubUlp = new URL(fixedHub).searchParams.get('ulp');
+assert.strictEqual(fixedHubUlp, 'https://letbefit.ru/programmy/extralight/');
+const fixedAlias = buildBefitAdmitadUrl('похудение');
+assert.strictEqual(
+  new URL(fixedAlias).searchParams.get('ulp'),
+  'https://letbefit.ru/programmy/extralight/'
+);
 
 const searchUrl = buildBefitAdmitadUrl('протеиновый завтрак');
 const searchUlp = new URL(searchUrl).searchParams.get('ulp');
