@@ -103,7 +103,7 @@
     enabled: false,
     admitadBase: '',
     erid: '',
-    searchPrefix: 'https://growfood.pro/#menu-plans',
+    searchPrefix: 'https://growfood.pro/new-order/',
     programPrefix: 'https://growfood.pro/new-order/',
     programSlugs: [],
     programAliases: {},
@@ -312,6 +312,7 @@
       : [];
     const slugSet = new Set(slugs);
     let slug = aliases[key] || aliases[key.replace(/\s+/g, '')] || null;
+    if (slug && !slugSet.has(String(slug).toLowerCase())) slug = null;
     if (!slug && slugSet.has(key)) slug = key;
     if (!slug && /^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
       slug = key.toLowerCase();
@@ -347,6 +348,7 @@
       : [];
     const slugSet = new Set(slugs);
     let slug = aliases[key] || aliases[key.replace(/\s+/g, '')] || null;
+    if (slug && !slugSet.has(String(slug).toLowerCase())) slug = null;
     if (!slug && slugSet.has(key)) slug = key;
     if (!slug && /^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
       slug = key.toLowerCase();
@@ -369,7 +371,7 @@
     return `${base}${sep}ulp=${encodeURIComponent(target)}`;
   }
 
-  /** GrowFood: known line slug → /new-order/{slug}; else catalog #menu-plans. */
+  /** GrowFood: known line slug → /new-order/{slug}; else order hub /new-order/. */
   function resolveGrowfoodTargetUrl(label) {
     const raw = String(label || '').trim();
     if (!raw) return null;
@@ -382,6 +384,7 @@
       : [];
     const slugSet = new Set(slugs);
     let slug = aliases[key] || aliases[key.replace(/\s+/g, '')] || null;
+    if (slug && !slugSet.has(String(slug).toLowerCase())) slug = null;
     if (!slug && slugSet.has(key)) slug = key;
     if (!slug && /^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
       slug = key.toLowerCase();
@@ -392,7 +395,7 @@
       ).replace(/\/?$/, '/');
       return `${programPrefix}${slug}`;
     }
-    return String(growfoodDeeplink.searchPrefix || 'https://growfood.pro/#menu-plans');
+    return String(growfoodDeeplink.searchPrefix || 'https://growfood.pro/new-order/');
   }
 
   function buildGrowfoodAdmitadUrl(label) {
@@ -1004,7 +1007,7 @@
           enabled: Boolean(gf.enabled && gf.admitadBase),
           admitadBase: String(gf.admitadBase || '').trim(),
           erid: String(gf.erid || '').trim(),
-          searchPrefix: String(gf.searchPrefix || 'https://growfood.pro/#menu-plans').trim(),
+          searchPrefix: String(gf.searchPrefix || 'https://growfood.pro/new-order/').trim(),
           programPrefix: String(gf.programPrefix || 'https://growfood.pro/new-order/').trim(),
           programSlugs: Array.isArray(gf.programSlugs)
             ? gf.programSlugs.map((s) => String(s || '').trim()).filter(Boolean)

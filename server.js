@@ -40,7 +40,7 @@ const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.ru/ai.nutri
  * Важная рыба search (verified 200): https://vipfish.ru/search/?q=
  * BeFit: WP search https://letbefit.ru/?s= ( /search/?q= → 404); programs /programmy/{slug}/.
  * Хваловская вода: WP https://hvalwaters.ru/?s= (/search/?q= → 404); products /water/{slug}/.
- * GrowFood: catalog https://growfood.pro/#menu-plans (no WP search); lines /new-order/{slug}.
+ * GrowFood: order hub https://growfood.pro/new-order/ (no WP search); lines /new-order/{slug}.
  */
 const VKUSVILL_SEARCH_PREFIX = 'https://vkusvill.ru/search/?q=';
 const DEFAULT_ADMITAD_VKUSVILL_BASE =
@@ -84,9 +84,12 @@ const DEFAULT_ADMITAD_HVALWATERS_COUPON_BASE =
   'https://xmknb.com/g/b4m98x4q7s268e100ca000dcac28d3/?i=3&erid=2bL9aMPo2e49hMef4pgUkgcvSC';
 /** Soft-geo MSK + SPb (+ near regions by address; hubs only in code). */
 const HVALWATERS_GEO_CITIES = ['Москва', 'Санкт-Петербург'];
-/** Verified product slugs under /water/{slug}/ (2026-11-17). */
-const HVALWATERS_PRODUCT_SLUGS = ['premium', 'naturelle', 'gornaya', 'deluxe'];
-/** Friendly aliases → verified /water/ slug. */
+/**
+ * Verified product slugs under /water/{slug}/.
+ * deluxe removed 2026-11-19: /water/deluxe/ soft-redirects to /catalog/ (wrong landing).
+ */
+const HVALWATERS_PRODUCT_SLUGS = ['premium', 'naturelle', 'gornaya'];
+/** Friendly aliases → verified /water/ slug. Unknown (incl. legacy deluxe) → WP ?s=. */
 const HVALWATERS_PRODUCT_ALIASES = {
   premium: 'premium',
   премиум: 'premium',
@@ -105,18 +108,15 @@ const HVALWATERS_PRODUCT_ALIASES = {
   gornaya: 'gornaya',
   горная: 'gornaya',
   'хваловская горная': 'gornaya',
-  deluxe: 'deluxe',
-  delux: 'deluxe',
-  делюкс: 'deluxe',
-  'хваловская deluxe': 'deluxe',
-  'хваловская делюкс': 'deluxe',
 };
 
 /**
  * GrowFood (growfood.pro) — chips [[growfood:…]] / [[gf:…]].
- * SPA route new-order/:goal; no WP search ( /search/?q= → 404). Unknown → #menu-plans.
+ * SPA route new-order/:goal; no WP search ( /search/?q= → 404).
+ * Unknown → /new-order/ (working order hub). Do NOT use #menu-plans / bare / —
+ * growfood.pro/ returns a 307 loop for crawlers and Admitad ulp follow.
  */
-const GROWFOOD_CATALOG_URL = 'https://growfood.pro/#menu-plans';
+const GROWFOOD_CATALOG_URL = 'https://growfood.pro/new-order/';
 const GROWFOOD_SEARCH_PREFIX = GROWFOOD_CATALOG_URL;
 const GROWFOOD_PROGRAM_PREFIX = 'https://growfood.pro/new-order/';
 const DEFAULT_ADMITAD_GROWFOOD_BASE =
@@ -378,10 +378,16 @@ function resolveBefitProgramSlug(label, aliases = BEFIT_PROGRAM_ALIASES, slugs =
   const aliasMap = aliases && typeof aliases === 'object' ? aliases : BEFIT_PROGRAM_ALIASES;
   const slugList = Array.isArray(slugs) && slugs.length ? slugs : BEFIT_PROGRAM_SLUGS;
   const slugSet = new Set(slugList.map((s) => String(s).toLowerCase()));
-  if (aliasMap[key]) return aliasMap[key];
-  const compact = key.replace(/\s+/g, '');
-  if (aliasMap[compact]) return aliasMap[compact];
+  const pickAlias = (k) => {
+    const mapped = aliasMap[k];
+    if (!mapped) return null;
+    const m = String(mapped).toLowerCase();
+    return slugSet.has(m) ? mapped : null;
+  };
+  const fromAlias = pickAlias(key) || pickAlias(key.replace(/\s+/g, ''));
+  if (fromAlias) return fromAlias;
   if (slugSet.has(key)) return key;
+  const compact = key.replace(/\s+/g, '');
   if (slugSet.has(compact)) return compact;
   // Bare verified slug with hyphens/underscores only.
   if (/^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
@@ -451,10 +457,16 @@ function resolveHvalwatersProductSlug(
   const aliasMap = aliases && typeof aliases === 'object' ? aliases : HVALWATERS_PRODUCT_ALIASES;
   const slugList = Array.isArray(slugs) && slugs.length ? slugs : HVALWATERS_PRODUCT_SLUGS;
   const slugSet = new Set(slugList.map((s) => String(s).toLowerCase()));
-  if (aliasMap[key]) return aliasMap[key];
-  const compact = key.replace(/\s+/g, '');
-  if (aliasMap[compact]) return aliasMap[compact];
+  const pickAlias = (k) => {
+    const mapped = aliasMap[k];
+    if (!mapped) return null;
+    const m = String(mapped).toLowerCase();
+    return slugSet.has(m) ? mapped : null;
+  };
+  const fromAlias = pickAlias(key) || pickAlias(key.replace(/\s+/g, ''));
+  if (fromAlias) return fromAlias;
   if (slugSet.has(key)) return key;
+  const compact = key.replace(/\s+/g, '');
   if (slugSet.has(compact)) return compact;
   if (/^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
     return key.toLowerCase();
@@ -531,10 +543,16 @@ function resolveGrowfoodProgramSlug(
   const aliasMap = aliases && typeof aliases === 'object' ? aliases : GROWFOOD_PROGRAM_ALIASES;
   const slugList = Array.isArray(slugs) && slugs.length ? slugs : GROWFOOD_PROGRAM_SLUGS;
   const slugSet = new Set(slugList.map((s) => String(s).toLowerCase()));
-  if (aliasMap[key]) return aliasMap[key];
-  const compact = key.replace(/\s+/g, '');
-  if (aliasMap[compact]) return aliasMap[compact];
+  const pickAlias = (k) => {
+    const mapped = aliasMap[k];
+    if (!mapped) return null;
+    const m = String(mapped).toLowerCase();
+    return slugSet.has(m) ? mapped : null;
+  };
+  const fromAlias = pickAlias(key) || pickAlias(key.replace(/\s+/g, ''));
+  if (fromAlias) return fromAlias;
   if (slugSet.has(key)) return key;
+  const compact = key.replace(/\s+/g, '');
   if (slugSet.has(compact)) return compact;
   if (/^[a-z0-9_-]+$/i.test(key) && slugSet.has(key.toLowerCase())) {
     return key.toLowerCase();
@@ -1077,7 +1095,7 @@ function buildHvalwatersAdmitadUrl(label, cfg = HVALWATERS_DEEPLINK) {
   return `${base}${sep}ulp=${encodeURIComponent(target)}`;
 }
 
-/** GrowFood: program slug → /new-order/{slug}; else catalog #menu-plans. */
+/** GrowFood: program slug → /new-order/{slug}; else order hub /new-order/. */
 function buildGrowfoodAdmitadUrl(label, cfg = GROWFOOD_DEEPLINK) {
   const target = resolveGrowfoodTargetUrl(label, cfg || GROWFOOD_DEEPLINK);
   const base = normalizeAdmitadBase(cfg && cfg.admitadBase);

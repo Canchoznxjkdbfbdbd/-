@@ -32,8 +32,8 @@ const {
   VIPFISH_DEEPLINK,
 } = require('../server');
 
-assert.strictEqual(GROWFOOD_SEARCH_PREFIX, 'https://growfood.pro/#menu-plans');
-assert.strictEqual(GROWFOOD_CATALOG_URL, 'https://growfood.pro/#menu-plans');
+assert.strictEqual(GROWFOOD_SEARCH_PREFIX, 'https://growfood.pro/new-order/');
+assert.strictEqual(GROWFOOD_CATALOG_URL, 'https://growfood.pro/new-order/');
 assert.strictEqual(GROWFOOD_PROGRAM_PREFIX, 'https://growfood.pro/new-order/');
 assert.ok(GROWFOOD_DEEPLINK.enabled);
 assert.ok(GROWFOOD_DEEPLINK.admitadBase.includes('naiawork.com'));
@@ -68,7 +68,7 @@ assert.ok(
   )
 );
 assert.ok(!looksLikeAdmitadWebmaster('https://growfood.pro/new-order/super-fit'));
-assert.ok(!looksLikeAdmitadWebmaster('https://growfood.pro/#menu-plans'));
+assert.ok(!looksLikeAdmitadWebmaster('https://growfood.pro/new-order/'));
 assert.ok(!looksLikeAdmitadWebmaster('https://gf.ru/'));
 
 assert.strictEqual(resolveGrowfoodProgramSlug('super-fit'), 'super-fit');
@@ -90,7 +90,7 @@ assert.strictEqual(
 );
 assert.strictEqual(
   resolveGrowfoodTargetUrl('протеиновый завтрак'),
-  'https://growfood.pro/#menu-plans'
+  'https://growfood.pro/new-order/'
 );
 
 const url = buildGrowfoodAdmitadUrl('super-fit');
@@ -103,7 +103,7 @@ assert.strictEqual(ulp, 'https://growfood.pro/new-order/super-fit');
 
 const catalogUrl = buildGrowfoodAdmitadUrl('неизвестная линейка');
 const catalogUlp = new URL(catalogUrl).searchParams.get('ulp');
-assert.strictEqual(catalogUlp, 'https://growfood.pro/#menu-plans');
+assert.strictEqual(catalogUlp, 'https://growfood.pro/new-order/');
 
 // Merchant landing must never become Admitad base.
 const poisoned = resolveGrowfoodDeeplinkConfig([
