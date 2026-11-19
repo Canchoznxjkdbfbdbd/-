@@ -153,23 +153,26 @@ const GROWFOOD_PROGRAM_ALIASES = {
   'набор мышечной массы': 'power',
 };
 
-/** Verified program slugs from letbefit.ru home (2026-11-17). */
+/**
+ * Verified product program slugs (named rations with kcal, like superstrongpremium).
+ * SEO hub pages (gotovoe-menyu-dlya-pohudeniya / nabor-myshechnoj-massy) are NOT
+ * orderable product URLs — owner reported them as dead affiliate targets; remap via aliases.
+ */
 const BEFIT_PROGRAM_SLUGS = [
   'balance',
   'balancepremium',
   'daily',
   'everydaily',
+  'extralight',
   'extralightpremium',
   'fish',
   'fishpremium',
   'gluten_free',
-  'gotovoe-menyu-dlya-pohudeniya',
   'gotovoe-menyu-dlya-sportsmenov',
   'keto-start',
   'light',
   'lightpremium',
   'middlesea',
-  'nabor-myshechnoj-massy',
   'normal',
   'normalpremium',
   'strong',
@@ -178,7 +181,11 @@ const BEFIT_PROGRAM_SLUGS = [
   'vegetarian',
   'veggi',
 ];
-/** Friendly aliases → verified slug (Energy* → sports page; no /programmy/energy*). */
+/**
+ * Friendly / legacy aliases → product slug.
+ * Hub SEO paths remap to concrete programs (похудение → extralight, масса → strong).
+ * Energy* → sports landing (no /programmy/energy* on site).
+ */
 const BEFIT_PROGRAM_ALIASES = {
   keto: 'keto-start',
   ketostart: 'keto-start',
@@ -193,8 +200,17 @@ const BEFIT_PROGRAM_ALIASES = {
   кето: 'keto-start',
   'super strong premium': 'superstrongpremium',
   superstrong: 'superstrongpremium',
-  'набор массы': 'nabor-myshechnoj-massy',
-  похудение: 'gotovoe-menyu-dlya-pohudeniya',
+  extralight: 'extralight',
+  'extra light': 'extralight',
+  'extra-light': 'extralight',
+  // Legacy SEO hubs → real product pages (owner dead-link ground truth).
+  'gotovoe-menyu-dlya-pohudeniya': 'extralight',
+  'готовое меню для похудения': 'extralight',
+  похудение: 'extralight',
+  slim: 'extralight',
+  'nabor-myshechnoj-massy': 'strong',
+  'набор массы': 'strong',
+  масса: 'strong',
 };
 
 /** Strip ulp so we can append a fresh double-encoded target; keep erid and other params. */
