@@ -99,7 +99,7 @@ npm start
 | `[[vipfish:лосось]]` / `[[ryba:лосось]]` | `https://vipfish.ru/search/?q=` | `ADMITAD_VIPFISH_BASE` (dorinebeaumont…) |
 | `[[befit:keto-start]]` / `[[letbefit:superstrongpremium]]` | `/programmy/{slug}/` или WP `https://letbefit.ru/?s=` (`/search/?q=` → 404) | `ADMITAD_BEFIT_BASE` (uuwgc…) |
 | `[[hval:premium]]` / `[[water:premium]]` / `[[hvalwaters:premium]]` | `/water/{slug}/` или WP `https://hvalwaters.ru/?s=` (`/search/?q=` → 404) | `ADMITAD_HVALWATERS_BASE` (xmknb…, prefer без i=3) |
-| `[[growfood:super-fit]]` / `[[gf:daily]]` | `/new-order/{slug}` или каталог `https://growfood.pro/#menu-plans` (поиска нет) | `ADMITAD_GROWFOOD_BASE` (naiawork…) |
+| `[[growfood:super-fit]]` / `[[gf:daily]]` | `/new-order/{slug}` или хаб `https://growfood.pro/new-order/` (поиска нет; `#menu-plans`/bare `/` → 307 loop) | `ADMITAD_GROWFOOD_BASE` (naiawork…) |
 
 База берётся из env → `partners.json` (`admitad_base` / Admitad-`link`) → дефолт в коде. URL вида `vkusvill.ru/?utm_…`, `vipfish.ru/…`, `letbefit.ru/…`, `hvalwaters.ru/…` или `growfood.pro/…` (merchant-лендинг) **не** считаются базой. Промокод VV `VSC7247`, BeFit shortlist (`promos` + `promo_code=ADMBF2026`) и GrowFood shortlist (`ДВОЙНОЙБОНУС` / `БИГБОНУС`) — для плашки/`/api/config`, не для ulp. Coupon-ish Hvalwaters (`admitad_coupon_base`, i=3) — справочно, чипы используют base без i=3.
 

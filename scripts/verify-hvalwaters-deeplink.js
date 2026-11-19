@@ -67,8 +67,14 @@ assert.strictEqual(resolveHvalwatersProductSlug('premium'), 'premium');
 assert.strictEqual(resolveHvalwatersProductSlug('Премиум'), 'premium');
 assert.strictEqual(resolveHvalwatersProductSlug('19л'), 'premium');
 assert.strictEqual(resolveHvalwatersProductSlug('горная'), 'gornaya');
-assert.strictEqual(resolveHvalwatersProductSlug('delux'), 'deluxe');
+// deluxe product page soft-redirects to /catalog/ — treat as unknown → WP search.
+assert.strictEqual(resolveHvalwatersProductSlug('deluxe'), null);
+assert.strictEqual(resolveHvalwatersProductSlug('delux'), null);
 assert.strictEqual(resolveHvalwatersProductSlug('кулер настольный'), null);
+assert.strictEqual(
+  resolveHvalwatersTargetUrl('deluxe'),
+  `https://hvalwaters.ru/?s=${encodeURIComponent('deluxe')}`
+);
 
 assert.strictEqual(
   resolveHvalwatersTargetUrl('premium'),
