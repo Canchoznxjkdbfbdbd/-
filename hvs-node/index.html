@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Подкачка ХВС — схема узла</title>
+  <style>
+    :root {
+      --ink: #1a1a1a;
+      --muted: #555;
+      --line: #222;
+      --accent: #0b57d0;
+      --bg: #f7f5f1;
+      --card: #fff;
+      --dash: #0b57d0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.45;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 1.6rem; margin: 0 0 6px; }
+    .sub { color: var(--muted); margin: 0 0 20px; }
+    .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+    .pill {
+      background: var(--card);
+      border: 1px solid #ddd;
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.9rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .card h2 { margin: 0 0 12px; font-size: 1.15rem; }
+    svg { width: 100%; height: auto; display: block; }
+    .note {
+      background: #eef4ff;
+      border: 1px solid #c9dafc;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 0.85rem; }
+    .legend { display: grid; gap: 8px; font-size: 0.95rem; }
+    .leg-row { display: flex; align-items: center; gap: 10px; }
+    .swatch-solid { width: 36px; height: 3px; background: var(--line); }
+    .swatch-dash {
+      width: 36px; height: 0;
+      border-top: 3px dashed var(--dash);
+    }
+    .copy {
+      white-space: pre-wrap;
+      background: #f3f3f3;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 0.92rem;
+    }
+    @media print {
+      body { background: #fff; }
+      .wrap { padding: 0; }
+      .noprint { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Подкачка ХВС — схема узла</h1>
+    <p class="sub">Жилой дом · подвал · 30 стояков высотой 30 м · ввод 3–4 кгс/см²</p>
+
+    <div class="pills">
+      <span class="pill">ХВС подкачка</span>
+      <span class="pill">Ввод 3–4 кгс/см²</span>
+      <span class="pill">30 стояков × 30 м</span>
+      <span class="pill">Счётчик + 2 обводные</span>
+    </div>
+
+    <div class="note">
+      <strong>Простыми словами:</strong> вода приходит из сети → проходит счётчик → фильтр →
+      насосы поднимают давление → коллектор раздаёт на 30 стояков.
+      Пунктир — обводные линии (счётчик и насосы). ТЗ нет — схема принципиальная, марки насосов позже.
+    </div>
+
+    <div class="card">
+      <h2>Схема (читается слева направо)</h2>
+      <svg viewBox="0 0 980 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Схема узла подкачки ХВС">
+        <defs>
+          <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#222" />
+          </marker>
+        </defs>
+
+        <!-- main line -->
+        <line x1="30" y1="170" x2="900" y2="170" stroke="#222" stroke-width="3" marker-end="url(#arr)" />
+
+        <text x="30" y="110" font-size="13" fill="#555">ОТ СЕТИ</text>
+        <text x="30" y="128" font-size="12" fill="#555">3–4 кгс/см²</text>
+
+        <!-- K1 -->
+        <polygon points="95,160 107,170 95,180 83,170" fill="#eee" stroke="#222" stroke-width="1.5" />
+        <text x="95" y="150" text-anchor="middle" font-size="11" fill="#555">К1</text>
+
+        <!-- meter -->
+        <rect x="120" y="135" width="110" height="70" rx="8" fill="#fff" stroke="#0b57d0" stroke-width="2.5" />
+        <text x="175" y="165" text-anchor="middle" font-size="14" font-weight="700">СЧЁТЧИК</text>
+        <text x="175" y="185" text-anchor="middle" font-size="11" fill="#555">узел учёта</text>
+
+        <polygon points="255,160 267,170 255,180 243,170" fill="#eee" stroke="#222" stroke-width="1.5" />
+        <text x="255" y="150" text-anchor="middle" font-size="11" fill="#555">К2</text>
+
+        <!-- meter bypass -->
+        <line x1="145" y1="170" x2="145" y2="75" stroke="#222" stroke-width="2" />
+        <line x1="145" y1="75" x2="250" y2="75" stroke="#0b57d0" stroke-width="2.5" stroke-dasharray="8 5" />
+        <line x1="250" y1="75" x2="250" y2="170" stroke="#222" stroke-width="2" />
+        <polygon points="197,65 209,75 197,85 185,75" fill="#eef4ff" stroke="#0b57d0" stroke-width="1.5" />
+        <text x="197" y="58" text-anchor="middle" font-size="12" font-weight="700" fill="#0b57d0">ОБВОДНАЯ СЧЁТЧИКА</text>
+
+        <!-- filter -->
+        <rect x="285" y="135" width="100" height="70" rx="8" fill="#fff" stroke="#222" stroke-width="1.5" />
+        <text x="335" y="165" text-anchor="middle" font-size="14" font-weight="700">ФИЛЬТР</text>
+        <text x="335" y="185" text-anchor="middle" font-size="11" fill="#555">грязевик</text>
+
+        <polygon points="410,160 422,170 410,180 398,170" fill="#eee" stroke="#222" stroke-width="1.5" />
+        <text x="410" y="150" text-anchor="middle" font-size="11" fill="#555">К3</text>
+
+        <!-- P in -->
+        <circle cx="455" cy="170" r="16" fill="#fff" stroke="#0b57d0" stroke-width="2" />
+        <text x="455" y="174" text-anchor="middle" font-size="12" font-weight="700">P</text>
+        <text x="455" y="205" text-anchor="middle" font-size="11" fill="#555">всас</text>
+
+        <!-- pumps -->
+        <rect x="490" y="120" width="200" height="100" rx="8" fill="#fff" stroke="#0b57d0" stroke-width="2.5" />
+        <text x="590" y="155" text-anchor="middle" font-size="15" font-weight="700">НАСОСЫ N+1</text>
+        <text x="590" y="178" text-anchor="middle" font-size="12" fill="#555">2–3 шт + частотник</text>
+        <text x="590" y="198" text-anchor="middle" font-size="11" fill="#555">запорка + обратный на каждый</text>
+
+        <!-- P out -->
+        <circle cx="720" cy="170" r="16" fill="#fff" stroke="#0b57d0" stroke-width="2" />
+        <text x="720" y="174" text-anchor="middle" font-size="12" font-weight="700">P</text>
+        <text x="720" y="205" text-anchor="middle" font-size="11" fill="#555">нагнетание</text>
+
+        <!-- HA -->
+        <rect x="750" y="140" width="70" height="60" rx="8" fill="#fff" stroke="#222" stroke-width="1.5" />
+        <text x="785" y="168" text-anchor="middle" font-size="14" font-weight="700">ГА</text>
+        <text x="785" y="186" text-anchor="middle" font-size="11" fill="#555">бак</text>
+
+        <text x="860" y="110" font-size="13" fill="#555">В ДОМ</text>
+        <text x="860" y="128" font-size="12" fill="#555">≈5–6 кгс/см²</text>
+
+        <!-- pump bypass -->
+        <line x1="430" y1="170" x2="430" y2="290" stroke="#222" stroke-width="2" />
+        <line x1="430" y1="290" x2="740" y2="290" stroke="#0b57d0" stroke-width="2.5" stroke-dasharray="8 5" />
+        <line x1="740" y1="290" x2="740" y2="170" stroke="#222" stroke-width="2" />
+        <polygon points="520,280 532,290 520,300 508,290" fill="#eef4ff" stroke="#0b57d0" stroke-width="1.5" />
+        <text x="520" y="270" text-anchor="middle" font-size="11" fill="#555">К4</text>
+        <polygon points="650,280 662,290 650,300 638,290" fill="#eef4ff" stroke="#0b57d0" stroke-width="1.5" />
+        <text x="650" y="270" text-anchor="middle" font-size="11" fill="#555">К5</text>
+        <text x="585" y="275" text-anchor="middle" font-size="13" font-weight="700" fill="#0b57d0">ОБВОДНАЯ НАСОСОВ</text>
+        <text x="585" y="318" text-anchor="middle" font-size="11" fill="#555">ремонт станции или временно от сети</text>
+
+        <!-- collector -->
+        <line x1="900" y1="170" x2="940" y2="170" stroke="#222" stroke-width="3" />
+        <line x1="940" y1="130" x2="940" y2="420" stroke="#222" stroke-width="3" />
+        <rect x="860" y="320" width="120" height="80" rx="8" fill="#fff" stroke="#0b57d0" stroke-width="2.5" />
+        <text x="920" y="355" text-anchor="middle" font-size="14" font-weight="700">КОЛЛЕКТОР</text>
+        <text x="920" y="378" text-anchor="middle" font-size="12" fill="#555">30 стояков</text>
+
+        <line x1="940" y1="340" x2="975" y2="340" stroke="#222" stroke-width="2" marker-end="url(#arr)" />
+        <line x1="940" y1="355" x2="975" y2="355" stroke="#222" stroke-width="2" marker-end="url(#arr)" />
+        <line x1="940" y1="370" x2="975" y2="370" stroke="#222" stroke-width="2" marker-end="url(#arr)" />
+        <line x1="940" y1="385" x2="975" y2="385" stroke="#222" stroke-width="2" marker-end="url(#arr)" />
+        <text x="860" y="430" font-size="12" fill="#555">→ стояки 1…30 (высота 30 м)</text>
+
+        <!-- legend box -->
+        <rect x="30" y="360" width="400" height="150" rx="10" fill="#fff" stroke="#ddd" />
+        <text x="48" y="388" font-size="14" font-weight="700">Как читать</text>
+        <line x1="48" y1="410" x2="90" y2="410" stroke="#222" stroke-width="3" />
+        <text x="100" y="414" font-size="12" fill="#555">основная линия</text>
+        <line x1="48" y1="438" x2="90" y2="438" stroke="#0b57d0" stroke-width="2.5" stroke-dasharray="8 5" />
+        <text x="100" y="442" font-size="12" fill="#555">обводная (пунктир)</text>
+        <text x="48" y="470" font-size="12" fill="#555">P — датчик давления в шкаф управления</text>
+        <text x="48" y="492" font-size="12" fill="#555">К1…К5 — запорные краны</text>
+      </svg>
+    </div>
+
+    <div class="card">
+      <h2>Давления (для понимания)</h2>
+      <table>
+        <thead>
+          <tr><th>Точка</th><th>Ориентир</th><th>Пояснение</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Ввод от сети</td><td>3–4 кгс/см²</td><td>Как есть</td></tr>
+          <tr><td>Столб 30 м</td><td>≈ 3 кгс/см²</td><td>«Съедает» высота</td></tr>
+          <tr><td>После насосов</td><td>≈ 5–6 кгс/см²</td><td>Задание частотника</td></tr>
+          <tr><td>Наверху у смесителя</td><td>≈ 1,5–2,5</td><td>Комфортный остаток</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Состав узла</h2>
+      <table>
+        <thead>
+          <tr><th>№</th><th>Что</th><th>Зачем</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>Кран К1</td><td>Перекрыть весь дом</td></tr>
+          <tr><td>2</td><td>Счётчик + обводная</td><td>Учёт; обвод на поверку/замену</td></tr>
+          <tr><td>3</td><td>Фильтр-грязевик</td><td>Защита счётчика и насосов</td></tr>
+          <tr><td>4</td><td>Датчик P на всасе</td><td>Защита от сухого хода / низкого P</td></tr>
+          <tr><td>5</td><td>Насосы 2–3 шт + ПЧ</td><td>Держат давление, один резерв</td></tr>
+          <tr><td>6</td><td>Обратные клапаны</td><td>Не гонят воду назад</td></tr>
+          <tr><td>7</td><td>Датчик P на нагнетании</td><td>ПЧ держит 5–6 кгс/см²</td></tr>
+          <tr><td>8</td><td>Гидроаккумулятор</td><td>Меньше дёрганий насосов</td></tr>
+          <tr><td>9</td><td>Обводная насосов</td><td>Ремонт без отключения дома</td></tr>
+          <tr><td>10</td><td>Коллектор 30 стояков</td><td>Раздача по подвалу</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card noprint">
+      <h2>Текст в WhatsApp / почту</h2>
+      <div class="copy">Подкачка ХВС, подвал.
+Ввод 3–4 кгс/см² → кран → СЧЁТЧИК (+ обводная) → фильтр → датчик P → НАСОСЫ N+1 + частотник → датчик P → гидробак → КОЛЛЕКТОР на 30 стояков (высота 30 м).
+Отдельно: обводная насосов (ремонт / временно от сети).
+После насосов ориентир 5–6 кгс/см². ТЗ нет — схема принципиальная, марки насосов подберём по расходу.</div>
+    </div>
+
+    <p class="sub noprint">Можно распечатать эту страницу в PDF (Ctrl/Cmd+P) и кинуть файлом.</p>
+  </div>
+</body>
+</html>
