@@ -30,7 +30,6 @@ let activeGeminiKeyId = GEMINI_KEY_SLOTS[0]?.id || null;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 /** Default chain after the primary model when Gemini returns 503 / UNAVAILABLE. */
 const DEFAULT_FALLBACK_MODELS = ['gemini-3.6-flash'];
-const DONATE_URL = process.env.DONATE_URL || '#donate';
 /** Single place for the VK community footer link (override via env if shortname changes). */
 const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.ru/ai.nutricode';
 
@@ -932,7 +931,6 @@ const chatLimiter = rateLimit({
 app.get('/api/config', (_req, res) => {
   res.json({
     hasKey: Boolean(GEMINI_API_KEY),
-    donateUrl: DONATE_URL,
     communityVkUrl: COMMUNITY_VK_URL,
     brand: 'НутриКод',
     model: GEMINI_MODEL,
@@ -1155,27 +1153,9 @@ function partnerPayload(partner) {
   };
 }
 
-function donateUrlForPrompt() {
-  const url = String(DONATE_URL || '').trim();
-  if (!url || url === '#donate' || url.startsWith('#')) return null;
-  return url;
-}
-
-/** System prompt + optional mode overlay + donate context. Partner offers stay UI-only. */
+/** System prompt + optional mode overlay. Partner offers stay UI-only. */
 function buildSystemInstruction(mode = null) {
-  let extra = modeOverlayBlock(mode);
-  const donateUrl = donateUrlForPrompt();
-  if (donateUrl) {
-    extra += `
-
-Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
-DONATE_URL: ${donateUrl}`;
-  } else {
-    extra += `
-
-Контекст доната (не рекламируй; только по правилам 10–13 из промпта):
-DONATE_URL нет — если уместно предложить поддержку, скажи «кнопка поддержки ниже».`;
-  }
+  const extra = modeOverlayBlock(mode);
   return SYSTEM_PROMPT + extra;
 }
 

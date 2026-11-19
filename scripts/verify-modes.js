@@ -80,6 +80,12 @@ assert.ok(
 const system = buildSystemInstruction(CHAT_MODES.grocery);
 assert.ok(system.includes('НутриКод'));
 assert.ok(system.includes('список покупок'));
-assert.ok(system.includes('DONATE_URL'));
+assert.ok(!/DONATE_URL/.test(system), 'system must not inject DONATE_URL');
+assert.ok(!/Контекст доната/i.test(system), 'system must not append donate context');
+assert.ok(!/кнопка поддержки ниже/i.test(system), 'system must not soft-promo donate UI');
+assert.ok(
+  /Не упоминай донат/i.test(system),
+  'system must explicitly forbid donate mentions in replies'
+);
 
 console.log('verify-modes: ok');

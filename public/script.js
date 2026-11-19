@@ -6,20 +6,12 @@
   const FIRST_QUESTION =
     'Расскажите коротко: как вы питаетесь сейчас, есть ли аллергии или ограничения, и какую цель хотите — энергия, лёгкость, набор, поддержка после нагрузок или что-то ещё?';
 
-  /** Show quiet donate strip only after this many user messages. */
-  const DONATE_AFTER_TURNS = 3;
-
   /** Fallback if /api/config has no communityVkUrl — keep in sync with server COMMUNITY_VK_URL. */
   const COMMUNITY_VK_URL_DEFAULT = 'https://vk.ru/ai.nutricode';
 
   /** Calm Russian wait stages — rotate short variants so it doesn’t feel canned. */
   const THINKING_STATUS = ['Думает…', 'Что-то прикидывает…', 'Собирает мысли…'];
   const TYPING_STATUS = ['Печатает…', 'Набирает ответ…', 'Подбирает слова…'];
-
-  const DONATE_VARIANTS = [
-    { id: 'a', copy: 'Если откликнулось — киньте мелочь админу на полезное, а то он на тостах.' },
-    { id: 'b', copy: 'Бесплатно, как совет про овощи. Поддержка — по желанию, кнопки ниже.' },
-  ];
 
   function pickStatus(list) {
     return list[Math.floor(Math.random() * list.length)];
@@ -39,9 +31,6 @@
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('send');
   const clearChatBtn = document.getElementById('clear-chat');
-  const donateBanner = document.getElementById('donate-banner');
-  const donateCopy = document.getElementById('donate-copy');
-  const donateDismiss = document.getElementById('donate-dismiss');
   const communityVkLink = document.getElementById('community-vk');
   const emptyStart = document.getElementById('empty-start');
   const modeBar = document.getElementById('mode-bar');
@@ -52,7 +41,6 @@
   let history = [];
   let streaming = false;
   let partnerShown = false;
-  let donateUrl = '#donate';
   let communityVkUrl = COMMUNITY_VK_URL_DEFAULT;
   /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,disclaimer:string,legalName:string,inn:string}} */
   let vkusvillDeeplink = {
@@ -182,7 +170,6 @@
     history = [];
     partnerShown = false;
     userTurns = 0;
-    if (donateBanner) donateBanner.hidden = true;
     if (HistoryStore) HistoryStore.clear(window.localStorage);
     syncSessionChrome();
     input.focus();
@@ -211,7 +198,6 @@
       }
     }
     syncSessionChrome();
-    showDonateBanner();
   }
 
   function normalizeMode(id) {
@@ -890,33 +876,10 @@
     maybeFollowBottom();
   }
 
-  function showDonateBanner() {
-    if (sessionStorage.getItem('nutrikod_donate_hide') === '1') return;
-    if (userTurns < DONATE_AFTER_TURNS) return;
-    if (!donateBanner.hidden) return;
-    const variant = Math.random() < 0.5 ? DONATE_VARIANTS[0] : DONATE_VARIANTS[1];
-    donateCopy.textContent = variant.copy;
-    donateBanner.hidden = false;
-    donateBanner.querySelectorAll('.donate-btn').forEach((a) => {
-      const amount = a.getAttribute('data-amount');
-      const base = donateUrl || '#donate';
-      a.href = base.includes('?') ? `${base}&amount=${amount}` : `${base}?amount=${amount}`;
-      if (base === '#donate' || base.startsWith('#')) {
-        a.href = `#donate-${amount}`;
-      }
-    });
-  }
-
-  donateDismiss?.addEventListener('click', () => {
-    donateBanner.hidden = true;
-    sessionStorage.setItem('nutrikod_donate_hide', '1');
-  });
-
   async function loadConfig() {
     try {
       const res = await fetch('/api/config');
       const data = await res.json();
-      donateUrl = data.donateUrl || '#donate';
       if (data.communityVkUrl) {
         communityVkUrl = String(data.communityVkUrl).trim() || COMMUNITY_VK_URL_DEFAULT;
       }
@@ -1282,7 +1245,6 @@
       syncSessionChrome();
       // Focus composer for typing; do not scroll the transcript to cart.
       input.focus({ preventScroll: true });
-      showDonateBanner();
     }
   }
 
