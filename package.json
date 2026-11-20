@@ -19,7 +19,8 @@
     "verify:cart-block": "node scripts/verify-cart-block-ux.js",
     "verify:scroll-starters": "node scripts/verify-chat-scroll-starters.js",
     "verify:robots": "node scripts/verify-robots-sitemap.js",
-    "verify:bot-chat": "node scripts/verify-bot-chat.js"
+    "verify:bot-chat": "node scripts/verify-bot-chat.js",
+    "verify:bot-chips": "node scripts/verify-bot-partner-chips.js"
   },
   "engines": {
     "node": ">=18"
