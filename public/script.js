@@ -25,7 +25,14 @@
   }
 
   const MODE_STORAGE_KEY = 'nutrikod_mode';
-  const MODE_IDS = ['normal', 'kids', 'notime', 'grocery'];
+  /** Immediate fallback so chips are never empty before / while /api/modes loads. */
+  const FALLBACK_MODES = [
+    { id: 'normal', label: 'Обычный' },
+    { id: 'kids', label: 'Детский стол' },
+    { id: 'notime', label: 'Нет времени' },
+    { id: 'grocery', label: 'Список покупок' },
+  ];
+  let MODE_IDS = FALLBACK_MODES.map((m) => m.id);
   const HistoryStore = window.NutriKodHistory;
 
   const messagesEl = document.getElementById('messages');
@@ -36,7 +43,9 @@
   const communityVkLink = document.getElementById('community-vk');
   const emptyStart = document.getElementById('empty-start');
   const modeBar = document.getElementById('mode-bar');
-  const modeChips = Array.from(document.querySelectorAll('.mode-chip'));
+  const modeChipsEl = document.querySelector('.mode-chips');
+  /** @type {HTMLButtonElement[]} */
+  let modeChips = [];
   const starterChips = Array.from(document.querySelectorAll('.starter-chip'));
 
   /** @type {{role: string, content: string}[]} */
@@ -232,12 +241,53 @@
     if (persist) persistMode(selectedMode);
   }
 
-  modeChips.forEach((chip) => {
-    chip.addEventListener('click', () => {
-      if (streaming) return;
-      setMode(chip.dataset.mode);
+  function renderModeChips(modes) {
+    if (!modeChipsEl) return;
+    const list = Array.isArray(modes) ? modes : [];
+    modeChipsEl.innerHTML = '';
+    modeChips = list.map((mode) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'mode-chip';
+      btn.setAttribute('role', 'radio');
+      btn.setAttribute('aria-checked', 'false');
+      btn.dataset.mode = mode.id;
+      btn.textContent = mode.label;
+      btn.addEventListener('click', () => {
+        if (streaming) return;
+        setMode(mode.id);
+      });
+      modeChipsEl.appendChild(btn);
+      return btn;
     });
-  });
+    setMode(selectedMode, { persist: false });
+  }
+
+  /** Paint fallback chips immediately — never leave an empty mode bar. */
+  renderModeChips(FALLBACK_MODES);
+
+  async function loadModesFromApi() {
+    try {
+      const res = await fetch('/api/modes', { cache: 'no-store' });
+      if (!res || !res.ok) return;
+      const data = await res.json();
+      if (!Array.isArray(data) || !data.length) return;
+      const modes = data
+        .filter((m) => m && typeof m === 'object')
+        .map((m) => ({
+          id: String(m.id || '')
+            .trim()
+            .toLowerCase(),
+          label: String(m.label || '').trim(),
+        }))
+        .filter((m) => m.id && m.label);
+      if (!modes.length) return;
+      MODE_IDS = modes.map((m) => m.id);
+      renderModeChips(modes);
+    } catch {
+      /* keep fallback chips */
+    }
+  }
 
   function autoGrow() {
     input.style.height = 'auto';
@@ -1400,6 +1450,7 @@
 
   async function boot() {
     await loadConfig();
+    await loadModesFromApi();
     setMode(readStoredMode());
 
     const saved = HistoryStore ? HistoryStore.load(window.localStorage) : null;

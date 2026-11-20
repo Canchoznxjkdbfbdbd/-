@@ -756,70 +756,108 @@ const HVALWATERS_DEEPLINK = resolveHvalwatersDeeplinkConfig(loadPartners());
 const GROWFOOD_DEEPLINK = resolveGrowfoodDeeplinkConfig(loadPartners());
 
 /**
- * Quiet chat-mode overlays (надстройки). Same bot + short context block.
- * Explicit UI choice is primary; keyword detect is only a fallback for «Обычный».
+ * Quiet chat-mode overlays (надстройки) — loaded from modes/*.json at startup.
+ * Explicit UI choice is primary; keyword/regex detect is only a fallback for «Обычный».
+ * Registry + detect rules are rebuilt by loadModes(); mutated in place so exports stay live.
  */
-const CHAT_MODES = {
-  normal: {
-    id: 'normal',
-    label: 'Обычный',
-    overlay: '',
-  },
-  kids: {
-    id: 'kids',
-    label: 'Детский стол',
-    overlay:
-      'Режим-надстройка: детский / семейный стол.\n' +
-      'На первом ответе (стартер / мало данных) — ТОЛЬКО 1–2 коротких уточнения: возраст детей?, аллергии?, на сегодня или на неделю? ' +
-      'Без меню, без стены рациона, без брендов, без [[меток]] и корзины. ' +
-      'После ответов: одно блюдо или набор на всех, мягкий вкус; без отдельного «детского меню» как диеты. ' +
-      'Для детей — общие принципы еды и коротко: это не замена педиатру или нутрициологу.',
-  },
-  notime: {
-    id: 'notime',
-    label: 'Нет времени',
-    overlay:
-      'Режим-надстройка: нет времени.\n' +
-      'На первом ответе (стартер / мало данных) — ТОЛЬКО 1–2 коротких уточняющих вопроса БЕЗ города: ' +
-      'готовить самим быстро или готовая доставка на неделю?, аллергии одной фразой. ' +
-      'Запрещено в первом ответе: город / «откуда вы?» / «укажите город» / MSK·SPb-опрос, ' +
-      '2–4 варианта меню, тосты/йогурт/авокадо списком, лекция про БЖУ, бренды (BeFit / GrowFood и др.), [[метки]], корзина. ' +
-      'Город спроси позже и мягко (помощь: что реально привезут, без пустых ссылок) — только когда уже ясна ' +
-      'доставка / готовые рационы / корзина / партнёрские ссылки, а город ещё неизвестен. ' +
-      'После clarifications: если MSK/SPb и человек открыт к готовой еде на неделю — мягко один недельный пакет ' +
-      '(BeFit ИЛИ GrowFood, не оба); если готовят сами — 2–4 очень коротких варианта без длинных рецептов; ' +
-      'корзину — только по явному шопингу.',
-  },
-  grocery: {
-    id: 'grocery',
-    label: 'Список покупок',
-    overlay:
-      'Режим-надстройка: список покупок.\n' +
-      'На первом ответе — ТОЛЬКО 1–2 уточнения БЕЗ города: на сейчас/день/неделю? на сколько человек? ограничения? ' +
-      'Без длинного эссе, без [[меток]], без BeFit/GrowFood, пока человек не ответил. ' +
-      'Город — позже и мягко (что реально доставят / без пустых ссылок), если нужны партнёрские ссылки и город неизвестен. ' +
-      'После уточнений — короткий маркированный список продуктов (не портянка), без брендов и выдуманных ссылок; ' +
-      'недельный пакет BeFit или GrowFood — только если MSK/SPb + нет времени готовить + человек открыт (один бренд).',
-  },
-};
+const MODES_DIR = path.join(ROOT, 'modes');
+const CHAT_MODES = Object.create(null);
+const MODE_IDS = [];
+/** @type {{ id: string, detect: string[], re: RegExp|null }[]} */
+const MODE_DETECT = [];
 
-const MODE_IDS = Object.keys(CHAT_MODES);
+function clearModeRegistry() {
+  for (const key of Object.keys(CHAT_MODES)) delete CHAT_MODES[key];
+  MODE_IDS.length = 0;
+  MODE_DETECT.length = 0;
+}
 
-/** Secondary auto-detect from Russian wording — never overrides an explicit non-normal mode. */
-const MODE_DETECT = [
-  {
-    id: 'kids',
-    re: /детск|реб[её]н|малыш|школьник|для\s+семьи|семейный\s+стол|на\s+всех/i,
-  },
-  {
-    id: 'notime',
-    re: /нет\s+времени|некогда|на\s+скорую|быстр(?:о|ый|ая|ое)\s+(?:ужин|обед|завтрак|еда)|15\s*мин|без\s+плиты/i,
-  },
-  {
-    id: 'grocery',
-    re: /список\s+покупок|что\s+купить|закупк|набрать\s+в\s+магазин|список\s+на\s+\d/i,
-  },
-];
+/**
+ * Read modes/*.json (A→Z). Skip invalid files (no id/label, bad JSON/regex) with a log — never crash.
+ * Builds CHAT_MODES registry and MODE_DETECT rules in file order.
+ */
+function loadModes() {
+  clearModeRegistry();
+  let names = [];
+  try {
+    names = fs
+      .readdirSync(MODES_DIR)
+      .filter((name) => name.endsWith('.json'))
+      .sort((a, b) => a.localeCompare(b));
+  } catch (err) {
+    console.warn('[modes] cannot read modes/:', err?.message || err);
+    return MODE_IDS.slice();
+  }
+
+  for (const name of names) {
+    const filePath = path.join(MODES_DIR, name);
+    let raw;
+    try {
+      raw = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.warn(`[modes] skip ${name}: read failed (${err?.message || err})`);
+      continue;
+    }
+
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (err) {
+      console.warn(`[modes] skip ${name}: invalid JSON (${err?.message || err})`);
+      continue;
+    }
+
+    if (!data || typeof data !== 'object') {
+      console.warn(`[modes] skip ${name}: not an object`);
+      continue;
+    }
+
+    const id = String(data.id || '')
+      .trim()
+      .toLowerCase();
+    const label = String(data.label || '').trim();
+    if (!id || !label) {
+      console.warn(`[modes] skip ${name}: missing id/label`);
+      continue;
+    }
+
+    if (CHAT_MODES[id]) {
+      console.warn(`[modes] skip ${name}: duplicate id "${id}"`);
+      continue;
+    }
+
+    const overlay = typeof data.overlay === 'string' ? data.overlay : '';
+    const detect = Array.isArray(data.detect)
+      ? data.detect.map((w) => String(w || '').trim()).filter(Boolean)
+      : [];
+
+    let re = null;
+    if (data.detect_regex != null && String(data.detect_regex).trim()) {
+      try {
+        re = new RegExp(String(data.detect_regex), 'i');
+      } catch (err) {
+        console.warn(`[modes] skip ${name}: bad detect_regex (${err?.message || err})`);
+        continue;
+      }
+    }
+
+    CHAT_MODES[id] = { id, label, overlay };
+    MODE_IDS.push(id);
+    MODE_DETECT.push({ id, detect, re });
+  }
+
+  if (!CHAT_MODES.normal) {
+    CHAT_MODES.normal = { id: 'normal', label: 'Обычный', overlay: '' };
+    MODE_IDS.unshift('normal');
+    MODE_DETECT.unshift({ id: 'normal', detect: [], re: null });
+    console.warn('[modes] normal.json missing — injected default «Обычный»');
+  }
+
+  console.info(`[modes] loaded ${MODE_IDS.length}: ${MODE_IDS.join(', ')}`);
+  return MODE_IDS.slice();
+}
+
+loadModes();
 
 function normalizeModeId(raw) {
   const id = String(raw || '')
@@ -836,8 +874,19 @@ function lastUserText(messages) {
   return '';
 }
 
+function modeMatchesText(rule, text) {
+  if (!rule || !text) return false;
+  const lower = text.toLowerCase();
+  for (const word of rule.detect || []) {
+    if (word && lower.includes(word.toLowerCase())) return true;
+  }
+  if (rule.re && rule.re.test(text)) return true;
+  return false;
+}
+
 /**
- * Resolve active mode: explicit UI id wins; if «normal», optionally detect from latest user text.
+ * Resolve active mode from loaded registry only.
+ * Explicit UI id wins; if «normal», scan MODE_DETECT in file order (detect words then detect_regex).
  * @returns {{ id: string, label: string, overlay: string, source: 'explicit'|'detected'|'default' }}
  */
 function resolveChatMode(rawMode, messages) {
@@ -850,9 +899,12 @@ function resolveChatMode(rawMode, messages) {
   const text = lastUserText(messages);
   if (text) {
     for (const rule of MODE_DETECT) {
-      if (rule.re.test(text)) {
+      if (rule.id === 'normal') continue;
+      if (modeMatchesText(rule, text)) {
         const mode = CHAT_MODES[rule.id];
-        return { id: mode.id, label: mode.label, overlay: mode.overlay, source: 'detected' };
+        if (mode) {
+          return { id: mode.id, label: mode.label, overlay: mode.overlay, source: 'detected' };
+        }
       }
     }
   }
@@ -1251,6 +1303,11 @@ const chatLimiter = rateLimit({
     type: 'error',
     text: 'Вы слишком часто общаетесь с ИИ, подождите немного',
   },
+});
+
+app.get('/api/modes', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(MODE_IDS.map((id) => ({ id, label: CHAT_MODES[id].label })));
 });
 
 app.get('/api/config', (_req, res) => {
@@ -2524,6 +2581,8 @@ module.exports = {
   DEFAULT_FALLBACK_MODELS,
   CHAT_MODES,
   MODE_IDS,
+  MODE_DETECT,
+  loadModes,
   normalizeModeId,
   resolveChatMode,
   modeOverlayBlock,
