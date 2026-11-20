@@ -1799,6 +1799,190 @@ async function streamMock(res, partner) {
   res.end();
 }
 
+/**
+ * Shared Gemini core used by SSE /api/chat and JSON /api/bot/chat.
+ * Talks to Gemini via streamGenerateContent; optional onToken for live SSE clients.
+ * Does not write HTTP responses — callers decide SSE vs JSON.
+ *
+ * @param {{ messages: Array, mode?: object, onToken?: (text: string) => void, onTyping?: () => void, logLabel?: string }} opts
+ * @returns {Promise<{ text: string, finishReason: string, model: string, truncated: boolean, tokenCount: number, continues: number, errorText?: string, mock?: boolean }>}
+ */
+async function generateGeminiReply({
+  messages,
+  mode = null,
+  onToken = null,
+  onTyping = null,
+  logLabel = 'chat',
+} = {}) {
+  if (!GEMINI_API_KEY) {
+    if (typeof onToken === 'function') {
+      const chunks = MOCK_REPLY.match(/.{1,24}|[\s\S]/g) || [MOCK_REPLY];
+      for (const chunk of chunks) onToken(chunk);
+    }
+    return {
+      text: MOCK_REPLY,
+      finishReason: 'STOP',
+      model: 'mock',
+      truncated: false,
+      tokenCount: 1,
+      continues: 0,
+      mock: true,
+    };
+  }
+
+  const resolvedMode = mode || resolveChatMode('normal', messages);
+  const systemInstruction = { parts: [{ text: buildSystemInstruction(resolvedMode) }] };
+  let contents = toGeminiContents(messages);
+  const generationConfig = {
+    temperature: 0.7,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+  };
+
+  console.info(
+    `[gemini] ${logLabel} turns=${messages.length} mode=${resolvedMode.id}/${resolvedMode.source || 'n/a'} maxOutputTokens=${MAX_OUTPUT_TOKENS} chain=${GEMINI_MODEL_CHAIN.join(
+      '→'
+    )}`
+  );
+
+  let tokenCount = 0;
+  let finishReason = '';
+  let assembled = '';
+  let continues = 0;
+  let signaledTyping = false;
+  let activeModel = GEMINI_MODEL;
+
+  for (let attempt = 0; attempt <= MAX_CONTINUES; attempt++) {
+    const requestBody = {
+      system_instruction: systemInstruction,
+      contents,
+      generationConfig,
+    };
+
+    // First segment: full retry + fallback chain. Continues stick to the model that worked.
+    const opened = await openGeminiStream(
+      requestBody,
+      attempt === 0 ? GEMINI_MODEL_CHAIN : [activeModel]
+    );
+
+    if (!opened?.upstream) {
+      const kind = classifyGeminiFailure(0, '', opened?.errorText || '');
+      void recordChatError(kind, defaultWarningMessage(kind));
+      return {
+        text: assembled,
+        finishReason: finishReason || 'ERROR',
+        model: activeModel,
+        truncated: false,
+        tokenCount,
+        continues,
+        errorText: opened?.errorText || OVERLOAD_USER_MESSAGE,
+      };
+    }
+
+    activeModel = opened.model;
+
+    if (!signaledTyping) {
+      if (typeof onTyping === 'function') onTyping();
+      signaledTyping = true;
+    }
+
+    let segment;
+    try {
+      segment = await readGeminiSse(opened.upstream.body, (text) => {
+        if (typeof onToken === 'function') onToken(text);
+      });
+    } catch (err) {
+      if (err?.geminiError) {
+        const calm = summarizeGeminiError(
+          err.geminiError.code || 500,
+          JSON.stringify({ error: err.geminiError }),
+          activeModel
+        );
+        const kind = classifyGeminiFailure(
+          err.geminiError.code || 500,
+          err.geminiError.status || '',
+          err.geminiError.message || calm
+        );
+        void recordChatError(kind, defaultWarningMessage(kind));
+        return {
+          text: assembled,
+          finishReason: 'ERROR',
+          model: activeModel,
+          truncated: false,
+          tokenCount,
+          continues,
+          errorText: calm,
+        };
+      }
+      throw err;
+    }
+
+    tokenCount += segment.tokenCount;
+    finishReason = segment.finishReason || finishReason;
+    assembled += segment.text;
+
+    if (segment.finishReason !== 'MAX_TOKENS' || !segment.text || attempt === MAX_CONTINUES) {
+      break;
+    }
+
+    continues += 1;
+    console.info(
+      `[gemini] MAX_TOKENS — continue ${continues}/${MAX_CONTINUES} model=${activeModel} soFarChars=${assembled.length}`
+    );
+    contents = [
+      ...contents,
+      { role: 'model', parts: [{ text: assembled.slice(-12000) }] },
+      {
+        role: 'user',
+        parts: [
+          {
+            text: 'Продолжи ответ точно с того места, где оборвался. Не повторяй уже сказанное, без нового вступления.',
+          },
+        ],
+      },
+    ];
+  }
+
+  console.info(
+    `[gemini] done ${logLabel} model=${activeModel} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length}`
+  );
+
+  if (assembled.trim()) {
+    void recordChatSuccess();
+  } else {
+    void recordChatError('outage', defaultWarningMessage('outage'));
+  }
+
+  return {
+    text: assembled,
+    finishReason: finishReason || 'STOP',
+    model: activeModel,
+    truncated: finishReason === 'MAX_TOKENS',
+    tokenCount,
+    continues,
+  };
+}
+
+/**
+ * Full non-streaming reply for the Telegram bot (and any JSON client).
+ * Same prompt.txt / partners context path / Gemini keys as /api/chat.
+ * @param {string} message
+ * @returns {Promise<string>}
+ */
+async function generateFullReply(message) {
+  const text = String(message || '').trim();
+  const messages = text ? [{ role: 'user', content: text }] : [];
+  const mode = resolveChatMode('normal', messages);
+  const result = await generateGeminiReply({
+    messages,
+    mode,
+    logLabel: 'bot',
+  });
+  if (result.errorText && !String(result.text || '').trim()) {
+    return result.errorText;
+  }
+  return String(result.text || '').trim() || result.errorText || OVERLOAD_USER_MESSAGE;
+}
+
 app.post('/api/chat', chatLimiter, async (req, res) => {
   const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
   const allowPartner = Boolean(req.body?.allowPartner);
@@ -1827,128 +2011,35 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 
   writeEvent(res, { type: 'status', stage: 'thinking' });
 
-  const systemInstruction = { parts: [{ text: buildSystemInstruction(mode) }] };
-  let contents = toGeminiContents(messages);
-  const generationConfig = {
-    temperature: 0.7,
-    maxOutputTokens: MAX_OUTPUT_TOKENS,
-  };
-
   try {
     console.info(
-      `[gemini] chat turns=${messages.length} mode=${mode.id}/${mode.source} partner=${partner ? partner.id : 'none'} maxOutputTokens=${MAX_OUTPUT_TOKENS} chain=${GEMINI_MODEL_CHAIN.join(
-        '→'
-      )}`
+      `[gemini] chat partner=${partner ? partner.id : 'none'}`
     );
 
-    let tokenCount = 0;
-    let finishReason = '';
-    let assembled = '';
-    let continues = 0;
-    let signaledTyping = false;
-    let activeModel = GEMINI_MODEL;
+    const result = await generateGeminiReply({
+      messages,
+      mode,
+      logLabel: 'chat',
+      onTyping: () => writeEvent(res, { type: 'status', stage: 'typing' }),
+      onToken: (text) => writeEvent(res, { type: 'token', text }),
+    });
 
-    for (let attempt = 0; attempt <= MAX_CONTINUES; attempt++) {
-      const requestBody = {
-        system_instruction: systemInstruction,
-        contents,
-        generationConfig,
-      };
-
-      // First segment: full retry + fallback chain. Continues stick to the model that worked.
-      const opened = await openGeminiStream(
-        requestBody,
-        attempt === 0 ? GEMINI_MODEL_CHAIN : [activeModel]
-      );
-
-      if (!opened?.upstream) {
-        const kind = classifyGeminiFailure(0, '', opened?.errorText || '');
-        void recordChatError(kind, defaultWarningMessage(kind));
-        writeEvent(res, {
-          type: 'error',
-          text: opened?.errorText || OVERLOAD_USER_MESSAGE,
-        });
-        writeEvent(res, { type: 'done', finishReason: finishReason || 'ERROR' });
-        res.end();
-        return;
-      }
-
-      activeModel = opened.model;
-
-      if (!signaledTyping) {
-        writeEvent(res, { type: 'status', stage: 'typing' });
-        signaledTyping = true;
-      }
-
-      let segment;
-      try {
-        segment = await readGeminiSse(opened.upstream.body, (text) => {
-          writeEvent(res, { type: 'token', text });
-        });
-      } catch (err) {
-        if (err?.geminiError) {
-          const calm = summarizeGeminiError(
-            err.geminiError.code || 500,
-            JSON.stringify({ error: err.geminiError }),
-            activeModel
-          );
-          const kind = classifyGeminiFailure(
-            err.geminiError.code || 500,
-            err.geminiError.status || '',
-            err.geminiError.message || calm
-          );
-          void recordChatError(kind, defaultWarningMessage(kind));
-          writeEvent(res, { type: 'error', text: calm });
-          writeEvent(res, { type: 'done', finishReason: 'ERROR' });
-          res.end();
-          return;
-        }
-        throw err;
-      }
-
-      tokenCount += segment.tokenCount;
-      finishReason = segment.finishReason || finishReason;
-      assembled += segment.text;
-
-      if (segment.finishReason !== 'MAX_TOKENS' || !segment.text || attempt === MAX_CONTINUES) {
-        break;
-      }
-
-      continues += 1;
-      console.info(
-        `[gemini] MAX_TOKENS — continue ${continues}/${MAX_CONTINUES} model=${activeModel} soFarChars=${assembled.length}`
-      );
-      contents = [
-        ...contents,
-        { role: 'model', parts: [{ text: assembled.slice(-12000) }] },
-        {
-          role: 'user',
-          parts: [
-            {
-              text: 'Продолжи ответ точно с того места, где оборвался. Не повторяй уже сказанное, без нового вступления.',
-            },
-          ],
-        },
-      ];
+    if (result.errorText) {
+      writeEvent(res, { type: 'error', text: result.errorText });
+      writeEvent(res, { type: 'done', finishReason: result.finishReason || 'ERROR' });
+      res.end();
+      return;
     }
 
     if (partner) {
       writeEvent(res, { type: 'partner', partner: partnerPayload(partner) });
     }
 
-    console.info(
-      `[gemini] done model=${activeModel} chunks=${tokenCount} finishReason=${finishReason || 'n/a'} continues=${continues} chars=${assembled.length}`
-    );
-    if (assembled.trim()) {
-      void recordChatSuccess();
-    } else {
-      void recordChatError('outage', defaultWarningMessage('outage'));
-    }
     writeEvent(res, {
       type: 'done',
-      finishReason: finishReason || 'STOP',
-      truncated: finishReason === 'MAX_TOKENS',
-      model: activeModel,
+      finishReason: result.finishReason || 'STOP',
+      truncated: Boolean(result.truncated),
+      model: result.model,
     });
     res.end();
   } catch (err) {
@@ -1960,6 +2051,62 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
     });
     writeEvent(res, { type: 'done' });
     res.end();
+  }
+});
+
+/** Bot API key for Telegram thin client — refuse route when unset. */
+const BOT_API_KEY = String(process.env.BOT_API_KEY || '').trim();
+const BOT_RATE_WINDOW_MS = 60 * 1000;
+const BOT_RATE_MAX = 30;
+
+/** In-memory 30 req/min per X-Bot-Key value (single-process; fine for one bot). */
+const botRateBuckets = new Map();
+
+function botRateLimitOk(key) {
+  const now = Date.now();
+  let entry = botRateBuckets.get(key);
+  if (!entry || entry.resetAt <= now) {
+    entry = { hits: 0, resetAt: now + BOT_RATE_WINDOW_MS };
+    botRateBuckets.set(key, entry);
+  }
+  entry.hits += 1;
+  return entry.hits <= BOT_RATE_MAX;
+}
+
+/**
+ * Telegram bot thin-client endpoint. JSON only — never SSE.
+ * Body: { message: "..." } → { reply: "..." }
+ */
+app.post('/api/bot/chat', async (req, res) => {
+  if (!BOT_API_KEY) {
+    res.status(503).json({ error: 'BOT_API_KEY не задан — бот-маршрут отключён' });
+    return;
+  }
+
+  const provided = String(req.get('X-Bot-Key') || '').trim();
+  if (!provided || provided !== BOT_API_KEY) {
+    res.status(401).json({ error: 'Неверный или отсутствующий X-Bot-Key' });
+    return;
+  }
+
+  if (!botRateLimitOk(provided)) {
+    res.status(429).json({ error: 'Слишком много запросов от бота, подождите минуту' });
+    return;
+  }
+
+  const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+  if (!message) {
+    res.status(400).json({ error: 'Нужно поле message (строка)' });
+    return;
+  }
+
+  try {
+    const reply = await generateFullReply(message);
+    res.json({ reply });
+  } catch (err) {
+    console.error('[bot] generate failed', redactSecrets(err?.message || String(err)));
+    void recordChatError('outage', defaultWarningMessage('outage'));
+    res.status(502).json({ error: 'Не удалось получить ответ модели' });
   }
 });
 
@@ -2107,6 +2254,8 @@ module.exports = {
   summarizeGeminiError,
   openGeminiStream,
   openGeminiStreamWithKey,
+  generateGeminiReply,
+  generateFullReply,
   GEMINI_API_ORIGIN,
   GEMINI_KEY_SLOTS,
   pickPartner,
