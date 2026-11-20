@@ -86,6 +86,49 @@ async function main() {
       assert.ok(data.reply.trim().length > 20);
     }
 
+    // messages[] preferred → same JSON { reply }, never SSE
+    {
+      const r = await req(base, {
+        headers: { 'X-Bot-Key': key },
+        body: {
+          messages: [
+            { role: 'user', content: 'Меня зовут Тест' },
+            { role: 'assistant', content: 'Приятно познакомиться, Тест.' },
+            { role: 'user', content: 'Как меня зовут?' },
+          ],
+        },
+      });
+      assert.strictEqual(r.status, 200, r.text);
+      assert.match(r.ct, /application\/json/i);
+      assert.doesNotMatch(r.ct, /text\/event-stream/i);
+      const data = JSON.parse(r.text);
+      assert.equal(typeof data.reply, 'string');
+      assert.ok(data.reply.trim().length > 10);
+    }
+
+    // empty messages[] → 400
+    {
+      const r = await req(base, {
+        headers: { 'X-Bot-Key': key },
+        body: { messages: [] },
+      });
+      assert.strictEqual(r.status, 400);
+    }
+
+    // messages wins over message when both present
+    {
+      const r = await req(base, {
+        headers: { 'X-Bot-Key': key },
+        body: {
+          message: 'игнор',
+          messages: [{ role: 'user', content: 'Что поесть на обед?' }],
+        },
+      });
+      assert.strictEqual(r.status, 200, r.text);
+      const data = JSON.parse(r.text);
+      assert.equal(typeof data.reply, 'string');
+    }
+
     // Frontend /api/chat still SSE
     {
       const r = await req(base, {
@@ -96,11 +139,19 @@ async function main() {
       assert.match(r.ct, /text\/event-stream/i);
     }
 
-    // generateFullReply returns a string
+    // generateFullReply accepts string or messages[]
     {
       const reply = await generateFullReply('Короткий совет по ужину');
       assert.equal(typeof reply, 'string');
       assert.ok(reply.trim().length > 10);
+
+      const replyHist = await generateFullReply([
+        { role: 'user', content: 'Привет' },
+        { role: 'assistant', content: 'Привет!' },
+        { role: 'user', content: 'Что на завтрак?' },
+      ]);
+      assert.equal(typeof replyHist, 'string');
+      assert.ok(replyHist.trim().length > 10);
     }
 
     console.log('verify-bot-chat: ok');
