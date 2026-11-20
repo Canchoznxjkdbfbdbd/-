@@ -3,3 +3,7 @@ node_modules/
 .DS_Store
 *.log
 .cursor/
+
+__pycache__/
+*.pyc
+bot/.env

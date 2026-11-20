@@ -1,0 +1,9 @@
+# Деплой на немецкий VPS: скопировать bot/, заполнить .env, docker compose up -d
+services:
+  nutrikod-bot:
+    build: .
+    container_name: nutrikod-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Только исходящий HTTPS к nutricode.online + Telegram — порты не публикуем
