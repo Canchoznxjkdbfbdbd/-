@@ -1397,6 +1397,218 @@ function buildGrowfoodAdmitadUrl(label, cfg = GROWFOOD_DEEPLINK) {
 }
 
 /**
+ * Parse [[chip]] inner text the same way as public/script.js parseProductTag.
+ * @returns {{kind:string,label:string,store:string|null}|null}
+ */
+function parseBotProductTag(inner) {
+  const raw = String(inner || '').trim();
+  if (!raw) return null;
+  if (/^\s*partner\s*:/i.test(raw)) {
+    return { kind: 'partner', label: raw, store: null };
+  }
+  const prefixed = raw.match(/^\s*([a-z][a-z0-9_-]*)\s*:\s*(.+)$/i);
+  if (prefixed) {
+    const prefix = String(prefixed[1] || '')
+      .trim()
+      .toLowerCase();
+    const label = String(prefixed[2] || '').trim();
+    if (!label) return null;
+    const fishPrefixes = (VIPFISH_DEEPLINK.tagPrefixes || ['vipfish', 'ryba']).map((p) =>
+      String(p).toLowerCase()
+    );
+    const befitPrefixes = (BEFIT_DEEPLINK.tagPrefixes || ['befit', 'letbefit']).map((p) =>
+      String(p).toLowerCase()
+    );
+    const hvalPrefixes = (HVALWATERS_DEEPLINK.tagPrefixes || [
+      'hval',
+      'water',
+      'hvalwaters',
+    ]).map((p) => String(p).toLowerCase());
+    const gfPrefixes = (GROWFOOD_DEEPLINK.tagPrefixes || ['growfood', 'gf']).map((p) =>
+      String(p).toLowerCase()
+    );
+    if (fishPrefixes.includes(prefix)) {
+      return { kind: 'product', label, store: 'vipfish' };
+    }
+    if (befitPrefixes.includes(prefix)) {
+      return { kind: 'product', label, store: 'befit' };
+    }
+    if (hvalPrefixes.includes(prefix)) {
+      return { kind: 'product', label, store: 'hvalwaters' };
+    }
+    if (gfPrefixes.includes(prefix)) {
+      return { kind: 'product', label, store: 'growfood' };
+    }
+    // Unknown prefix — plain label, no invented link.
+    return { kind: 'plain', label, store: null };
+  }
+  return { kind: 'product', label: raw, store: 'vkusvill' };
+}
+
+function botStoreDisplayName(store) {
+  if (store === 'vipfish') return VIPFISH_DEEPLINK.name || 'Важная рыба';
+  if (store === 'befit') return BEFIT_DEEPLINK.name || 'BeFit';
+  if (store === 'hvalwaters') return HVALWATERS_DEEPLINK.name || 'Хваловская вода';
+  if (store === 'growfood') return GROWFOOD_DEEPLINK.name || 'GrowFood';
+  if (store === 'vkusvill') return 'ВкусВилл';
+  return '';
+}
+
+function botBuildChipHref(store, label) {
+  if (store === 'vkusvill' && VKUSVILL_DEEPLINK.enabled) {
+    return buildVkusvillAdmitadUrl(label, VKUSVILL_DEEPLINK);
+  }
+  if (store === 'vipfish' && VIPFISH_DEEPLINK.enabled) {
+    return buildVipfishAdmitadUrl(label, VIPFISH_DEEPLINK);
+  }
+  if (store === 'befit' && BEFIT_DEEPLINK.enabled) {
+    return buildBefitAdmitadUrl(label, BEFIT_DEEPLINK);
+  }
+  if (store === 'hvalwaters' && HVALWATERS_DEEPLINK.enabled) {
+    return buildHvalwatersAdmitadUrl(label, HVALWATERS_DEEPLINK);
+  }
+  if (store === 'growfood' && GROWFOOD_DEEPLINK.enabled) {
+    return buildGrowfoodAdmitadUrl(label, GROWFOOD_DEEPLINK);
+  }
+  return null;
+}
+
+function botDisclosureLine(store) {
+  let cfg = null;
+  let fallback = '';
+  if (store === 'vkusvill') {
+    cfg = VKUSVILL_DEEPLINK;
+    fallback = 'АО «ВкусВилл»';
+  } else if (store === 'vipfish') {
+    cfg = VIPFISH_DEEPLINK;
+    fallback = 'ООО «Кейтеринг-Рент»';
+  } else if (store === 'befit') {
+    cfg = BEFIT_DEEPLINK;
+    fallback = 'ООО «АЛ-МУЛК»';
+  } else if (store === 'hvalwaters') {
+    cfg = HVALWATERS_DEEPLINK;
+    fallback = 'ООО «АКВАСИТИ»';
+  } else if (store === 'growfood') {
+    cfg = GROWFOOD_DEEPLINK;
+    fallback = 'ООО «ГФ Трейд»';
+  }
+  if (!cfg || !cfg.erid) return '';
+  if (cfg.disclaimer) return String(cfg.disclaimer).trim();
+  const legal = String(cfg.legalName || fallback || '').trim();
+  const inn = String(cfg.inn || '').trim();
+  const bits = ['Реклама.'];
+  if (legal) bits.push(inn ? `${legal}, ИНН ${inn}.` : `${legal}.`);
+  bits.push(`erid: ${cfg.erid}`);
+  return bits.join(' ');
+}
+
+/**
+ * Expand [[partner chips]] for Telegram / JSON bot clients.
+ * Prose keeps human labels; Admitad URLs go into a short links block under the reply.
+ * Never leaves raw [[…]] in the output. Web /api/chat SSE is untouched (call only from bot route).
+ * @param {string} text
+ * @returns {string}
+ */
+function expandPartnerChipsForBot(text) {
+  const src = String(text || '');
+  if (!src.includes('[[')) return src;
+
+  const re = /\[\[([^\]]+)\]\]/g;
+  /** @type {{start:number,end:number,kind:string,label:string,store:string|null,href:string|null}[]} */
+  const hits = [];
+  let m;
+  while ((m = re.exec(src))) {
+    const parsed = parseBotProductTag(m[1]);
+    if (!parsed) {
+      hits.push({
+        start: m.index,
+        end: m.index + m[0].length,
+        kind: 'plain',
+        label: String(m[1] || '').trim(),
+        store: null,
+        href: null,
+      });
+      continue;
+    }
+    const href =
+      parsed.kind === 'product' && parsed.store
+        ? botBuildChipHref(parsed.store, parsed.label)
+        : null;
+    hits.push({
+      start: m.index,
+      end: m.index + m[0].length,
+      kind: parsed.kind,
+      label: parsed.label,
+      store: parsed.store,
+      href,
+    });
+  }
+  if (!hits.length) return src;
+
+  let out = '';
+  let cursor = 0;
+  /** @type {{label:string,store:string,href:string}[]} */
+  const links = [];
+  /** @type {Set<string>} */
+  const seenHref = new Set();
+  /** @type {Set<string>} */
+  const storesUsed = new Set();
+
+  for (const hit of hits) {
+    if (hit.start < cursor) continue;
+    out += src.slice(cursor, hit.start);
+    if (hit.kind === 'partner') {
+      // Hide [[partner:id]] like the web cart UI.
+      out += '';
+    } else {
+      out += hit.label || '';
+      if (hit.href && hit.store) {
+        const key = hit.href;
+        if (!seenHref.has(key)) {
+          seenHref.add(key);
+          links.push({ label: hit.label, store: hit.store, href: hit.href });
+          storesUsed.add(hit.store);
+        }
+      }
+    }
+    cursor = hit.end;
+  }
+  out += src.slice(cursor);
+
+  // Strip any leftover raw brackets (defensive).
+  out = out.replace(/\[\[([^\]]*)\]\]/g, (_, inner) => {
+    const parsed = parseBotProductTag(inner);
+    if (!parsed || parsed.kind === 'partner') return '';
+    return parsed.label || '';
+  });
+
+  if (links.length) {
+    const programStores = new Set(['befit', 'hvalwaters', 'growfood']);
+    const onlyPrograms = links.every((l) => programStores.has(l.store));
+    const heading = onlyPrograms ? 'Полезные ссылки:' : 'Собрать корзину:';
+    const lines = [heading];
+    for (const link of links) {
+      const name = botStoreDisplayName(link.store);
+      lines.push(`• ${name} — ${link.label}`);
+      lines.push(link.href);
+    }
+    const disclosures = [];
+    for (const store of ['vkusvill', 'vipfish', 'befit', 'hvalwaters', 'growfood']) {
+      if (!storesUsed.has(store)) continue;
+      const line = botDisclosureLine(store);
+      if (line) disclosures.push(line);
+    }
+    if (disclosures.length) {
+      lines.push('');
+      for (const d of disclosures) lines.push(d);
+    }
+    out = `${out.trimEnd()}\n\n${lines.join('\n')}`;
+  }
+
+  return out.trim();
+}
+
+/**
  * Soft-offer intent: готовая еда / заказ / доставка / недельный пакет.
  * Do NOT match bare «нет времени» from a starter chip — only clear ready-food wording
  * in the latest user reply (see pickPartner). Avoid \\b — JS word boundaries break Cyrillic.
@@ -2140,7 +2352,10 @@ app.post('/api/bot/chat', async (req, res) => {
   }
 
   try {
-    const reply = await generateFullReply(hasMessages ? messages : message);
+    const rawReply = await generateFullReply(hasMessages ? messages : message);
+    // Expand [[chips]] → human labels + Admitad URLs (Telegram has no frontend cart UI).
+    // Web /api/chat keeps raw chips for script.js chips/cart block.
+    const reply = expandPartnerChipsForBot(rawReply);
     res.json({ reply });
   } catch (err) {
     console.error('[bot] generate failed', redactSecrets(err?.message || String(err)));
@@ -2295,6 +2510,8 @@ module.exports = {
   openGeminiStreamWithKey,
   generateGeminiReply,
   generateFullReply,
+  expandPartnerChipsForBot,
+  parseBotProductTag,
   GEMINI_API_ORIGIN,
   GEMINI_KEY_SLOTS,
   pickPartner,

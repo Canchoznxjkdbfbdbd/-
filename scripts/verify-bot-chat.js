@@ -15,9 +15,10 @@ if (!process.env.VERIFY_LIVE) {
   process.env.GEMINI_API_KEY_2 = '';
 }
 
-const { app, generateFullReply } = require('../server');
+const { app, generateFullReply, expandPartnerChipsForBot } = require('../server');
 
 assert.strictEqual(typeof generateFullReply, 'function');
+assert.strictEqual(typeof expandPartnerChipsForBot, 'function');
 
 function listen(appRef) {
   return new Promise((resolve) => {
@@ -152,6 +153,16 @@ async function main() {
       ]);
       assert.equal(typeof replyHist, 'string');
       assert.ok(replyHist.trim().length > 10);
+    }
+
+    // Chip expansion helper leaves no raw [[…]] (bot route uses this)
+    {
+      const expanded = expandPartnerChipsForBot(
+        'Рацион [[befit:extralight]] и [[growfood:balance]]'
+      );
+      assert.doesNotMatch(expanded, /\[\[|\]\]/);
+      assert.match(expanded, /uuwgc\.com|naiawork\.com/);
+      assert.match(expanded, /Полезные ссылки:/);
     }
 
     console.log('verify-bot-chat: ok');
