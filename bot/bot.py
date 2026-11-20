@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import Dict, List, Optional
 
 import aiohttp
 from aiogram import Bot, Dispatcher, F
@@ -28,16 +28,27 @@ NUTRIKOD_API_URL = (
 ).strip()
 
 SERVICE_UNAVAILABLE = "Сервис временно недоступен, попробуй позже"
+MAX_HISTORY = 20
+
+# In-memory history per Telegram chat_id (lost on process restart).
+chat_histories: Dict[int, List[dict]] = {}
 
 dp = Dispatcher()
 
 
-async def ask_nutrikod(session: aiohttp.ClientSession, text: str) -> Optional[str]:
-    """POST JSON {message} → reply string, or None on transport / non-200."""
+def _trim_history(history: List[dict]) -> None:
+    if len(history) > MAX_HISTORY:
+        del history[:-MAX_HISTORY]
+
+
+async def ask_nutrikod(
+    session: aiohttp.ClientSession, messages: List[dict]
+) -> Optional[str]:
+    """POST JSON {messages} → reply string, or None on transport / non-200."""
     try:
         async with session.post(
             NUTRIKOD_API_URL,
-            json={"message": text},
+            json={"messages": messages},
             headers={
                 "Content-Type": "application/json",
                 "X-Bot-Key": BOT_API_KEY,
@@ -61,6 +72,7 @@ async def ask_nutrikod(session: aiohttp.ClientSession, text: str) -> Optional[st
 
 @dp.message(CommandStart())
 async def on_start(message: Message) -> None:
+    chat_histories.pop(message.chat.id, None)
     await message.answer(
         "Привет! Я НутриКод в Telegram. Напиши вопрос про еду и рацион — отвечу так же, как на сайте."
     )
@@ -71,11 +83,23 @@ async def on_text(message: Message, http: aiohttp.ClientSession) -> None:
     text = (message.text or "").strip()
     if not text:
         return
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    reply = await ask_nutrikod(http, text)
+    chat_id = message.chat.id
+    history = chat_histories.setdefault(chat_id, [])
+    history.append({"role": "user", "content": text})
+    _trim_history(history)
+
+    await message.bot.send_chat_action(chat_id, ChatAction.TYPING)
+    reply = await ask_nutrikod(http, history)
     if reply is None:
+        # Drop the user turn so a retry does not duplicate it.
+        if history and history[-1].get("role") == "user":
+            history.pop()
         await message.answer(SERVICE_UNAVAILABLE)
         return
+
+    history.append({"role": "assistant", "content": reply})
+    _trim_history(history)
+
     # Telegram hard limit ~4096; split long replies safely.
     chunk = 4000
     for i in range(0, len(reply), chunk):

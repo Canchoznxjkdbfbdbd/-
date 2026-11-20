@@ -1962,15 +1962,45 @@ async function generateGeminiReply({
   };
 }
 
+/** Max chat turns kept for bot JSON clients (user+assistant messages). */
+const BOT_HISTORY_MAX = 20;
+
+/**
+ * Normalize bot/chat message list: user|assistant + non-empty string content, last N.
+ * @param {unknown} raw
+ * @returns {Array<{role: string, content: string}>}
+ */
+function normalizeBotMessages(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (m) =>
+        m &&
+        (m.role === 'user' || m.role === 'assistant') &&
+        typeof m.content === 'string' &&
+        m.content.trim()
+    )
+    .map((m) => ({
+      role: m.role,
+      content: String(m.content).trim().slice(0, 8000),
+    }))
+    .slice(-BOT_HISTORY_MAX);
+}
+
 /**
  * Full non-streaming reply for the Telegram bot (and any JSON client).
  * Same prompt.txt / partners context path / Gemini keys as /api/chat.
- * @param {string} message
+ * @param {string|Array<{role: string, content: string}>} input single user message or history
  * @returns {Promise<string>}
  */
-async function generateFullReply(message) {
-  const text = String(message || '').trim();
-  const messages = text ? [{ role: 'user', content: text }] : [];
+async function generateFullReply(input) {
+  let messages;
+  if (Array.isArray(input)) {
+    messages = normalizeBotMessages(input);
+  } else {
+    const text = String(input || '').trim();
+    messages = text ? [{ role: 'user', content: text }] : [];
+  }
   const mode = resolveChatMode('normal', messages);
   const result = await generateGeminiReply({
     messages,
@@ -2075,7 +2105,8 @@ function botRateLimitOk(key) {
 
 /**
  * Telegram bot thin-client endpoint. JSON only — never SSE.
- * Body: { message: "..." } → { reply: "..." }
+ * Body: { messages: [{role, content}, ...] } (preferred) or { message: "..." }
+ * → { reply: "..." }
  */
 app.post('/api/bot/chat', async (req, res) => {
   if (!BOT_API_KEY) {
@@ -2094,14 +2125,22 @@ app.post('/api/bot/chat', async (req, res) => {
     return;
   }
 
+  const hasMessages = Array.isArray(req.body?.messages);
+  const messages = hasMessages ? normalizeBotMessages(req.body.messages) : null;
   const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
-  if (!message) {
-    res.status(400).json({ error: 'Нужно поле message (строка)' });
+
+  if (hasMessages) {
+    if (!messages.length) {
+      res.status(400).json({ error: 'Нужен непустой массив messages (role + content)' });
+      return;
+    }
+  } else if (!message) {
+    res.status(400).json({ error: 'Нужно поле message (строка) или messages (массив)' });
     return;
   }
 
   try {
-    const reply = await generateFullReply(message);
+    const reply = await generateFullReply(hasMessages ? messages : message);
     res.json({ reply });
   } catch (err) {
     console.error('[bot] generate failed', redactSecrets(err?.message || String(err)));
