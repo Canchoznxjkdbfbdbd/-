@@ -8,6 +8,8 @@
 
   /** Fallback if /api/config has no communityVkUrl — keep in sync with server COMMUNITY_VK_URL. */
   const COMMUNITY_VK_URL_DEFAULT = 'https://vk.ru/ai.nutricode';
+  /** Fallback if /api/config has no yandexMetrikaId yet — must match live counter. */
+  window.__nkMetrikaId = window.__nkMetrikaId || '114157729';
 
   /** Calm Russian wait stages — rotate short variants so it doesn’t feel canned. */
   const THINKING_STATUS = ['Думает…', 'Что-то прикидывает…', 'Собирает мысли…'];
@@ -879,9 +881,98 @@
     maybeFollowBottom();
   }
 
+  function scheduleYandexMetrika(rawId) {
+    var id = String(rawId || '').trim();
+    if (!id || !/^\d{5,12}$/.test(id)) return;
+    if (window.__nkMetrikaScheduled) return;
+    window.__nkMetrikaScheduled = true;
+
+    var start = function () {
+      if (window.__nkMetrikaStarted) return;
+      window.__nkMetrikaStarted = true;
+      try {
+        if (typeof window.ym === 'function') {
+          window.ym(Number(id), 'init', {
+            clickmap: true,
+            trackLinks: true,
+            accurateTrackBounce: true,
+            webvisor: false,
+          });
+          return;
+        }
+      } catch (_e0) {
+        /* continue to inject */
+      }
+
+      var settled = false;
+      var scriptEl = document.createElement('script');
+      scriptEl.async = true;
+      scriptEl.defer = true;
+      scriptEl.src = 'https://mc.yandex.ru/metrika/tag.js';
+
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        try {
+          if (scriptEl.parentNode) scriptEl.parentNode.removeChild(scriptEl);
+        } catch (_e1) {
+          /* ignore */
+        }
+      }, 4000);
+
+      scriptEl.onload = function () {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          if (typeof window.ym === 'function') {
+            window.ym(Number(id), 'init', {
+              clickmap: true,
+              trackLinks: true,
+              accurateTrackBounce: true,
+              webvisor: false,
+            });
+          }
+        } catch (_e2) {
+          /* ignore */
+        }
+      };
+      scriptEl.onerror = function () {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+      };
+
+      try {
+        (document.body || document.documentElement).appendChild(scriptEl);
+      } catch (_e3) {
+        settled = true;
+        clearTimeout(timer);
+      }
+    };
+
+    // After first paint / chat boot: idle + short delay so iOS loading bar can finish.
+    var delay = function () {
+      setTimeout(start, 2000);
+    };
+    try {
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(delay, { timeout: 4000 });
+      } else {
+        delay();
+      }
+    } catch (_e4) {
+      delay();
+    }
+  }
+
   async function loadConfig() {
     try {
       const res = await fetch('/api/config');
+      if (!res || !res.ok) {
+        scheduleYandexMetrika(window.__nkMetrikaId || '');
+        return;
+      }
       const data = await res.json();
       if (data.communityVkUrl) {
         communityVkUrl = String(data.communityVkUrl).trim() || COMMUNITY_VK_URL_DEFAULT;
@@ -1022,10 +1113,12 @@
           promos: Array.isArray(gf.promos) ? gf.promos : [],
         };
       }
+      scheduleYandexMetrika(data.yandexMetrikaId || window.__nkMetrikaId || '');
       if (!data.hasKey) {
         /* mock mode is fine; notice comes with first stream */
       }
     } catch {
+      scheduleYandexMetrika(window.__nkMetrikaId || '');
       /* offline demo still works after server up */
     }
   }
