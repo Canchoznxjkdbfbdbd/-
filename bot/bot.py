@@ -30,22 +30,19 @@ NUTRIKOD_API_URL = (
 
 SERVICE_UNAVAILABLE = "Сервис временно недоступен, попробуй позже"
 MAX_HISTORY = 20
-BTN_LABEL_MAX = 36
+# Short labels share a row (2/row). Longer product names → 1 per row (Telegram ≤64).
+BTN_LABEL_ROW_MAX = 22
+BTN_LABEL_SOLO_MAX = 64
 LINKS_KEYBOARD_MAX = 10
-
-STORE_NAMES = {
-    "vkusvill": "ВкусВилл",
-    "vipfish": "Важная рыба",
-    "befit": "BeFit",
-    "hvalwaters": "Хваловская",
-    "growfood": "GrowFood",
-}
 
 # Legacy markdown link lists from older API builds — strip when buttons are present.
 _LEGACY_LINK_BLOCK_RE = re.compile(
     r"\n\n(?:Собрать корзину:|Полезные ссылки:)(?:\n.*)+$",
     re.DOTALL,
 )
+
+# Defensive: collapse duplicate trailing Реклама/erid lines (server should send once).
+_ERID_IN_LINE_RE = re.compile(r"erid\s*[:=]\s*(\S+)", re.IGNORECASE)
 
 # In-memory history per Telegram chat_id (lost on process restart).
 chat_histories: Dict[int, List[dict]] = {}
@@ -58,7 +55,7 @@ def _trim_history(history: List[dict]) -> None:
         del history[:-MAX_HISTORY]
 
 
-def _truncate_label(text: str, max_len: int = BTN_LABEL_MAX) -> str:
+def _truncate_label(text: str, max_len: int) -> str:
     s = re.sub(r"\s+", " ", str(text or "").strip())
     if len(s) <= max_len:
         return s
@@ -67,13 +64,11 @@ def _truncate_label(text: str, max_len: int = BTN_LABEL_MAX) -> str:
     return s[: max_len - 1].rstrip() + "…"
 
 
-def _button_label(item: dict) -> str:
+def _button_label(item: dict, *, solo: bool) -> str:
+    """Product name only — no «ВкусВилл — » / store prefix."""
     label = str(item.get("label") or "").strip() or "Ссылка"
-    store = str(item.get("store") or "").strip().lower()
-    store_name = STORE_NAMES.get(store, "")
-    if store_name:
-        return _truncate_label(f"{store_name} — {label}")
-    return _truncate_label(label)
+    max_len = BTN_LABEL_SOLO_MAX if solo else BTN_LABEL_ROW_MAX
+    return _truncate_label(label, max_len)
 
 
 def _normalize_links(raw: Any) -> List[dict]:
@@ -107,7 +102,15 @@ def build_links_keyboard(links: List[dict]) -> Optional[InlineKeyboardMarkup]:
     rows: List[List[InlineKeyboardButton]] = []
     row: List[InlineKeyboardButton] = []
     for item in links:
-        btn = InlineKeyboardButton(text=_button_label(item), url=item["url"])
+        raw_label = str(item.get("label") or "").strip() or "Ссылка"
+        solo = len(raw_label) > BTN_LABEL_ROW_MAX
+        btn = InlineKeyboardButton(text=_button_label(item, solo=solo), url=item["url"])
+        if solo:
+            if row:
+                rows.append(row)
+                row = []
+            rows.append([btn])
+            continue
         row.append(btn)
         if len(row) == 2:
             rows.append(row)
@@ -117,13 +120,31 @@ def build_links_keyboard(links: List[dict]) -> Optional[InlineKeyboardMarkup]:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _dedupe_erid_lines(text: str) -> str:
+    """Keep the first disclosure per erid; drop later duplicates (double ad block)."""
+    lines = text.split("\n")
+    seen: set[str] = set()
+    out: List[str] = []
+    for line in lines:
+        m = _ERID_IN_LINE_RE.search(line)
+        if m:
+            erid = m.group(1).rstrip(".,;)")
+            if erid in seen:
+                continue
+            seen.add(erid)
+        out.append(line)
+    # Collapse excess blank lines after removals.
+    cleaned = "\n".join(out)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
 def prepare_reply_text(reply: str, has_buttons: bool) -> str:
-    """Prefer buttons for product URLs; drop legacy duplicate URL lists from reply text."""
+    """Prefer buttons for product URLs; drop legacy URL lists; one erid block."""
     text = (reply or "").strip()
-    if not has_buttons:
-        return text
-    stripped = _LEGACY_LINK_BLOCK_RE.sub("", text).strip()
-    return stripped or text
+    if has_buttons:
+        stripped = _LEGACY_LINK_BLOCK_RE.sub("", text).strip()
+        text = stripped or text
+    return _dedupe_erid_lines(text)
 
 
 async def ask_nutrikod(

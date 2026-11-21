@@ -1530,25 +1530,17 @@ function botBuildChipHref(store, label) {
   return null;
 }
 
+function botStoreDeeplinkCfg(store) {
+  if (store === 'vkusvill') return { cfg: VKUSVILL_DEEPLINK, fallback: 'АО «ВкусВилл»' };
+  if (store === 'vipfish') return { cfg: VIPFISH_DEEPLINK, fallback: 'ООО «Кейтеринг-Рент»' };
+  if (store === 'befit') return { cfg: BEFIT_DEEPLINK, fallback: 'ООО «АЛ-МУЛК»' };
+  if (store === 'hvalwaters') return { cfg: HVALWATERS_DEEPLINK, fallback: 'ООО «АКВАСИТИ»' };
+  if (store === 'growfood') return { cfg: GROWFOOD_DEEPLINK, fallback: 'ООО «ГФ Трейд»' };
+  return { cfg: null, fallback: '' };
+}
+
 function botDisclosureLine(store) {
-  let cfg = null;
-  let fallback = '';
-  if (store === 'vkusvill') {
-    cfg = VKUSVILL_DEEPLINK;
-    fallback = 'АО «ВкусВилл»';
-  } else if (store === 'vipfish') {
-    cfg = VIPFISH_DEEPLINK;
-    fallback = 'ООО «Кейтеринг-Рент»';
-  } else if (store === 'befit') {
-    cfg = BEFIT_DEEPLINK;
-    fallback = 'ООО «АЛ-МУЛК»';
-  } else if (store === 'hvalwaters') {
-    cfg = HVALWATERS_DEEPLINK;
-    fallback = 'ООО «АКВАСИТИ»';
-  } else if (store === 'growfood') {
-    cfg = GROWFOOD_DEEPLINK;
-    fallback = 'ООО «ГФ Трейд»';
-  }
+  const { cfg, fallback } = botStoreDeeplinkCfg(store);
   if (!cfg || !cfg.erid) return '';
   if (cfg.disclaimer) return String(cfg.disclaimer).trim();
   const legal = String(cfg.legalName || fallback || '').trim();
@@ -1557,6 +1549,31 @@ function botDisclosureLine(store) {
   if (legal) bits.push(inn ? `${legal}, ИНН ${inn}.` : `${legal}.`);
   bits.push(`erid: ${cfg.erid}`);
   return bits.join(' ');
+}
+
+/**
+ * Drop model-written «Реклама» / erid lines so the server can append
+ * canonical disclosures once (unique erids) after chip expand.
+ * @param {string} text
+ * @returns {string}
+ */
+function stripModelAdDisclosures(text) {
+  const src = String(text || '');
+  if (!src) return '';
+  const kept = [];
+  for (const line of src.split('\n')) {
+    const t = line.trim();
+    if (!t) {
+      kept.push(line);
+      continue;
+    }
+    // Avoid \\b with Cyrillic — JS word boundaries are ASCII-only.
+    if (/^реклама/i.test(t)) continue;
+    if (/(?:^|[\s,;:(])erid\s*[:=]/i.test(t)) continue;
+    if (/реклама/i.test(t) && /erid/i.test(t)) continue;
+    kept.push(line);
+  }
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /** Max structured product links for Telegram inline keyboard (API + bot). */
@@ -1571,7 +1588,7 @@ const BOT_LINKS_MAX = 10;
  * @returns {{reply:string, links:Array<{label:string,url:string,store?:string}>}}
  */
 function expandPartnerChipsForBot(text) {
-  const src = String(text || '');
+  const src = stripModelAdDisclosures(text);
   if (!src.includes('[[')) return { reply: src, links: [] };
 
   const re = /\[\[([^\]]+)\]\]/g;
@@ -1647,15 +1664,23 @@ function expandPartnerChipsForBot(text) {
 
   if (links.length) {
     // Prefer Telegram inline buttons for URLs — keep prose clean.
+    // Link labels stay product-name-only (bot renders buttons without store prefix).
     const programStores = new Set(['befit', 'hvalwaters', 'growfood']);
     const onlyPrograms = links.every((l) => programStores.has(l.store));
     const hint = onlyPrograms ? 'Ссылки ниже ↓' : 'Собрать корзину — ссылки ниже ↓';
     const lines = [hint];
     const disclosures = [];
+    /** @type {Set<string>} */
+    const seenErids = new Set();
     for (const store of ['vkusvill', 'vipfish', 'befit', 'hvalwaters', 'growfood']) {
       if (!storesUsed.has(store)) continue;
+      const { cfg } = botStoreDeeplinkCfg(store);
+      const erid = String((cfg && cfg.erid) || '').trim();
+      if (!erid || seenErids.has(erid)) continue;
       const line = botDisclosureLine(store);
-      if (line) disclosures.push(line);
+      if (!line) continue;
+      seenErids.add(erid);
+      disclosures.push(line);
     }
     if (disclosures.length) {
       lines.push('');
@@ -2575,6 +2600,7 @@ module.exports = {
   generateGeminiReply,
   generateFullReply,
   expandPartnerChipsForBot,
+  stripModelAdDisclosures,
   BOT_LINKS_MAX,
   parseBotProductTag,
   GEMINI_API_ORIGIN,

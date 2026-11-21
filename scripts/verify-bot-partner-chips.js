@@ -17,6 +17,7 @@ if (!process.env.VERIFY_LIVE) {
 
 const {
   expandPartnerChipsForBot,
+  stripModelAdDisclosures,
   BOT_LINKS_MAX,
   parseBotProductTag,
   buildBefitAdmitadUrl,
@@ -30,6 +31,7 @@ const {
 } = require('../server');
 
 assert.strictEqual(typeof expandPartnerChipsForBot, 'function');
+assert.strictEqual(typeof stripModelAdDisclosures, 'function');
 assert.strictEqual(typeof parseBotProductTag, 'function');
 assert.ok(BOT_LINKS_MAX >= 8 && BOT_LINKS_MAX <= 12);
 
@@ -114,6 +116,42 @@ assert.ok(BOT_LINKS_MAX >= 8 && BOT_LINKS_MAX <= 12);
   const chips = Array.from({ length: BOT_LINKS_MAX + 5 }, (_, i) => `[[товар ${i}]]`).join(' ');
   const { links } = expandPartnerChipsForBot(`Список: ${chips}`);
   assert.strictEqual(links.length, BOT_LINKS_MAX);
+}
+
+// Strip model-written Реклама/erid; server adds disclosure once
+{
+  const stripped = stripModelAdDisclosures(
+    'Бери творог.\nРеклама. АО «ВкусВилл».\nerid: FAKE_MODEL_ERID\nИ ещё совет.'
+  );
+  assert.doesNotMatch(stripped, /Реклама/i);
+  assert.doesNotMatch(stripped, /erid/i);
+  assert.match(stripped, /творог/);
+  assert.match(stripped, /совет/);
+
+  const src =
+    'Купи [[греческий йогурт]].\nРеклама. что-то от модели.\nerid: MODEL_DUP_ERID';
+  const { reply, links } = expandPartnerChipsForBot(src);
+  assert.strictEqual(links.length, 1);
+  assert.strictEqual(links[0].label, 'греческий йогурт');
+  assert.strictEqual(links[0].store, 'vkusvill');
+  assert.doesNotMatch(reply, /MODEL_DUP_ERID/);
+  assert.match(reply, /Собрать корзину|Ссылки ниже/);
+  // Exactly one erid disclosure line from server
+  const eridHits = reply.match(/\berid\s*:/gi) || [];
+  assert.strictEqual(eridHits.length, 1);
+  assert.match(reply, /Реклама/);
+}
+
+// Multi-partner chips in one reply (VV + vipfish + hval) — allowed
+{
+  const src = 'Набор: [[овсянка]], [[vipfish:лосось]], [[hval:premium]].';
+  const { reply, links } = expandPartnerChipsForBot(src);
+  assert.strictEqual(links.length, 3);
+  assert.ok(links.every((l) => l.label && !/ВкусВилл|Важная|Хвалов/i.test(l.label)));
+  assert.doesNotMatch(reply, /\[\[/);
+  const eridHits = reply.match(/\berid\s*:/gi) || [];
+  assert.ok(eridHits.length >= 1);
+  assert.ok(eridHits.length <= 3);
 }
 
 function listen(appRef) {
