@@ -1436,6 +1436,8 @@ function makeChatLimiter(windowMs, max) {
     max,
     standardHeaders: true,
     legacyHeaders: false,
+    // Two limiters stacked on /api/chat (1min + 5min) — intentional; silence ERR_ERL_DOUBLE_COUNT.
+    validate: { singleCount: false },
     ...(cluster.isWorker ? { store: createClusterRateLimitStore(windowMs) } : {}),
     message: chatRateLimitMessage,
   });
