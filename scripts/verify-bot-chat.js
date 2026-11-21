@@ -155,14 +155,19 @@ async function main() {
       assert.ok(replyHist.trim().length > 10);
     }
 
-    // Chip expansion helper leaves no raw [[…]] (bot route uses this)
+    // Chip expansion helper → clean reply + structured Admitad links
     {
       const expanded = expandPartnerChipsForBot(
         'Рацион [[befit:extralight]] и [[growfood:balance]]'
       );
-      assert.doesNotMatch(expanded, /\[\[|\]\]/);
-      assert.match(expanded, /uuwgc\.com|naiawork\.com/);
-      assert.match(expanded, /Полезные ссылки:/);
+      assert.equal(typeof expanded.reply, 'string');
+      assert.doesNotMatch(expanded.reply, /\[\[|\]\]/);
+      assert.match(expanded.reply, /Ссылки ниже/);
+      assert.ok(Array.isArray(expanded.links));
+      assert.ok(expanded.links.length >= 2);
+      assert.ok(
+        expanded.links.some((l) => /uuwgc\.com|naiawork\.com/.test(String(l.url || '')))
+      );
     }
 
     console.log('verify-bot-chat: ok');
