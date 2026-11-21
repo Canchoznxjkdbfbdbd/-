@@ -20,7 +20,8 @@
     "verify:scroll-starters": "node scripts/verify-chat-scroll-starters.js",
     "verify:robots": "node scripts/verify-robots-sitemap.js",
     "verify:bot-chat": "node scripts/verify-bot-chat.js",
-    "verify:bot-chips": "node scripts/verify-bot-partner-chips.js"
+    "verify:bot-chips": "node scripts/verify-bot-partner-chips.js",
+    "verify:rate-limits": "node scripts/verify-smart-rate-limits.js"
   },
   "engines": {
     "node": ">=18"
