@@ -3,6 +3,8 @@ node_modules/
 .DS_Store
 *.log
 .cursor/
+# Live kill-switch flag (admin); missing = service ON. Do not scp over from git.
+service.json
 
 __pycache__/
 *.pyc

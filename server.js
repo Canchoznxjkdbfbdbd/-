@@ -700,7 +700,10 @@ function isKeyFailoverError(status, code, message) {
 const ROOT = __dirname;
 const PROMPT_PATH = path.join(ROOT, 'prompt.txt');
 const PARTNERS_PATH = path.join(ROOT, 'partners.json');
+/** Kill switch on disk (survives PM2 restart). Missing file = service ON. Not in git — live state. */
+const SERVICE_PATH = path.join(ROOT, 'service.json');
 const ADMIN_HTML_PATH = path.join(ROOT, 'admin.html');
+const SERVICE_DISABLED_USER_MESSAGE = 'Сервис временно недоступен';
 
 /**
  * Hot-reload from disk on each use (mtime cache). Admin saves invalidate immediately.
@@ -710,12 +713,59 @@ const fileCache = {
   prompt: { mtimeMs: -1, value: '' },
   partners: { mtimeMs: -1, value: [] },
   cityIndex: { mtimeMs: -1, value: null },
+  service: { mtimeMs: -1, value: true },
 };
 
 function invalidateContentCache() {
   fileCache.prompt.mtimeMs = -1;
   fileCache.partners.mtimeMs = -1;
   fileCache.cityIndex.mtimeMs = -1;
+  fileCache.service.mtimeMs = -1;
+}
+
+/**
+ * Kill-switch flag. Missing/corrupt file → enabled (service ON).
+ * @returns {boolean}
+ */
+function isServiceEnabled() {
+  try {
+    const st = fs.statSync(SERVICE_PATH);
+    if (st.mtimeMs !== fileCache.service.mtimeMs) {
+      let enabled = true;
+      try {
+        const raw = JSON.parse(fs.readFileSync(SERVICE_PATH, 'utf8'));
+        if (raw && typeof raw.enabled === 'boolean') {
+          enabled = raw.enabled;
+        }
+      } catch {
+        enabled = true;
+      }
+      fileCache.service = { mtimeMs: st.mtimeMs, value: enabled };
+    }
+    return fileCache.service.value;
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      fileCache.service = { mtimeMs: 0, value: true };
+      return true;
+    }
+    console.warn('[service] read failed — treating as enabled', err?.message || err);
+    return true;
+  }
+}
+
+/**
+ * Persist kill switch; refreshes mtime cache.
+ * @param {boolean} enabled
+ * @returns {boolean}
+ */
+function setServiceEnabled(enabled) {
+  const on = Boolean(enabled);
+  const out = `${JSON.stringify({ enabled: on }, null, 2)}\n`;
+  fs.writeFileSync(SERVICE_PATH, out, 'utf8');
+  const st = fs.statSync(SERVICE_PATH);
+  fileCache.service = { mtimeMs: st.mtimeMs, value: on };
+  console.info(`[service] kill switch → enabled=${on}`);
+  return on;
 }
 
 function loadSystemPrompt() {
@@ -1453,6 +1503,7 @@ app.get('/api/modes', (_req, res) => {
 app.get('/api/config', (_req, res) => {
   res.json({
     hasKey: Boolean(GEMINI_API_KEY),
+    serviceEnabled: isServiceEnabled(),
     communityVkUrl: COMMUNITY_VK_URL,
     yandexMetrikaId: YANDEX_METRIKA_ID || null,
     brand: 'НутриКод',
@@ -2622,6 +2673,13 @@ app.post('/api/chat', chatLimiterMinute, chatLimiterBurst, async (req, res) => {
   // Tell the client which mode actually applied (explicit or quiet auto-detect).
   writeEvent(res, { type: 'mode', mode: { id: mode.id, label: mode.label, source: mode.source } });
 
+  if (!isServiceEnabled()) {
+    writeEvent(res, { type: 'error', text: SERVICE_DISABLED_USER_MESSAGE });
+    writeEvent(res, { type: 'done', finishReason: 'SERVICE_DISABLED' });
+    res.end();
+    return;
+  }
+
   if (!GEMINI_API_KEY) {
     writeEvent(res, {
       type: 'notice',
@@ -2714,6 +2772,11 @@ app.post('/api/bot/chat', async (req, res) => {
 
   if (!botRateLimitOk(provided)) {
     res.status(429).json({ error: 'Слишком много запросов от бота, подождите минуту' });
+    return;
+  }
+
+  if (!isServiceEnabled()) {
+    res.status(503).json({ error: SERVICE_DISABLED_USER_MESSAGE });
     return;
   }
 
@@ -2861,7 +2924,7 @@ app.get('/api/admin/stats', requireAdmin, async (_req, res) => {
   try {
     const stats = await readAdminStats();
     res.set('Cache-Control', 'no-store');
-    res.json(stats);
+    res.json({ ...stats, serviceEnabled: isServiceEnabled() });
   } catch (err) {
     console.error('[admin] stats failed', err?.message || err);
     res.status(500).json({ error: 'Не удалось получить статистику' });
@@ -2874,10 +2937,26 @@ app.get('/api/admin/files', requireAdmin, (_req, res) => {
     res.json({
       partners: fs.readFileSync(PARTNERS_PATH, 'utf8'),
       prompt: fs.readFileSync(PROMPT_PATH, 'utf8'),
+      serviceEnabled: isServiceEnabled(),
     });
   } catch (err) {
     console.error('[admin] files read failed', err?.message || err);
     res.status(500).json({ error: 'Не удалось прочитать файлы' });
+  }
+});
+
+app.post('/api/admin/service', requireAdmin, (req, res) => {
+  if (typeof req.body?.enabled !== 'boolean') {
+    res.status(400).json({ error: 'Нужно поле enabled (boolean)' });
+    return;
+  }
+  try {
+    const enabled = setServiceEnabled(req.body.enabled);
+    res.set('Cache-Control', 'no-store');
+    res.json({ ok: true, serviceEnabled: enabled });
+  } catch (err) {
+    console.error('[admin] service save failed', err?.message || err);
+    res.status(500).json({ error: 'Не удалось сохранить состояние сервиса' });
   }
 });
 
@@ -2967,6 +3046,10 @@ module.exports = {
   openGeminiStreamWithKey,
   generateGeminiReply,
   generateFullReply,
+  isServiceEnabled,
+  setServiceEnabled,
+  SERVICE_DISABLED_USER_MESSAGE,
+  SERVICE_PATH,
   expandPartnerChipsForBot,
   stripModelAdDisclosures,
   stripTrailingDuplicateProductList,

@@ -116,6 +116,83 @@
       font-size: 0.88rem;
       margin: 0.25rem 0 0.75rem;
     }
+    .kill {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      padding: 0.9rem 1rem;
+      margin: 1rem 0 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1.25rem;
+    }
+    .kill.off {
+      border-color: #f0b4b4;
+      background: var(--danger-bg);
+    }
+    .kill-label {
+      font-weight: 700;
+      margin: 0;
+      flex: 1 1 12rem;
+    }
+    .kill-label span {
+      display: block;
+      font-weight: 400;
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-top: 0.2rem;
+    }
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle input {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-track {
+      width: 2.75rem;
+      height: 1.5rem;
+      border-radius: 999px;
+      background: #b8b0a4;
+      position: relative;
+      transition: background 0.15s ease;
+      flex-shrink: 0;
+    }
+    .toggle-track::after {
+      content: "";
+      position: absolute;
+      top: 0.18rem;
+      left: 0.18rem;
+      width: 1.14rem;
+      height: 1.14rem;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.15s ease;
+    }
+    .toggle input:checked + .toggle-track {
+      background: var(--accent);
+    }
+    .toggle input:checked + .toggle-track::after {
+      transform: translateX(1.2rem);
+    }
+    .toggle input:focus-visible + .toggle-track {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .kill-state {
+      font-size: 0.92rem;
+      font-weight: 600;
+      min-width: 7rem;
+    }
+    .kill-state.on { color: var(--ok); }
+    .kill-state.off { color: var(--danger); }
   </style>
 </head>
 <body>
@@ -132,6 +209,18 @@
         <div class="metric"><strong id="err-today">—</strong><span>Ошибки Gemini сегодня</span></div>
       </div>
       <div id="warn" class="warn" role="alert"></div>
+    </section>
+
+    <section class="kill" id="kill-box" aria-labelledby="kill-title">
+      <p class="kill-label" id="kill-title">
+        Сервис чата
+        <span>Выключить — сайт и Telegram отвечают «временно недоступен», Gemini не вызывается. Состояние в service.json, переживает рестарт.</span>
+      </p>
+      <label class="toggle">
+        <input type="checkbox" id="service-enabled" checked />
+        <span class="toggle-track" aria-hidden="true"></span>
+        <span class="kill-state on" id="kill-state">Включён</span>
+      </label>
     </section>
 
     <p class="hint">Сохранение сразу пишет файлы на диск. Node не нужно перезапускать — чат подхватит новое содержимое при следующем запросе.</p>
@@ -169,12 +258,24 @@
       return mins + ' мин';
     }
 
+    function applyServiceToggle(enabled, { fromUser } = {}) {
+      const on = Boolean(enabled);
+      const box = el('kill-box');
+      const input = el('service-enabled');
+      const state = el('kill-state');
+      if (!fromUser) input.checked = on;
+      state.textContent = on ? 'Включён' : 'Выключен';
+      state.className = 'kill-state ' + (on ? 'on' : 'off');
+      box.classList.toggle('off', !on);
+    }
+
     async function loadFiles() {
       const res = await fetch('/api/admin/files', { credentials: 'same-origin' });
       if (!res.ok) throw new Error('Не удалось загрузить файлы (' + res.status + ')');
       const data = await res.json();
       el('partners').value = data.partners || '';
       el('prompt').value = data.prompt || '';
+      applyServiceToggle(data.serviceEnabled !== false);
     }
 
     async function refreshStats() {
@@ -186,6 +287,9 @@
       el('uptime').textContent = fmtUptime(s.uptimeSec);
       el('ok-today').textContent = String(s.successToday ?? 0);
       el('err-today').textContent = String(s.errorsToday ?? 0);
+      if (typeof s.serviceEnabled === 'boolean') {
+        applyServiceToggle(s.serviceEnabled);
+      }
       if (s.warning && s.warning.active) {
         warn.textContent = s.warning.message || 'Проблема с Gemini API';
         warn.classList.add('on');
@@ -194,6 +298,34 @@
         warn.classList.remove('on');
       }
     }
+
+    el('service-enabled').addEventListener('change', async () => {
+      const input = el('service-enabled');
+      const next = input.checked;
+      applyServiceToggle(next, { fromUser: true });
+      status.className = 'status';
+      status.textContent = 'Сохраняю состояние сервиса…';
+      try {
+        const res = await fetch('/api/admin/service', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: next }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('Ошибка ' + res.status));
+        applyServiceToggle(data.serviceEnabled !== false);
+        status.className = 'status ok';
+        status.textContent = data.serviceEnabled
+          ? 'Сервис включён. Чат и бот снова ходят в Gemini.'
+          : 'Сервис выключен. Чат и бот отвечают «временно недоступен» без Gemini.';
+      } catch (err) {
+        applyServiceToggle(!next, { fromUser: true });
+        input.checked = !next;
+        status.className = 'status err';
+        status.textContent = err.message || 'Не удалось переключить сервис';
+      }
+    });
 
     el('save').addEventListener('click', async () => {
       const btn = el('save');
