@@ -50,11 +50,9 @@ assert.deepStrictEqual(
 );
 assert.ok(/ГФ Трейд/.test(String(GROWFOOD_DEEPLINK.legalName || GROWFOOD_DEEPLINK.disclaimer || '')));
 assert.strictEqual(GROWFOOD_DEEPLINK.inn, '7811715411');
-assert.strictEqual(GROWFOOD_DEEPLINK.promoCode, 'ДВОЙНОЙБОНУС');
+assert.strictEqual(GROWFOOD_DEEPLINK.promoCode, null);
 assert.ok(Array.isArray(GROWFOOD_DEEPLINK.promos));
-assert.ok(GROWFOOD_DEEPLINK.promos.length >= 2);
-assert.ok(GROWFOOD_DEEPLINK.promos.some((p) => p && p.code === 'ДВОЙНОЙБОНУС'));
-assert.ok(GROWFOOD_DEEPLINK.promos.some((p) => p && p.code === 'БИГБОНУС'));
+assert.strictEqual(GROWFOOD_DEEPLINK.promos.length, 0);
 
 const stripped = normalizeAdmitadBase(
   'https://naiawork.com/g/36wusytszy268e100ca0aeb982cd0a/?erid=MvGzQC98w3Z1gMq1kxQwfCfT&ulp=https%3A%2F%2Fold'

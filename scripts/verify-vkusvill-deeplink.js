@@ -19,7 +19,7 @@ assert.ok(VKUSVILL_DEEPLINK.enabled);
 assert.ok(VKUSVILL_DEEPLINK.admitadBase.includes('kdbov.com'));
 assert.ok(!/vkusvill\.ru/i.test(VKUSVILL_DEEPLINK.admitadBase));
 assert.strictEqual(VKUSVILL_DEEPLINK.erid, '2bL9aMPo2e49hMef4phUrdrQCx');
-assert.strictEqual(VKUSVILL_DEEPLINK.promoCode, 'VSC7247');
+assert.strictEqual(VKUSVILL_DEEPLINK.promoCode, null);
 
 const stripped = normalizeAdmitadBase(
   'https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx&ulp=https%3A%2F%2Fold'

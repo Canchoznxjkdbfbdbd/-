@@ -906,16 +906,7 @@
 
     box.appendChild(title);
     box.appendChild(body);
-
-    if (partner.promo_code) {
-      const promo = document.createElement('p');
-      promo.className = 'partner-promo';
-      promo.append(document.createTextNode('Промокод: '));
-      const code = document.createElement('code');
-      code.textContent = String(partner.promo_code);
-      promo.appendChild(code);
-      box.appendChild(promo);
-    }
+    // Promo codes are hidden from chat UI; keep Admitad chips/links only.
 
     if (partner.disclaimer) {
       const tip = document.createElement('p');

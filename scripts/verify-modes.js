@@ -111,6 +111,14 @@ assert.ok(
   'notime must delay soft city ask until delivery/cart'
 );
 assert.ok(/БЕЗ города/.test(CHAT_MODES.grocery.overlay), 'grocery must not ask city on first reply');
+assert.ok(
+  /через чипы|БЕЗ второго маркированного/.test(CHAT_MODES.grocery.overlay),
+  'grocery must align with chip-no-duplicate-list (#48)'
+);
+assert.ok(
+  !/После уточнений — короткий маркированный список продуктов/.test(CHAT_MODES.grocery.overlay),
+  'grocery must not force a second bullet product list when chips are used'
+);
 
 const system = buildSystemInstruction(CHAT_MODES.grocery);
 assert.ok(system.includes('НутриКод'));
