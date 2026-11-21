@@ -112,6 +112,8 @@ package.json
 .env.example
 partners.json      # заготовки партнёров (live:false = не показывать)
 prompt.txt         # системный промпт
+service.json       # kill switch на диске (не в git; example → service.json.example)
+admin.html         # админка: prompt/partners + тумблер сервиса
 server.js
 public/
   index.html
@@ -121,6 +123,10 @@ public/
   style.css
 README.md
 ```
+
+### Kill switch (админка)
+
+В `/admin` — тумблер «Сервис чата». Выключено → `POST /api/chat` и `POST /api/bot/chat` отвечают «Сервис временно недоступен» без вызова Gemini. Состояние в `service.json` на сервере (переживает рестарт; файл в `.gitignore`, чтобы scp не сбрасывал флаг).
 
 ## Партнёры и промо
 
