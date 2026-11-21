@@ -1559,16 +1559,20 @@ function botDisclosureLine(store) {
   return bits.join(' ');
 }
 
+/** Max structured product links for Telegram inline keyboard (API + bot). */
+const BOT_LINKS_MAX = 10;
+
 /**
  * Expand [[partner chips]] for Telegram / JSON bot clients.
- * Prose keeps human labels; Admitad URLs go into a short links block under the reply.
+ * Prose keeps human labels; real Admitad hrefs become structured `links` for inline buttons.
+ * Reply text stays clean (short “Ссылки ниже” + erid) — no duplicate URL list.
  * Never leaves raw [[…]] in the output. Web /api/chat SSE is untouched (call only from bot route).
  * @param {string} text
- * @returns {string}
+ * @returns {{reply:string, links:Array<{label:string,url:string,store?:string}>}}
  */
 function expandPartnerChipsForBot(text) {
   const src = String(text || '');
-  if (!src.includes('[[')) return src;
+  if (!src.includes('[[')) return { reply: src, links: [] };
 
   const re = /\[\[([^\]]+)\]\]/g;
   /** @type {{start:number,end:number,kind:string,label:string,store:string|null,href:string|null}[]} */
@@ -1600,11 +1604,11 @@ function expandPartnerChipsForBot(text) {
       href,
     });
   }
-  if (!hits.length) return src;
+  if (!hits.length) return { reply: src, links: [] };
 
   let out = '';
   let cursor = 0;
-  /** @type {{label:string,store:string,href:string}[]} */
+  /** @type {{label:string,store:string,url:string}[]} */
   const links = [];
   /** @type {Set<string>} */
   const seenHref = new Set();
@@ -1623,7 +1627,9 @@ function expandPartnerChipsForBot(text) {
         const key = hit.href;
         if (!seenHref.has(key)) {
           seenHref.add(key);
-          links.push({ label: hit.label, store: hit.store, href: hit.href });
+          if (links.length < BOT_LINKS_MAX) {
+            links.push({ label: hit.label, store: hit.store, url: hit.href });
+          }
           storesUsed.add(hit.store);
         }
       }
@@ -1640,15 +1646,11 @@ function expandPartnerChipsForBot(text) {
   });
 
   if (links.length) {
+    // Prefer Telegram inline buttons for URLs — keep prose clean.
     const programStores = new Set(['befit', 'hvalwaters', 'growfood']);
     const onlyPrograms = links.every((l) => programStores.has(l.store));
-    const heading = onlyPrograms ? 'Полезные ссылки:' : 'Собрать корзину:';
-    const lines = [heading];
-    for (const link of links) {
-      const name = botStoreDisplayName(link.store);
-      lines.push(`• ${name} — ${link.label}`);
-      lines.push(link.href);
-    }
+    const hint = onlyPrograms ? 'Ссылки ниже ↓' : 'Собрать корзину — ссылки ниже ↓';
+    const lines = [hint];
     const disclosures = [];
     for (const store of ['vkusvill', 'vipfish', 'befit', 'hvalwaters', 'growfood']) {
       if (!storesUsed.has(store)) continue;
@@ -1662,7 +1664,7 @@ function expandPartnerChipsForBot(text) {
     out = `${out.trimEnd()}\n\n${lines.join('\n')}`;
   }
 
-  return out.trim();
+  return { reply: out.trim(), links };
 }
 
 /**
@@ -2375,7 +2377,7 @@ function botRateLimitOk(key) {
 /**
  * Telegram bot thin-client endpoint. JSON only — never SSE.
  * Body: { messages: [{role, content}, ...] } (preferred) or { message: "..." }
- * → { reply: "..." }
+ * → { reply: "..." } and optional links: [{ label, url, store? }] when chips expanded to Admitad.
  */
 app.post('/api/bot/chat', async (req, res) => {
   if (!BOT_API_KEY) {
@@ -2410,10 +2412,15 @@ app.post('/api/bot/chat', async (req, res) => {
 
   try {
     const rawReply = await generateFullReply(hasMessages ? messages : message);
-    // Expand [[chips]] → human labels + Admitad URLs (Telegram has no frontend cart UI).
+    // Expand [[chips]] → human labels + structured Admitad links (Telegram has no frontend cart UI).
     // Web /api/chat keeps raw chips for script.js chips/cart block.
-    const reply = expandPartnerChipsForBot(rawReply);
-    res.json({ reply });
+    const { reply, links } = expandPartnerChipsForBot(rawReply);
+    /** @type {{reply:string, links?:Array<{label:string,url:string,store?:string}>}} */
+    const payload = { reply };
+    if (Array.isArray(links) && links.length) {
+      payload.links = links;
+    }
+    res.json(payload);
   } catch (err) {
     console.error('[bot] generate failed', redactSecrets(err?.message || String(err)));
     void recordChatError('outage', defaultWarningMessage('outage'));
@@ -2568,6 +2575,7 @@ module.exports = {
   generateGeminiReply,
   generateFullReply,
   expandPartnerChipsForBot,
+  BOT_LINKS_MAX,
   parseBotProductTag,
   GEMINI_API_ORIGIN,
   GEMINI_KEY_SLOTS,
