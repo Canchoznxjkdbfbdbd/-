@@ -1551,6 +1551,39 @@ function botDisclosureLine(store) {
   return bits.join(' ');
 }
 
+/** Short partner name for compact Telegram ad block (unique by erid). */
+function botDisclosureShortName(store) {
+  if (store === 'vkusvill') return 'ВкусВилл';
+  const { cfg, fallback } = botStoreDeeplinkCfg(store);
+  const legal = String((cfg && cfg.legalName) || fallback || '').trim();
+  if (legal) return legal;
+  return botStoreDisplayName(store) || store;
+}
+
+/**
+ * One compact legal block for Telegram (not N full «Реклама…Admitad» lines).
+ * @param {Set<string>|Iterable<string>} storesUsed
+ * @returns {string}
+ */
+function buildCompactAdDisclosure(storesUsed) {
+  const used = storesUsed instanceof Set ? storesUsed : new Set(storesUsed || []);
+  const items = [];
+  /** @type {Set<string>} */
+  const seenErids = new Set();
+  for (const store of ['vkusvill', 'vipfish', 'befit', 'hvalwaters', 'growfood']) {
+    if (!used.has(store)) continue;
+    const { cfg } = botStoreDeeplinkCfg(store);
+    const erid = String((cfg && cfg.erid) || '').trim();
+    if (!erid || seenErids.has(erid)) continue;
+    seenErids.add(erid);
+    const name = botDisclosureShortName(store);
+    if (!name) continue;
+    items.push(`• ${name} (erid: ${erid})`);
+  }
+  if (!items.length) return '';
+  return ['Реклама. Партнёрские ссылки Admitad.', ...items].join('\n');
+}
+
 /**
  * Drop model-written «Реклама» / erid lines so the server can append
  * canonical disclosures once (unique erids) after chip expand.
@@ -1574,6 +1607,99 @@ function stripModelAdDisclosures(text) {
     kept.push(line);
   }
   return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function normalizeBotProductLabel(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * True when a line is only product labels that already become Telegram buttons.
+ * @param {string} line
+ * @param {Set<string>} labels lowercased
+ */
+function isLineOnlyProductLabels(line, labels) {
+  let rest = normalizeBotProductLabel(line);
+  if (!rest) return false;
+  rest = rest.replace(/^(?:[-•*–—]|\d+[.)])\s+/, '').trim();
+  rest = rest
+    .replace(
+      /^(?:список(?:\s+покупок)?|продукты|купить|корзина|нужно|взять|набор)\s*:?\s*/i,
+      ''
+    )
+    .trim();
+  if (!rest || !labels.size) return false;
+  const sorted = [...labels].filter(Boolean).sort((a, b) => b.length - a.length);
+  let matched = 0;
+  while (rest) {
+    rest = rest.replace(/^[,;•·|/]+\s*/, '').trim();
+    if (!rest) break;
+    let found = false;
+    for (const lab of sorted) {
+      if (
+        rest === lab ||
+        rest.startsWith(`${lab} `) ||
+        rest.startsWith(`${lab},`) ||
+        rest.startsWith(`${lab};`) ||
+        rest.startsWith(`${lab}•`) ||
+        rest.startsWith(`${lab}·`) ||
+        rest.startsWith(`${lab}/`) ||
+        rest.startsWith(`${lab}|`)
+      ) {
+        rest = rest.slice(lab.length).trim();
+        matched += 1;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+  }
+  return matched > 0;
+}
+
+/**
+ * When structured links exist, drop a trailing bare ingredient list that
+ * only duplicates button labels (chips / bullets / comma lists).
+ * @param {string} text
+ * @param {Array<{label?:string}>} links
+ * @returns {string}
+ */
+function stripTrailingDuplicateProductList(text, links) {
+  const src = String(text || '').trimEnd();
+  if (!src || !Array.isArray(links) || !links.length) return src;
+  /** @type {Set<string>} */
+  const labels = new Set(
+    links.map((l) => normalizeBotProductLabel(l && l.label)).filter(Boolean)
+  );
+  if (!labels.size) return src;
+
+  const lines = src.split('\n');
+  let changed = false;
+  while (lines.length) {
+    const raw = lines[lines.length - 1];
+    const t = raw.trim();
+    if (!t) {
+      lines.pop();
+      changed = true;
+      continue;
+    }
+    if (/^(?:список(?:\s+покупок)?|продукты|купить|корзина|нужно|взять|набор)\s*:?\s*$/i.test(t)) {
+      lines.pop();
+      changed = true;
+      continue;
+    }
+    if (isLineOnlyProductLabels(t, labels)) {
+      lines.pop();
+      changed = true;
+      continue;
+    }
+    break;
+  }
+  if (!changed) return src;
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /** Max structured product links for Telegram inline keyboard (API + bot). */
@@ -1664,27 +1790,17 @@ function expandPartnerChipsForBot(text) {
 
   if (links.length) {
     // Prefer Telegram inline buttons for URLs — keep prose clean.
+    // Drop trailing bare product list that only duplicates button labels.
+    out = stripTrailingDuplicateProductList(out, links);
     // Link labels stay product-name-only (bot renders buttons without store prefix).
     const programStores = new Set(['befit', 'hvalwaters', 'growfood']);
     const onlyPrograms = links.every((l) => programStores.has(l.store));
     const hint = onlyPrograms ? 'Ссылки ниже ↓' : 'Собрать корзину — ссылки ниже ↓';
     const lines = [hint];
-    const disclosures = [];
-    /** @type {Set<string>} */
-    const seenErids = new Set();
-    for (const store of ['vkusvill', 'vipfish', 'befit', 'hvalwaters', 'growfood']) {
-      if (!storesUsed.has(store)) continue;
-      const { cfg } = botStoreDeeplinkCfg(store);
-      const erid = String((cfg && cfg.erid) || '').trim();
-      if (!erid || seenErids.has(erid)) continue;
-      const line = botDisclosureLine(store);
-      if (!line) continue;
-      seenErids.add(erid);
-      disclosures.push(line);
-    }
-    if (disclosures.length) {
+    const disclosure = buildCompactAdDisclosure(storesUsed);
+    if (disclosure) {
       lines.push('');
-      for (const d of disclosures) lines.push(d);
+      lines.push(disclosure);
     }
     out = `${out.trimEnd()}\n\n${lines.join('\n')}`;
   }
@@ -2601,6 +2717,9 @@ module.exports = {
   generateFullReply,
   expandPartnerChipsForBot,
   stripModelAdDisclosures,
+  stripTrailingDuplicateProductList,
+  buildCompactAdDisclosure,
+  botDisclosureShortName,
   BOT_LINKS_MAX,
   parseBotProductTag,
   GEMINI_API_ORIGIN,

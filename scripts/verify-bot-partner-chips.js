@@ -18,6 +18,8 @@ if (!process.env.VERIFY_LIVE) {
 const {
   expandPartnerChipsForBot,
   stripModelAdDisclosures,
+  stripTrailingDuplicateProductList,
+  buildCompactAdDisclosure,
   BOT_LINKS_MAX,
   parseBotProductTag,
   buildBefitAdmitadUrl,
@@ -27,11 +29,15 @@ const {
   buildHvalwatersAdmitadUrl,
   BEFIT_DEEPLINK,
   GROWFOOD_DEEPLINK,
+  VKUSVILL_DEEPLINK,
+  VIPFISH_DEEPLINK,
   app,
 } = require('../server');
 
 assert.strictEqual(typeof expandPartnerChipsForBot, 'function');
 assert.strictEqual(typeof stripModelAdDisclosures, 'function');
+assert.strictEqual(typeof stripTrailingDuplicateProductList, 'function');
+assert.strictEqual(typeof buildCompactAdDisclosure, 'function');
 assert.strictEqual(typeof parseBotProductTag, 'function');
 assert.ok(BOT_LINKS_MAX >= 8 && BOT_LINKS_MAX <= 12);
 
@@ -75,6 +81,10 @@ assert.ok(BOT_LINKS_MAX >= 8 && BOT_LINKS_MAX <= 12);
     ]
   );
   assert.ok(reply.includes('erid:'));
+  assert.match(reply, /Реклама\.\s*Партнёрские ссылки Admitad/i);
+  // One compact header — not N full «Реклама…Admitad» lines
+  const adHeaders = reply.match(/Реклама\./gi) || [];
+  assert.strictEqual(adHeaders.length, 1);
   // partner chip hidden
   assert.doesNotMatch(reply, /partner:befit/i);
 }
@@ -136,10 +146,11 @@ assert.ok(BOT_LINKS_MAX >= 8 && BOT_LINKS_MAX <= 12);
   assert.strictEqual(links[0].store, 'vkusvill');
   assert.doesNotMatch(reply, /MODEL_DUP_ERID/);
   assert.match(reply, /Собрать корзину|Ссылки ниже/);
-  // Exactly one erid disclosure line from server
+  // Compact block: one header + one erid bullet
   const eridHits = reply.match(/\berid\s*:/gi) || [];
   assert.strictEqual(eridHits.length, 1);
-  assert.match(reply, /Реклама/);
+  assert.match(reply, /Реклама\.\s*Партнёрские ссылки Admitad/i);
+  assert.doesNotMatch(reply, /Реклама\.\s*АО/);
 }
 
 // Multi-partner chips in one reply (VV + vipfish + hval) — allowed
@@ -152,6 +163,58 @@ assert.ok(BOT_LINKS_MAX >= 8 && BOT_LINKS_MAX <= 12);
   const eridHits = reply.match(/\berid\s*:/gi) || [];
   assert.ok(eridHits.length >= 1);
   assert.ok(eridHits.length <= 3);
+  // Single compact header, not three full Реклама lines
+  const adHeaders = reply.match(/Реклама\./gi) || [];
+  assert.strictEqual(adHeaders.length, 1);
+  assert.match(reply, /Реклама\.\s*Партнёрские ссылки Admitad/i);
+  assert.match(reply, /•\s*ВкусВилл\s*\(erid:/);
+}
+
+// Trailing bare product list duplicates button labels → stripped
+{
+  const src =
+    'Лёгкий ужин: творог с зеленью.\n\nСписок:\n• творог 5%\n• лосось\n\n[[творог 5%]]\n[[vipfish:лосось]]';
+  const { reply, links } = expandPartnerChipsForBot(src);
+  assert.strictEqual(links.length, 2);
+  assert.match(reply, /Лёгкий ужин/);
+  assert.match(reply, /Собрать корзину — ссылки ниже/);
+  // No second trailing dump of the same products before CTA
+  assert.doesNotMatch(reply, /Список:/i);
+  const beforeCta = reply.split(/Собрать корзину/)[0];
+  assert.doesNotMatch(beforeCta, /^\s*[•\-]\s*творог 5%\s*$/m);
+  assert.doesNotMatch(beforeCta, /^\s*[•\-]\s*лосось\s*$/m);
+  assert.doesNotMatch(beforeCta, /^\s*творог 5%\s*$/m);
+  assert.doesNotMatch(beforeCta, /^\s*лосось\s*$/m);
+}
+
+// Compact disclosure builder — unique by erid
+{
+  const block = buildCompactAdDisclosure(new Set(['vkusvill', 'vipfish', 'vkusvill']));
+  assert.match(block, /^Реклама\.\s*Партнёрские ссылки Admitad\./m);
+  assert.match(block, new RegExp(`ВкусВилл \\(erid: ${VKUSVILL_DEEPLINK.erid}\\)`));
+  assert.match(
+    block,
+    new RegExp(
+      `${(VIPFISH_DEEPLINK.legalName || 'ООО «Кейтеринг-Рент»').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(erid: ${VIPFISH_DEEPLINK.erid}\\)`
+    )
+  );
+  assert.strictEqual((block.match(/Реклама\./g) || []).length, 1);
+  assert.doesNotMatch(block, /ИНН/);
+}
+
+// stripTrailingDuplicateProductList unit
+{
+  const links = [
+    { label: 'творог 5%', store: 'vkusvill', url: 'https://example.com/a' },
+    { label: 'лосось', store: 'vipfish', url: 'https://example.com/b' },
+  ];
+  const cleaned = stripTrailingDuplicateProductList(
+    'Рецепт ок.\n\n• творог 5%\n• лосось\nтворог 5% лосось',
+    links
+  );
+  assert.match(cleaned, /Рецепт ок/);
+  assert.doesNotMatch(cleaned, /творог/);
+  assert.doesNotMatch(cleaned, /лосось/);
 }
 
 function listen(appRef) {
