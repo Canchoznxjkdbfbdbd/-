@@ -1325,7 +1325,6 @@ app.get('/api/config', (_req, res) => {
       admitadBase: VKUSVILL_DEEPLINK.admitadBase,
       erid: VKUSVILL_DEEPLINK.erid,
       searchPrefix: VKUSVILL_DEEPLINK.searchPrefix,
-      promoCode: VKUSVILL_DEEPLINK.promoCode,
       disclaimer: VKUSVILL_DEEPLINK.disclaimer,
       legalName: VKUSVILL_DEEPLINK.legalName,
       inn: VKUSVILL_DEEPLINK.inn,
@@ -1354,8 +1353,6 @@ app.get('/api/config', (_req, res) => {
       programAliases: BEFIT_DEEPLINK.programAliases,
       cities: BEFIT_DEEPLINK.cities,
       tagPrefixes: BEFIT_DEEPLINK.tagPrefixes,
-      promoCode: BEFIT_DEEPLINK.promoCode,
-      promos: BEFIT_DEEPLINK.promos,
       disclaimer: BEFIT_DEEPLINK.disclaimer,
       legalName: BEFIT_DEEPLINK.legalName,
       inn: BEFIT_DEEPLINK.inn,
@@ -1373,7 +1370,6 @@ app.get('/api/config', (_req, res) => {
       cities: HVALWATERS_DEEPLINK.cities,
       tagPrefixes: HVALWATERS_DEEPLINK.tagPrefixes,
       couponAdmitadBase: HVALWATERS_DEEPLINK.couponAdmitadBase,
-      promoCode: HVALWATERS_DEEPLINK.promoCode,
       disclaimer: HVALWATERS_DEEPLINK.disclaimer,
       legalName: HVALWATERS_DEEPLINK.legalName,
       inn: HVALWATERS_DEEPLINK.inn,
@@ -1390,8 +1386,6 @@ app.get('/api/config', (_req, res) => {
       programAliases: GROWFOOD_DEEPLINK.programAliases,
       cities: GROWFOOD_DEEPLINK.cities,
       tagPrefixes: GROWFOOD_DEEPLINK.tagPrefixes,
-      promoCode: GROWFOOD_DEEPLINK.promoCode,
-      promos: GROWFOOD_DEEPLINK.promos,
       disclaimer: GROWFOOD_DEEPLINK.disclaimer,
       legalName: GROWFOOD_DEEPLINK.legalName,
       inn: GROWFOOD_DEEPLINK.inn,
@@ -1887,7 +1881,7 @@ function partnerPayload(partner) {
     link: partner.link,
     disclaimer: partner.disclaimer,
     offer_type: partner.offer_type || null,
-    promo_code: partner.promo_code || null,
+    // Promo codes hidden from chat/bot UI; chips/Admitad links stay.
   };
 }
 

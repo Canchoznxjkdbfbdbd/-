@@ -38,11 +38,9 @@ assert.ok(BEFIT_DEEPLINK.cities.includes('Санкт-Петербург'));
 assert.deepStrictEqual(BEFIT_GEO_CITIES.slice().sort(), ['Москва', 'Санкт-Петербург'].sort());
 assert.ok(/АЛ-МУЛК/.test(String(BEFIT_DEEPLINK.legalName || BEFIT_DEEPLINK.disclaimer || '')));
 assert.strictEqual(BEFIT_DEEPLINK.inn, '7713441603');
-assert.strictEqual(BEFIT_DEEPLINK.promoCode, 'ADMBF2026');
+assert.strictEqual(BEFIT_DEEPLINK.promoCode, null);
 assert.ok(Array.isArray(BEFIT_DEEPLINK.promos));
-assert.ok(BEFIT_DEEPLINK.promos.length >= 6);
-assert.ok(BEFIT_DEEPLINK.promos.some((p) => p && p.code === 'KETOADM'));
-assert.ok(BEFIT_DEEPLINK.promos.some((p) => p && p.code === null));
+assert.strictEqual(BEFIT_DEEPLINK.promos.length, 0);
 
 const stripped = normalizeAdmitadBase(
   'https://uuwgc.com/g/qm29jzxwek268e100ca0fcd3300043/?erid=25H8d7vbP8SRTvJZjHsUpp&ulp=https%3A%2F%2Fold'
