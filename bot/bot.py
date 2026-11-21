@@ -44,6 +44,12 @@ _LEGACY_LINK_BLOCK_RE = re.compile(
 # Defensive: collapse duplicate trailing Реклама/erid lines (server should send once).
 _ERID_IN_LINE_RE = re.compile(r"erid\s*[:=]\s*(\S+)", re.IGNORECASE)
 
+# Compact server ad block (one header + • name (erid: …) lines).
+_COMPACT_AD_BLOCK_RE = re.compile(
+    r"(?:\n\n)?Реклама\.\s*Партнёрские ссылки Admitad\.(?:\n[•\-].+)+",
+    re.IGNORECASE,
+)
+
 # In-memory history per Telegram chat_id (lost on process restart).
 chat_histories: Dict[int, List[dict]] = {}
 
@@ -125,7 +131,15 @@ def _dedupe_erid_lines(text: str) -> str:
     lines = text.split("\n")
     seen: set[str] = set()
     out: List[str] = []
+    compact_header_seen = False
     for line in lines:
+        t = line.strip()
+        if re.match(r"^реклама\.\s*партнёрские ссылки admitad\.?\s*$", t, re.IGNORECASE):
+            if compact_header_seen:
+                continue
+            compact_header_seen = True
+            out.append(line)
+            continue
         m = _ERID_IN_LINE_RE.search(line)
         if m:
             erid = m.group(1).rstrip(".,;)")
@@ -136,6 +150,35 @@ def _dedupe_erid_lines(text: str) -> str:
     # Collapse excess blank lines after removals.
     cleaned = "\n".join(out)
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _escape_html(text: str) -> str:
+    return (
+        str(text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def format_reply_html(text: str) -> str:
+    """Escape HTML; wrap the compact Admitad disclosure in an expandable blockquote."""
+    src = (text or "").strip()
+    if not src:
+        return ""
+    m = _COMPACT_AD_BLOCK_RE.search(src)
+    if not m:
+        return _escape_html(src)
+    before = _escape_html(src[: m.start()].rstrip())
+    ad = _escape_html(m.group(0).strip())
+    after = _escape_html(src[m.end() :].lstrip())
+    parts: List[str] = []
+    if before:
+        parts.append(before)
+    parts.append(f"<blockquote expandable>{ad}</blockquote>")
+    if after:
+        parts.append(after)
+    return "\n\n".join(parts)
 
 
 def prepare_reply_text(reply: str, has_buttons: bool) -> str:
@@ -211,14 +254,28 @@ async def on_text(message: Message, http: aiohttp.ClientSession) -> None:
     keyboard = build_links_keyboard(links)
     reply_text = prepare_reply_text(reply, keyboard is not None)
 
+    # Store plain text in history (API context); HTML wrap only for Telegram send.
     history.append({"role": "assistant", "content": reply_text})
     _trim_history(history)
 
     # Telegram hard limit ~4096; split long replies safely.
     # Attach inline URL buttons only to the last chunk.
+    # Prefer a single HTML message when short enough so the ad blockquote stays intact.
+    html = format_reply_html(reply_text)
+    if len(html) <= 4000:
+        await message.answer(
+            html,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
+        return
+
     chunk = 4000
-    parts = [reply_text[i : i + chunk] for i in range(0, len(reply_text), chunk)] or [reply_text]
+    parts = [reply_text[i : i + chunk] for i in range(0, len(reply_text), chunk)] or [
+        reply_text
+    ]
     for i, part in enumerate(parts):
+        # Long split: plain text (avoid breaking HTML tags mid-chunk).
         if i == len(parts) - 1 and keyboard is not None:
             await message.answer(part, reply_markup=keyboard)
         else:
