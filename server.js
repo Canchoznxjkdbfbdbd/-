@@ -1177,17 +1177,43 @@ function attachClusterStatsMaster() {
   });
 }
 
-const CHAT_RATE_WINDOW_MS = 15 * 60 * 1000;
-const CHAT_RATE_MAX = 15;
+/**
+ * Smart chat flood guard (no hard day-cap):
+ * ~12/min + ~25 / 5 min per IP. Honest planners stay fine; scripts get clipped.
+ */
+const CHAT_RATE_MINUTE_WINDOW_MS = Math.max(
+  Number(process.env.CHAT_RATE_MINUTE_WINDOW_MS) || 60 * 1000,
+  1000
+);
+const CHAT_RATE_MINUTE_MAX = Math.max(Number(process.env.CHAT_RATE_MINUTE_MAX) || 12, 1);
+const CHAT_RATE_BURST_WINDOW_MS = Math.max(
+  Number(process.env.CHAT_RATE_BURST_WINDOW_MS) || 5 * 60 * 1000,
+  1000
+);
+const CHAT_RATE_BURST_MAX = Math.max(Number(process.env.CHAT_RATE_BURST_MAX) || 25, 1);
+/** Align server + UI (~2000–4000). Default 4000 matches maxlength. */
+const MAX_MESSAGE_CHARS = Math.min(
+  Math.max(Number(process.env.MAX_MESSAGE_CHARS) || 4000, 500),
+  8000
+);
+/** Global Gemini in-flight ceiling shared by site + bot (same wallet). */
+const GEMINI_CONCURRENCY_MAX = Math.min(
+  Math.max(Number(process.env.GEMINI_CONCURRENCY_MAX) || 4, 1),
+  20
+);
+const GEMINI_BUSY_USER_MESSAGE =
+  'Сейчас много запросов, подождите минуту.';
 const RL_CHANNEL = 'nutrikod:rl';
+const GEMINI_SLOT_CHANNEL = 'nutrikod:gemini-slot';
 
 /**
- * Rate-limit counters live in the master so every worker shares one 15/15min budget per IP.
+ * Rate-limit counters live in the master so every worker shares one budget per IP + window.
  * Workers talk to master over cluster IPC; single-process / tests keep the default MemoryStore.
  */
 function createClusterRateLimitStore(windowMs) {
   let seq = 0;
   const pending = new Map();
+  const win = Math.max(Number(windowMs) || 60000, 1000);
 
   process.on('message', (msg) => {
     if (!msg || msg.channel !== RL_CHANNEL || msg.id == null) return;
@@ -1212,7 +1238,7 @@ function createClusterRateLimitStore(windowMs) {
         clearTimeout(timer);
         resolve(result);
       });
-      process.send({ channel: RL_CHANNEL, op, key, id });
+      process.send({ channel: RL_CHANNEL, op, key, id, windowMs: win });
     });
   }
 
@@ -1241,9 +1267,10 @@ function createClusterRateLimitStore(windowMs) {
   };
 }
 
-/** Master-side map for createClusterRateLimitStore IPC. */
-function attachClusterRateLimitMaster(windowMs) {
-  const buckets = new Map();
+/** Master-side maps for createClusterRateLimitStore IPC (one bucket map per windowMs). */
+function attachClusterRateLimitMaster() {
+  /** @type {Map<number, Map<string, {hits:number, resetTime:number}>>} */
+  const byWindow = new Map();
 
   const reply = (worker, id, result) => {
     try {
@@ -1253,15 +1280,26 @@ function attachClusterRateLimitMaster(windowMs) {
     }
   };
 
+  const bucketFor = (windowMs, key, now) => {
+    const win = Math.max(Number(windowMs) || 60000, 1000);
+    let buckets = byWindow.get(win);
+    if (!buckets) {
+      buckets = new Map();
+      byWindow.set(win, buckets);
+    }
+    let entry = buckets.get(key);
+    if (!entry || entry.resetTime <= now) {
+      entry = { hits: 0, resetTime: now + win };
+      buckets.set(key, entry);
+    }
+    return { buckets, entry, win };
+  };
+
   const handle = (worker, msg) => {
     if (!msg || msg.channel !== RL_CHANNEL) return;
     const now = Date.now();
     const key = String(msg.key || '');
-    let entry = buckets.get(key);
-    if (!entry || entry.resetTime <= now) {
-      entry = { hits: 0, resetTime: now + windowMs };
-      buckets.set(key, entry);
-    }
+    const { buckets, entry } = bucketFor(msg.windowMs, key, now);
 
     if (msg.op === 'increment') {
       entry.hits += 1;
@@ -1292,19 +1330,119 @@ function attachClusterRateLimitMaster(windowMs) {
   });
 }
 
-/** Chat flood guard: 15 requests / 15 min per IP. */
-const chatLimiter = rateLimit({
-  windowMs: CHAT_RATE_WINDOW_MS,
-  max: CHAT_RATE_MAX,
-  standardHeaders: true,
-  legacyHeaders: false,
-  ...(cluster.isWorker ? { store: createClusterRateLimitStore(CHAT_RATE_WINDOW_MS) } : {}),
-  message: {
-    type: 'error',
-    text: 'Вы слишком часто общаетесь с ИИ, подождите немного',
-  },
-});
+/** Shared Gemini concurrency counter across workers (site + bot). */
+function attachClusterGeminiSlotMaster() {
+  let inFlight = 0;
 
+  const reply = (worker, id, result) => {
+    try {
+      worker.send({ channel: GEMINI_SLOT_CHANNEL, id, result });
+    } catch {
+      /* worker gone */
+    }
+  };
+
+  const handle = (worker, msg) => {
+    if (!msg || msg.channel !== GEMINI_SLOT_CHANNEL) return;
+    if (msg.op === 'acquire') {
+      if (inFlight >= GEMINI_CONCURRENCY_MAX) {
+        reply(worker, msg.id, { ok: false, inFlight });
+        return;
+      }
+      inFlight += 1;
+      reply(worker, msg.id, { ok: true, inFlight });
+      return;
+    }
+    if (msg.op === 'release') {
+      inFlight = Math.max(0, inFlight - 1);
+      reply(worker, msg.id, { ok: true, inFlight });
+    }
+  };
+
+  cluster.on('fork', (worker) => {
+    worker.on('message', (msg) => handle(worker, msg));
+  });
+}
+
+let localGeminiInFlight = 0;
+let geminiSlotSeq = 0;
+const geminiSlotPending = new Map();
+
+if (cluster.isWorker) {
+  process.on('message', (msg) => {
+    if (!msg || msg.channel !== GEMINI_SLOT_CHANNEL || msg.id == null) return;
+    const settle = geminiSlotPending.get(msg.id);
+    if (!settle) return;
+    geminiSlotPending.delete(msg.id);
+    settle(msg.result);
+  });
+}
+
+function callGeminiSlotMaster(op) {
+  return new Promise((resolve, reject) => {
+    if (typeof process.send !== 'function') {
+      reject(new Error('cluster gemini-slot needs process.send'));
+      return;
+    }
+    const id = ++geminiSlotSeq;
+    const timer = setTimeout(() => {
+      geminiSlotPending.delete(id);
+      reject(new Error('cluster gemini-slot IPC timeout'));
+    }, 3000);
+    geminiSlotPending.set(id, (result) => {
+      clearTimeout(timer);
+      resolve(result);
+    });
+    process.send({ channel: GEMINI_SLOT_CHANNEL, op, id });
+  });
+}
+
+/** Acquire one global Gemini thinking slot. false = busy. */
+async function acquireGeminiSlot() {
+  if (cluster.isWorker && typeof process.send === 'function') {
+    try {
+      const result = await callGeminiSlotMaster('acquire');
+      return Boolean(result && result.ok);
+    } catch (err) {
+      console.warn('[gemini] slot acquire IPC failed — allowing request', err?.message || err);
+      return true;
+    }
+  }
+  if (localGeminiInFlight >= GEMINI_CONCURRENCY_MAX) return false;
+  localGeminiInFlight += 1;
+  return true;
+}
+
+async function releaseGeminiSlot() {
+  if (cluster.isWorker && typeof process.send === 'function') {
+    try {
+      await callGeminiSlotMaster('release');
+    } catch (err) {
+      console.warn('[gemini] slot release IPC failed', err?.message || err);
+    }
+    return;
+  }
+  localGeminiInFlight = Math.max(0, localGeminiInFlight - 1);
+}
+
+const chatRateLimitMessage = {
+  type: 'error',
+  text: 'Вы слишком часто общаетесь с ИИ, подождите немного',
+};
+
+function makeChatLimiter(windowMs, max) {
+  return rateLimit({
+    windowMs,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    ...(cluster.isWorker ? { store: createClusterRateLimitStore(windowMs) } : {}),
+    message: chatRateLimitMessage,
+  });
+}
+
+const chatLimiterMinute = makeChatLimiter(CHAT_RATE_MINUTE_WINDOW_MS, CHAT_RATE_MINUTE_MAX);
+const chatLimiterBurst = makeChatLimiter(CHAT_RATE_BURST_WINDOW_MS, CHAT_RATE_BURST_MAX);
 app.get('/api/modes', (_req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json(MODE_IDS.map((id) => ({ id, label: CHAT_MODES[id].label })));
@@ -1897,7 +2035,7 @@ function toGeminiContents(messages) {
     .slice(-20)
     .map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content.slice(0, 8000) }],
+      parts: [{ text: m.content.slice(0, MAX_MESSAGE_CHARS) }],
     }));
 }
 
@@ -2236,6 +2374,39 @@ async function generateGeminiReply({
     };
   }
 
+  const gotSlot = await acquireGeminiSlot();
+  if (!gotSlot) {
+    return {
+      text: '',
+      finishReason: 'ERROR',
+      model: GEMINI_MODEL,
+      truncated: false,
+      tokenCount: 0,
+      continues: 0,
+      errorText: GEMINI_BUSY_USER_MESSAGE,
+    };
+  }
+
+  try {
+    return await generateGeminiReplyWithSlot({
+      messages,
+      mode,
+      onToken,
+      onTyping,
+      logLabel,
+    });
+  } finally {
+    await releaseGeminiSlot();
+  }
+}
+
+async function generateGeminiReplyWithSlot({
+  messages,
+  mode = null,
+  onToken = null,
+  onTyping = null,
+  logLabel = 'chat',
+} = {}) {
   const resolvedMode = mode || resolveChatMode('normal', messages);
   const systemInstruction = { parts: [{ text: buildSystemInstruction(resolvedMode) }] };
   let contents = toGeminiContents(messages);
@@ -2388,7 +2559,7 @@ function normalizeBotMessages(raw) {
     )
     .map((m) => ({
       role: m.role,
-      content: String(m.content).trim().slice(0, 8000),
+      content: String(m.content).trim().slice(0, MAX_MESSAGE_CHARS),
     }))
     .slice(-BOT_HISTORY_MAX);
 }
@@ -2404,7 +2575,7 @@ async function generateFullReply(input) {
   if (Array.isArray(input)) {
     messages = normalizeBotMessages(input);
   } else {
-    const text = String(input || '').trim();
+    const text = String(input || '').trim().slice(0, MAX_MESSAGE_CHARS);
     messages = text ? [{ role: 'user', content: text }] : [];
   }
   const mode = resolveChatMode('normal', messages);
@@ -2419,8 +2590,21 @@ async function generateFullReply(input) {
   return String(result.text || '').trim() || result.errorText || OVERLOAD_USER_MESSAGE;
 }
 
-app.post('/api/chat', chatLimiter, async (req, res) => {
-  const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+app.post('/api/chat', chatLimiterMinute, chatLimiterBurst, async (req, res) => {
+  const rawMessages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+  const messages = rawMessages
+    .filter(
+      (m) =>
+        m &&
+        (m.role === 'user' || m.role === 'assistant') &&
+        typeof m.content === 'string' &&
+        m.content.trim()
+    )
+    .map((m) => ({
+      role: m.role,
+      content: String(m.content).trim().slice(0, MAX_MESSAGE_CHARS),
+    }))
+    .slice(-20);
   const allowPartner = Boolean(req.body?.allowPartner);
   const mode = resolveChatMode(req.body?.mode, messages);
   const partner = pickPartner(messages, { allowPartner });
@@ -2565,6 +2749,62 @@ app.post('/api/bot/chat', async (req, res) => {
 
 const ADMIN_USER = String(process.env.ADMIN_USER || 'admin').trim() || 'admin';
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || '');
+/** Fail2ban-light: ban IP after N bad Basic Auth attempts. */
+const ADMIN_AUTH_FAIL_MAX = Math.max(Number(process.env.ADMIN_AUTH_FAIL_MAX) || 8, 3);
+const ADMIN_AUTH_FAIL_WINDOW_MS = Math.max(
+  Number(process.env.ADMIN_AUTH_FAIL_WINDOW_MS) || 15 * 60 * 1000,
+  60 * 1000
+);
+const ADMIN_AUTH_BAN_MS = Math.max(
+  Number(process.env.ADMIN_AUTH_BAN_MS) || 30 * 60 * 1000,
+  60 * 1000
+);
+/** @type {Map<string, {fails:number, resetAt:number, bannedUntil:number}>} */
+const adminAuthFails = new Map();
+
+function adminClientIp(req) {
+  return String(req.ip || req.socket?.remoteAddress || 'unknown');
+}
+
+function getAdminAuthState(ip) {
+  const now = Date.now();
+  let entry = adminAuthFails.get(ip);
+  if (!entry || (entry.bannedUntil <= now && entry.resetAt <= now)) {
+    entry = { fails: 0, resetAt: now + ADMIN_AUTH_FAIL_WINDOW_MS, bannedUntil: 0 };
+    adminAuthFails.set(ip, entry);
+  } else if (entry.resetAt <= now && entry.bannedUntil <= now) {
+    entry.fails = 0;
+    entry.resetAt = now + ADMIN_AUTH_FAIL_WINDOW_MS;
+  }
+  return entry;
+}
+
+function isAdminIpBanned(ip) {
+  const entry = adminAuthFails.get(ip);
+  return Boolean(entry && entry.bannedUntil > Date.now());
+}
+
+function recordAdminAuthFail(ip) {
+  const now = Date.now();
+  const entry = getAdminAuthState(ip);
+  if (entry.bannedUntil > now) return entry;
+  if (entry.resetAt <= now) {
+    entry.fails = 0;
+    entry.resetAt = now + ADMIN_AUTH_FAIL_WINDOW_MS;
+  }
+  entry.fails += 1;
+  if (entry.fails >= ADMIN_AUTH_FAIL_MAX) {
+    entry.bannedUntil = now + ADMIN_AUTH_BAN_MS;
+    console.warn(
+      `[admin] auth ban ip=${ip} fails=${entry.fails} for ${Math.round(ADMIN_AUTH_BAN_MS / 60000)}m`
+    );
+  }
+  return entry;
+}
+
+function clearAdminAuthFails(ip) {
+  adminAuthFails.delete(ip);
+}
 
 function unauthorizedAdmin(res) {
   res.set('WWW-Authenticate', 'Basic realm="NutriKod Admin", charset="UTF-8"');
@@ -2572,6 +2812,15 @@ function unauthorizedAdmin(res) {
 }
 
 function requireAdmin(req, res, next) {
+  const ip = adminClientIp(req);
+  if (isAdminIpBanned(ip)) {
+    // No WWW-Authenticate — avoid browser auth-loop while banned.
+    res
+      .status(429)
+      .type('text/plain')
+      .send('Слишком много неудачных попыток входа. Подождите немного и попробуйте снова.');
+    return;
+  }
   if (!ADMIN_PASSWORD) {
     unauthorizedAdmin(res);
     return;
@@ -2585,6 +2834,7 @@ function requireAdmin(req, res, next) {
   try {
     decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
   } catch {
+    recordAdminAuthFail(ip);
     unauthorizedAdmin(res);
     return;
   }
@@ -2592,9 +2842,11 @@ function requireAdmin(req, res, next) {
   const user = sep >= 0 ? decoded.slice(0, sep) : decoded;
   const pass = sep >= 0 ? decoded.slice(sep + 1) : '';
   if (user !== ADMIN_USER || pass !== ADMIN_PASSWORD) {
+    recordAdminAuthFail(ip);
     unauthorizedAdmin(res);
     return;
   }
+  clearAdminAuthFails(ip);
   next();
 }
 
@@ -2675,10 +2927,13 @@ app.get('*', (_req, res) => {
 if (require.main === module) {
   // Master: one worker per CPU; workers serve HTTP. Dead workers are forked again — master stays up.
   if (cluster.isPrimary) {
-    attachClusterRateLimitMaster(CHAT_RATE_WINDOW_MS);
+    attachClusterRateLimitMaster();
+    attachClusterGeminiSlotMaster();
     attachClusterStatsMaster();
     const workers = Math.max(1, os.cpus().length);
-    console.log(`НутриКод master pid=${process.pid} — starting ${workers} worker(s)`);
+    console.log(
+      `НутриКод master pid=${process.pid} — starting ${workers} worker(s); gemini concurrency=${GEMINI_CONCURRENCY_MAX}; chat rate ${CHAT_RATE_MINUTE_MAX}/${CHAT_RATE_MINUTE_WINDOW_MS}ms + ${CHAT_RATE_BURST_MAX}/${CHAT_RATE_BURST_WINDOW_MS}ms`
+    );
     for (let i = 0; i < workers; i++) {
       cluster.fork();
     }
@@ -2689,7 +2944,8 @@ if (require.main === module) {
       cluster.fork();
     });
   } else {
-    app.listen(PORT, '0.0.0.0', () => {
+    // Bind loopback only — nginx on the same host proxies; do not expose :3000 publicly.
+    app.listen(PORT, '127.0.0.1', () => {
       console.log(
         `НутриКод worker pid=${process.pid} on http://127.0.0.1:${PORT} (keys: ${
           GEMINI_KEY_SLOTS.length
@@ -2723,6 +2979,19 @@ module.exports = {
   partnerPayload,
   INTENT_RE,
   OVERLOAD_USER_MESSAGE,
+  GEMINI_BUSY_USER_MESSAGE,
+  MAX_MESSAGE_CHARS,
+  CHAT_RATE_MINUTE_MAX,
+  CHAT_RATE_MINUTE_WINDOW_MS,
+  CHAT_RATE_BURST_MAX,
+  CHAT_RATE_BURST_WINDOW_MS,
+  GEMINI_CONCURRENCY_MAX,
+  acquireGeminiSlot,
+  releaseGeminiSlot,
+  ADMIN_AUTH_FAIL_MAX,
+  recordAdminAuthFail,
+  clearAdminAuthFails,
+  isAdminIpBanned,
   GEMINI_MODEL,
   GEMINI_MODEL_CHAIN,
   DEFAULT_FALLBACK_MODELS,

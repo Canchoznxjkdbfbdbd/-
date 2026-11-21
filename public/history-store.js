@@ -27,8 +27,8 @@
       const role = item.role === 'user' || item.role === 'assistant' ? item.role : null;
       const content = typeof item.content === 'string' ? item.content.trim() : '';
       if (!role || !content) continue;
-      // Cap each message so a huge paste cannot blow localStorage.
-      out.push({ role, content: content.slice(0, 8000) });
+      // Cap each message so a huge paste cannot blow localStorage (align with server MAX_MESSAGE_CHARS).
+      out.push({ role, content: content.slice(0, 4000) });
       if (out.length >= MAX_MESSAGES) break;
     }
     return out;
