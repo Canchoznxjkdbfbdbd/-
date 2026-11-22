@@ -43,7 +43,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/fonts.css" />
-    <link rel="stylesheet" href="/style.css?v=20261122-terminal-input-top" />
+    <link rel="stylesheet" href="/style.css?v=20261122-terminal-inline" />
     <script>
       (function () {
         try {
@@ -121,6 +121,25 @@
       <section class="chat" aria-label="Чат с НутриКод">
         <div id="messages" class="messages" role="log" aria-live="polite"></div>
 
+        <!-- Terminal: inline shell type-in inside the window (no composer box). -->
+        <div id="term-live" class="term-live" hidden>
+          <div class="term-live-line">
+            <span class="term-live-prompt" aria-hidden="true">nutrikod:~$ </span>
+            <span id="term-live-text" class="term-live-text"></span
+            ><span id="term-caret" class="term-caret" aria-hidden="true"></span>
+          </div>
+          <label class="sr-only" for="term-capture">Команда терминала</label>
+          <input
+            id="term-capture"
+            class="term-capture"
+            type="text"
+            maxlength="4000"
+            autocomplete="off"
+            spellcheck="false"
+            enterkeyhint="send"
+          />
+        </div>
+
         <div id="empty-start" class="empty-start">
           <p class="empty-invite">С чего начнём?</p>
           <div class="starter-chips" role="group" aria-label="Быстрый старт">
@@ -149,17 +168,14 @@
 
         <form id="composer" class="composer" autocomplete="off">
           <label class="sr-only" for="input">Сообщение</label>
-          <div class="term-field">
-            <textarea
-              id="input"
-              name="message"
-              rows="1"
-              maxlength="4000"
-              placeholder="Или напишите своё…"
-              required
-            ></textarea>
-            <span id="term-caret" class="term-caret" aria-hidden="true" hidden></span>
-          </div>
+          <textarea
+            id="input"
+            name="message"
+            rows="1"
+            maxlength="4000"
+            placeholder="Или напишите своё…"
+            required
+          ></textarea>
           <button type="submit" id="send" class="send" aria-label="Отправить">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
               <path
@@ -193,8 +209,8 @@
       </p>
     </footer>
 
-    <script src="/history-store.js?v=20261122-terminal-input-top" defer></script>
-    <script src="/script.js?v=20261122-terminal-input-top" defer></script>
+    <script src="/history-store.js?v=20261122-terminal-inline" defer></script>
+    <script src="/script.js?v=20261122-terminal-inline" defer></script>
 
     <!-- Yandex.Metrika: JS loads after chat boot from script.js (async, timeout). -->
     <noscript

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Smoke: Terminal = header + type-in under brand + wrap + block caret + shell (1+4).
- * Default theme paths stay card/chip based.
+ * Smoke: Terminal = header + inline shell type-in (no composer box) + block caret + 1+4.
+ * Default theme paths stay card/chip + composer based.
  */
 'use strict';
 
@@ -18,15 +18,18 @@ const checks = [
   ['index theme toggle', /data-theme-choice="default"/, indexHtml],
   ['index terminal choice', /data-theme-choice="terminal"/, indexHtml],
   ['index terminal label', />\s*Терминал\s*</, indexHtml],
-  ['index term-field wrap', /class="term-field"/, indexHtml],
+  ['index term-live', /id="term-live"/, indexHtml],
+  ['index term-live-text', /id="term-live-text"/, indexHtml],
+  ['index term-capture', /id="term-capture"/, indexHtml],
   ['index term-caret', /id="term-caret"/, indexHtml],
+  ['index no term-field', /^(?![\s\S]*class="term-field")[\s\S]*$/, indexHtml],
   ['index no idle zone', /^(?![\s\S]*id="terminal-idle")[\s\S]*$/, indexHtml],
   ['index no idle phrase', /^(?![\s\S]*id="terminal-idle-phrase")[\s\S]*$/, indexHtml],
   ['index no matrix rain canvas', /^(?![\s\S]*id="matrix-rain")[\s\S]*$/, indexHtml],
   ['index FOUC key', /nutrikod_theme/, indexHtml],
   ['index FOUC migrate matrix', /t === 'matrix' \|\| t === 'terminal'/, indexHtml],
   ['index metrika preserved', /114157729/, indexHtml],
-  ['index cache bust', /style\.css\?v=20261122-terminal-input-top/, indexHtml],
+  ['index cache bust', /style\.css\?v=20261122-terminal-inline/, indexHtml],
   ['css no bubble border terminal', /msg\.assistant \.bubble \{[\s\S]*?border:\s*0/, styleCss],
   ['css terminal vars', /html\[data-theme='terminal'\]/, styleCss],
   ['css soft leaf not acid', /--leaf:\s*#3fb950/, styleCss],
@@ -38,25 +41,23 @@ const checks = [
   ['css hide clear-chat on terminal', /html\[data-theme='terminal'\] \.clear-chat/, styleCss],
   ['css hide cart cards on terminal', /html\[data-theme='terminal'\] \.cart-block/, styleCss],
   ['css hide partner cards on terminal', /html\[data-theme='terminal'\] \.partner/, styleCss],
+  ['css hide composer on terminal', /body:not\(\.page-privacy\) \.composer \{[\s\S]*?display:\s*none\s*!important/, styleCss],
+  ['css term-live shell line', /\.term-live/, styleCss],
+  ['css term-live wrap', /overflow-wrap:\s*anywhere/, styleCss],
   ['css shell prompt prefix', /content:\s*'nutrikod:~\$ '/, styleCss],
   ['css messages visible terminal', /body:not\(\.page-privacy\) \.messages \{/, styleCss],
-  ['css composer under brand', /justify-content:\s*flex-start/, styleCss],
-  ['css composer order top', /\.composer \{[\s\S]*?order:\s*-1/, styleCss],
-  ['css messages under type-in', /\.messages \{[\s\S]*?order:\s*1/, styleCss],
-  ['css type-in word wrap', /overflow-wrap:\s*anywhere/, styleCss],
-  ['css crt composer bezel', /html\[data-theme='terminal'\] body:not\(\.page-privacy\) \.composer/, styleCss],
-  ['css crt inset shadow', /inset 0 0 18px rgba\(0, 0, 0, 0\.35\)/, styleCss],
   ['css cyan phosphor text', /color:\s*#7ef0e4/, styleCss],
-  ['css native caret hidden', /caret-color:\s*transparent/, styleCss],
   ['css block caret', /\.term-caret/, styleCss],
+  ['css caret inline', /display:\s*inline-block/, styleCss],
   ['css caret blink', /term-caret-blink/, styleCss],
   ['css caret typing solid', /\.term-caret\.is-typing/, styleCss],
   ['css caret dim not gone', /opacity:\s*0\.28/, styleCss],
   ['css left-edged shell', /margin-inline:\s*0/, styleCss],
   ['js theme storage', /THEME_STORAGE_KEY\s*=\s*'nutrikod_theme'/, scriptJs],
   ['js setTheme', /function setTheme\(/, scriptJs],
-  ['js syncTermCaret', /function syncTermCaret\(/, scriptJs],
+  ['js syncTermLive', /function syncTermLive\(/, scriptJs],
   ['js markTermCaretTyping', /function markTermCaretTyping\(/, scriptJs],
+  ['js focusActiveTypeIn', /function focusActiveTypeIn\(/, scriptJs],
   ['js formatTerminalPlain', /function formatTerminalPlain\(/, scriptJs],
   ['js terminal dash lists', /– /, scriptJs],
   ['js migrate matrix', /matrix.*terminal|normalizeTheme/, scriptJs],
@@ -64,6 +65,7 @@ const checks = [
   ['js no scramble', /^(?![\s\S]*TERMINAL_SCRAMBLE_CHARS)[\s\S]*$/, scriptJs],
   ['js no paint scramble', /^(?![\s\S]*paintScrambleText)[\s\S]*$/, scriptJs],
   ['js no digital rain', /^(?![\s\S]*startMatrixRain)[\s\S]*$/, scriptJs],
+  ['js no syncTermCaret', /^(?![\s\S]*syncTermCaret)[\s\S]*$/, scriptJs],
 ];
 
 let failed = 0;
@@ -114,6 +116,14 @@ if (hideBlock && /html\[data-theme='terminal'\][^\n]*\.messages/.test(hideBlock[
   failed += 1;
 } else {
   console.log('ok: terminal does not hide .messages');
+}
+
+// Composer must be fully hidden in Terminal (no box top or bottom).
+if (!/body:not\(\.page-privacy\) \.composer \{[\s\S]*?display:\s*none\s*!important/.test(styleCss)) {
+  console.error('FAIL: terminal composer not fully hidden');
+  failed += 1;
+} else {
+  console.log('ok: terminal composer fully hidden');
 }
 
 if (failed) {

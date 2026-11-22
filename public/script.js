@@ -39,6 +39,9 @@
   const messagesEl = document.getElementById('messages');
   const form = document.getElementById('composer');
   const input = document.getElementById('input');
+  const termLive = document.getElementById('term-live');
+  const termLiveText = document.getElementById('term-live-text');
+  const termCapture = document.getElementById('term-capture');
   const termCaret = document.getElementById('term-caret');
   const sendBtn = document.getElementById('send');
   const clearChatBtn = document.getElementById('clear-chat');
@@ -201,9 +204,11 @@
     partnerShown = false;
     userTurns = 0;
     if (input) input.value = '';
+    clearTermCapture();
     if (HistoryStore) HistoryStore.clear(window.localStorage);
     syncSessionChrome();
-    input.focus();
+    syncTermLive();
+    focusActiveTypeIn();
   }
 
   function renderRestoredHistory(saved) {
@@ -298,28 +303,15 @@
     } else {
       syncSessionChrome();
     }
-    syncTermCaret();
+    syncTermLive();
+    focusActiveTypeIn();
   }
 
-  /** Mirror node for measuring caret offset inside the terminal textarea. */
-  let termCaretMirror = null;
-
-  function ensureTermCaretMirror() {
-    if (termCaretMirror && termCaretMirror.isConnected) return termCaretMirror;
-    termCaretMirror = document.createElement('div');
-    termCaretMirror.setAttribute('aria-hidden', 'true');
-    termCaretMirror.style.cssText =
-      'position:absolute;visibility:hidden;pointer-events:none;white-space:pre-wrap;word-wrap:break-word;overflow:hidden;top:0;left:0;z-index:-1;';
-    const field = input && input.parentElement;
-    if (field) field.appendChild(termCaretMirror);
-    return termCaretMirror;
-  }
-
-  /** While typing, keep the block caret solid (no blink); resume blink after idle. */
+  /** While typing, keep the block caret solid; resume blink after idle. */
   let termCaretTypingTimer = 0;
 
   function markTermCaretTyping() {
-    if (!termCaret || termCaret.hidden) return;
+    if (!termCaret || activeTheme !== 'terminal') return;
     termCaret.classList.add('is-typing');
     if (termCaretTypingTimer) window.clearTimeout(termCaretTypingTimer);
     termCaretTypingTimer = window.setTimeout(() => {
@@ -328,91 +320,36 @@
     }, 520);
   }
 
-  function syncTermCaret() {
-    if (!termCaret || !input) return;
-    // Show on focus and while the type-in is active; keep the square in layout
-    // (never display:none during blink — only dim via CSS).
-    const show =
-      activeTheme === 'terminal' &&
-      document.activeElement === input &&
-      !input.disabled;
-    if (!show) {
-      termCaret.hidden = true;
-      termCaret.classList.remove('is-typing');
-      if (termCaretTypingTimer) {
-        window.clearTimeout(termCaretTypingTimer);
-        termCaretTypingTimer = 0;
+  /** Paint the live shell line from the hidden capture field (no composer box). */
+  function syncTermLive() {
+    if (!termLive) return;
+    const on = activeTheme === 'terminal';
+    termLive.hidden = !on;
+    if (!on) {
+      termLive.classList.remove('is-busy');
+      if (termCaret) termCaret.classList.remove('is-typing');
+      return;
+    }
+    if (termLiveText && termCapture) {
+      termLiveText.textContent = termCapture.value || '';
+    }
+    termLive.classList.toggle('is-busy', streaming);
+    if (termCapture) termCapture.disabled = streaming;
+  }
+
+  function focusActiveTypeIn() {
+    if (activeTheme === 'terminal') {
+      if (termCapture && !streaming) {
+        termCapture.focus({ preventScroll: true });
       }
       return;
     }
+    if (input) input.focus({ preventScroll: true });
+  }
 
-    const field = input.parentElement;
-    if (!field) return;
-    const mirror = ensureTermCaretMirror();
-    const style = window.getComputedStyle(input);
-    const copyProps = [
-      'boxSizing',
-      'fontFamily',
-      'fontSize',
-      'fontWeight',
-      'fontStyle',
-      'letterSpacing',
-      'lineHeight',
-      'paddingTop',
-      'paddingRight',
-      'paddingBottom',
-      'paddingLeft',
-      'borderTopWidth',
-      'borderRightWidth',
-      'borderBottomWidth',
-      'borderLeftWidth',
-      'textAlign',
-      'direction',
-      'textTransform',
-      'textIndent',
-      'whiteSpace',
-      'wordSpacing',
-      'wordBreak',
-      'overflowWrap',
-    ];
-    for (const prop of copyProps) {
-      mirror.style[prop] = style[prop];
-    }
-    // Overlay the textarea box so marker coords map 1:1 (minus scroll).
-    mirror.style.top = `${input.offsetTop}px`;
-    mirror.style.left = `${input.offsetLeft}px`;
-    mirror.style.width = `${input.clientWidth}px`;
-    mirror.style.height = `${input.clientHeight}px`;
-
-    const pos = input.selectionEnd ?? input.value.length;
-    const before = input.value.slice(0, pos);
-    const marker = document.createElement('span');
-    marker.textContent = '\u200b';
-    mirror.textContent = '';
-    mirror.appendChild(document.createTextNode(before));
-    mirror.appendChild(marker);
-    if (before.endsWith('\n')) mirror.appendChild(document.createTextNode('\u200b'));
-
-    const fieldRect = field.getBoundingClientRect();
-    const markerRect = marker.getBoundingClientRect();
-    const lineH = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.45;
-    const caretH = Math.max(14, Math.round(lineH * 0.9));
-    const caretW = Math.max(8, Math.round(Number.parseFloat(style.fontSize) * 0.58));
-
-    let top = markerRect.top - fieldRect.top - input.scrollTop;
-    let left = markerRect.left - fieldRect.left - input.scrollLeft;
-    const minTop = input.offsetTop + (Number.parseFloat(style.paddingTop) || 0) * 0.1;
-    const minLeft = input.offsetLeft + (Number.parseFloat(style.paddingLeft) || 0) * 0.1;
-    const maxTop = input.offsetTop + input.clientHeight - caretH;
-    const maxLeft = input.offsetLeft + input.clientWidth - caretW;
-    top = Math.min(Math.max(top, minTop), maxTop);
-    left = Math.min(Math.max(left, minLeft), maxLeft);
-
-    termCaret.style.width = `${caretW}px`;
-    termCaret.style.height = `${caretH}px`;
-    termCaret.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
-    // Keep in layout: clear hidden without toggling display during blink.
-    termCaret.hidden = false;
+  function clearTermCapture() {
+    if (termCapture) termCapture.value = '';
+    if (termLiveText) termLiveText.textContent = '';
   }
 
   function setMode(id, { persist = true } = {}) {
@@ -473,9 +410,9 @@
   }
 
   function autoGrow() {
+    if (!input) return;
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
-    syncTermCaret();
   }
 
   /**
@@ -1539,7 +1476,7 @@
     streaming = true;
     sendBtn.disabled = true;
     syncSessionChrome();
-    syncTermCaret();
+    syncTermLive();
 
     let full = '';
     let gotToken = false;
@@ -1752,9 +1689,9 @@
       streaming = false;
       sendBtn.disabled = false;
       syncSessionChrome();
-      // Focus composer for typing; do not scroll the transcript to cart.
-      input.focus({ preventScroll: true });
-      syncTermCaret();
+      // Focus type-in (inline shell or default composer); do not scroll to cart.
+      syncTermLive();
+      focusActiveTypeIn();
     }
   }
 
@@ -1768,7 +1705,9 @@
     userTurns += 1;
     persistChat();
     input.value = '';
+    clearTermCapture();
     autoGrow();
+    syncTermLive();
     await streamReply();
   }
 
@@ -1811,28 +1750,51 @@
     setClearArmed(false);
   });
 
-  input.addEventListener('input', () => {
-    autoGrow();
-    markTermCaretTyping();
-  });
+  input.addEventListener('input', autoGrow);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       form.requestSubmit();
-      return;
     }
-    if (activeTheme === 'terminal') markTermCaretTyping();
   });
-  // Terminal block caret tracks the type-in caret; ignore on default theme.
-  for (const evt of ['keyup', 'click', 'select', 'focus', 'blur', 'scroll']) {
-    input.addEventListener(evt, () => {
-      requestAnimationFrame(syncTermCaret);
+
+  // Terminal: type character-by-character in the shell window (hidden capture field).
+  if (termCapture) {
+    termCapture.addEventListener('input', () => {
+      syncTermLive();
+      markTermCaretTyping();
+      // Keep the live line in view while wrapping grows.
+      if (termLive) termLive.scrollIntoView({ block: 'nearest' });
+    });
+    termCapture.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (streaming) return;
+        sendUserText(termCapture.value);
+        return;
+      }
+      markTermCaretTyping();
     });
   }
-  document.addEventListener('selectionchange', () => {
-    if (document.activeElement === input) requestAnimationFrame(syncTermCaret);
+
+  // Click anywhere in the shell to keep typing focus on the live prompt.
+  if (termLive) {
+    termLive.addEventListener('mousedown', (e) => {
+      if (activeTheme !== 'terminal' || streaming) return;
+      e.preventDefault();
+      focusActiveTypeIn();
+    });
+  }
+  document.addEventListener('mousedown', (e) => {
+    if (activeTheme !== 'terminal' || streaming) return;
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest('.theme-toggle, .theme-btn, a, button')) return;
+    if (t.closest('.shell, .term-live, .messages')) {
+      // Defer so button clicks still fire; then reclaim focus for type-in.
+      window.setTimeout(() => focusActiveTypeIn(), 0);
+    }
   });
-  window.addEventListener('resize', () => requestAnimationFrame(syncTermCaret));
 
   async function boot() {
     setTheme(readStoredTheme(), { persist: false });
@@ -1848,8 +1810,8 @@
       history = [];
       syncSessionChrome();
     }
-    input.focus();
-    syncTermCaret();
+    syncTermLive();
+    focusActiveTypeIn();
   }
 
   boot();
