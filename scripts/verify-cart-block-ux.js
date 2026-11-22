@@ -37,6 +37,9 @@ assert.ok(script.includes('if (cart) cart.appendChild(box)'), 'partner should ne
 assert.ok(css.includes('.cart-block'), 'cart-block CSS missing');
 assert.ok(css.includes('.cart-block-chips'), 'cart-block-chips CSS missing');
 assert.ok(css.includes('.cart-block-cta'), 'cart-block-cta CSS missing');
+assert.ok(css.includes('.cart-block-first-order'), 'first-order plaque CSS missing');
+assert.ok(script.includes('syncAuchanFirstOrderCta'), 'Auchan first-order CTA sync missing');
+assert.ok(script.includes('Забрать скидку на первый заказ'), 'first-order CTA label missing');
 
 assert.ok(prompt.includes('Собрать корзину'), 'prompt should mention cart block');
 assert.ok(

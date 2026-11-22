@@ -126,7 +126,7 @@
     promoCode: null,
     promos: [],
   };
-  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,productPrefix:string,disclaimer:string,legalName:string,inn:string,name:string,tagPrefixes:string[]}} */
+  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,productPrefix:string,disclaimer:string,legalName:string,inn:string,name:string,tagPrefixes:string[],firstOrder:{link:string,erid:string,minOrderRub:number,discountHint:string,hint:string,cta:string}|null}} */
   let auchanDeeplink = {
     enabled: false,
     admitadBase: '',
@@ -138,6 +138,7 @@
     inn: '7703270067',
     name: 'Ашан',
     tagPrefixes: ['auchan', 'ashan'],
+    firstOrder: null,
   };
   let userTurns = 0;
   let selectedMode = 'normal';
@@ -721,6 +722,15 @@
     if (auchanCount >= 1) {
       const line = disclosureLine(auchanDeeplink, 'ООО «АШАН»');
       if (line) disclosures.push(line);
+      const fo = auchanDeeplink.firstOrder;
+      if (fo && fo.erid && fo.erid !== auchanDeeplink.erid) {
+        const legal = String(auchanDeeplink.legalName || 'ООО «АШАН»').trim();
+        const inn = String(auchanDeeplink.inn || '').trim();
+        const bits = ['Реклама.'];
+        if (legal) bits.push(inn ? `${legal}, ИНН ${inn}.` : `${legal}.`);
+        bits.push(`erid: ${fo.erid}`);
+        disclosures.push(bits.join(' '));
+      }
     }
     if (befitCount >= 1) {
       const line = disclosureLine(befitDeeplink, 'ООО «АЛ-МУЛК»');
@@ -875,6 +885,62 @@
     for (const hit of list) {
       chipRow.appendChild(makeProductChip(hit));
     }
+
+    syncAuchanFirstOrderCta(block, list);
+  }
+
+  /**
+   * Extra CTA under Auchan cart chips: first-order Admitad landing (user builds cart).
+   * Does not replace grocery search deeplinks.
+   */
+  function syncAuchanFirstOrderCta(block, chips) {
+    if (!block) return;
+    const hasAuchan = (Array.isArray(chips) ? chips : []).some((c) => c && c.store === 'auchan');
+    const fo = auchanDeeplink && auchanDeeplink.firstOrder;
+    let plaque = block.querySelector(':scope > .cart-block-first-order');
+
+    if (!hasAuchan || !fo || !fo.link) {
+      if (plaque) plaque.remove();
+      return;
+    }
+
+    if (!plaque) {
+      plaque = document.createElement('div');
+      plaque.className = 'cart-block-first-order';
+      const partner = block.querySelector(':scope > .partner');
+      const chipRow = block.querySelector(':scope > .cart-block-chips');
+      if (partner) block.insertBefore(plaque, partner);
+      else if (chipRow) chipRow.after(plaque);
+      else block.appendChild(plaque);
+    } else {
+      const partner = block.querySelector(':scope > .partner');
+      if (partner && plaque.nextElementSibling !== partner) {
+        block.insertBefore(plaque, partner);
+      }
+    }
+
+    let hint = plaque.querySelector(':scope > .cart-block-first-order-hint');
+    if (!hint) {
+      hint = document.createElement('p');
+      hint.className = 'cart-block-first-order-hint';
+      plaque.appendChild(hint);
+    }
+    hint.textContent =
+      fo.hint ||
+      'Если раньше не заказывали в Ашане — на заказ от 4 000 ₽ скидка больше 800 ₽';
+
+    let btn = plaque.querySelector(':scope > .cart-block-first-order-btn');
+    if (!btn) {
+      btn = document.createElement('a');
+      btn.className = 'cart-block-first-order-btn';
+      btn.target = '_blank';
+      btn.rel = 'noopener noreferrer sponsored';
+      plaque.appendChild(btn);
+    }
+    btn.href = fo.link;
+    btn.textContent = fo.cta || 'Забрать скидку на первый заказ';
+    btn.dataset.partner = 'auchan';
+    btn.dataset.offer = 'firstOrder';
   }
 
   /** Paint assistant bubble: plain names in prose; chips + soft CTA in cart block under the message. */
@@ -1221,6 +1287,10 @@
         const prefixes = Array.isArray(au.tagPrefixes)
           ? au.tagPrefixes.map((p) => String(p || '').trim().toLowerCase()).filter(Boolean)
           : ['auchan', 'ashan'];
+        const foRaw = au.firstOrder && typeof au.firstOrder === 'object' ? au.firstOrder : null;
+        const foLink = foRaw ? String(foRaw.link || '').trim() : '';
+        const foErid = foRaw ? String(foRaw.erid || '').trim() : '';
+        const foMin = foRaw && foRaw.minOrderRub != null ? Number(foRaw.minOrderRub) : NaN;
         auchanDeeplink = {
           enabled: Boolean(au.enabled && au.admitadBase),
           admitadBase: String(au.admitadBase || '').trim(),
@@ -1232,6 +1302,17 @@
           inn: String(au.inn || '7703270067').trim(),
           name: String(au.name || 'Ашан').trim(),
           tagPrefixes: prefixes.length ? prefixes : ['auchan', 'ashan'],
+          firstOrder:
+            foLink && /^https?:\/\//i.test(foLink)
+              ? {
+                  link: foLink,
+                  erid: foErid,
+                  minOrderRub: Number.isFinite(foMin) && foMin > 0 ? Math.round(foMin) : 4000,
+                  discountHint: String(foRaw.discountHint || 'больше 800 ₽').trim(),
+                  hint: String(foRaw.hint || '').trim(),
+                  cta: String(foRaw.cta || 'Забрать скидку на первый заказ').trim(),
+                }
+              : null,
         };
       }
       scheduleYandexMetrika(data.yandexMetrikaId || window.__nkMetrikaId || '');

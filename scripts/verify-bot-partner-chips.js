@@ -107,12 +107,20 @@ assert.ok(BOT_LINKS_MAX >= 8 && BOT_LINKS_MAX <= 12);
   const fish = buildVipfishAdmitadUrl('лосось');
   const hv = buildHvalwatersAdmitadUrl('premium');
   const au = buildAuchanAdmitadUrl('гречка');
-  assert.strictEqual(links.length, 4);
   assert.ok(links.some((l) => l.url === vv && l.store === 'vkusvill'));
   assert.ok(links.some((l) => l.url === fish && l.store === 'vipfish'));
   assert.ok(links.some((l) => l.url === hv && l.store === 'hvalwaters'));
   assert.ok(links.some((l) => l.url === au && l.store === 'auchan'));
   assert.ok(au && au.includes('rthsu.com') && AUCHAN_DEEPLINK.enabled);
+  // Auchan first-order CTA is an extra button (landing, not search ulp).
+  const fo = links.find((l) => l.kind === 'firstOrder');
+  assert.ok(fo, 'Auchan first-order button missing');
+  assert.strictEqual(fo.store, 'auchan');
+  assert.ok(fo.url.includes('30o5vsx0bi'));
+  assert.ok(fo.url.includes('2bL9aMPo2e49hMef4rrUepvhzG'));
+  assert.notStrictEqual(fo.url, au);
+  assert.match(fo.label, /первый заказ|скидк/i);
+  assert.strictEqual(links.length, 5);
 }
 
 // No chips → unchanged reply, empty links
