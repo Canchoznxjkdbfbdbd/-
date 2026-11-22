@@ -168,5 +168,34 @@
     "legal_name": "ООО «ГФ Трейд»",
     "inn": "7811715411",
     "disclaimer": "Реклама. ООО «ГФ Трейд», ИНН 7811715411. erid: MvGzQC98w3Z1gMq1kxQwfCfT. Партнёрская ссылка Admitad."
+  },
+  {
+    "id": "auchan",
+    "name": "Ашан",
+    "geo": ["Москва", "Санкт-Петербург", "Россия"],
+    "geo_mode": "soft",
+    "tags": [
+      "ашан",
+      "auchan",
+      "ashan",
+      "гипермаркет",
+      "продукты",
+      "супермаркет",
+      "grocery",
+      "магазин",
+      "заказать"
+    ],
+    "offer_type": "grocery",
+    "promo_code": null,
+    "promo_terms": "Партнёрская ссылка",
+    "live": false,
+    "admitad_base": "https://rthsu.com/g/g1f8w0wsou268e100ca0414eca7795/?erid=2bL9aMPo2e49hMef4rrTkXfiWn",
+    "erid": "2bL9aMPo2e49hMef4rrTkXfiWn",
+    "link": "https://rthsu.com/g/g1f8w0wsou268e100ca0414eca7795/?erid=2bL9aMPo2e49hMef4rrTkXfiWn",
+    "landing_url": "https://www.auchan.ru/",
+    "blurb": "Гипермаркеты Ашан: МСК, СПб и многие города РФ; доставка не везде — смотри зону на сайте.",
+    "legal_name": "ООО «АШАН»",
+    "inn": "7703270067",
+    "disclaimer": "Реклама. ООО «АШАН», ИНН 7703270067. erid: 2bL9aMPo2e49hMef4rrTkXfiWn. Партнёрская ссылка Admitad."
   }
 ]

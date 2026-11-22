@@ -26,11 +26,13 @@ const {
   buildGrowfoodAdmitadUrl,
   buildVkusvillAdmitadUrl,
   buildVipfishAdmitadUrl,
+  buildAuchanAdmitadUrl,
   buildHvalwatersAdmitadUrl,
   BEFIT_DEEPLINK,
   GROWFOOD_DEEPLINK,
   VKUSVILL_DEEPLINK,
   VIPFISH_DEEPLINK,
+  AUCHAN_DEEPLINK,
   app,
 } = require('../server');
 
@@ -49,6 +51,10 @@ assert.ok(BOT_LINKS_MAX >= 8 && BOT_LINKS_MAX <= 12);
   assert.deepStrictEqual(gf, { kind: 'product', label: 'balance', store: 'growfood' });
   const vv = parseBotProductTag('гречка');
   assert.deepStrictEqual(vv, { kind: 'product', label: 'гречка', store: 'vkusvill' });
+  const au = parseBotProductTag('auchan:гречка');
+  assert.deepStrictEqual(au, { kind: 'product', label: 'гречка', store: 'auchan' });
+  const ashan = parseBotProductTag('ashan:творог');
+  assert.deepStrictEqual(ashan, { kind: 'product', label: 'творог', store: 'auchan' });
   const partner = parseBotProductTag('partner:befit');
   assert.strictEqual(partner.kind, 'partner');
   const unknown = parseBotProductTag('magnit:молоко');
@@ -89,9 +95,10 @@ assert.ok(BOT_LINKS_MAX >= 8 && BOT_LINKS_MAX <= 12);
   assert.doesNotMatch(reply, /partner:befit/i);
 }
 
-// VkusVill bare chip + fish/hval
+// VkusVill bare chip + fish/hval/auchan
 {
-  const src = 'Купи [[творог 5%]] и [[vipfish:лосось]] плюс [[hval:premium]].';
+  const src =
+    'Купи [[творог 5%]] и [[vipfish:лосось]] плюс [[hval:premium]] и [[auchan:гречка]].';
   const { reply, links } = expandPartnerChipsForBot(src);
   assert.doesNotMatch(reply, /\[\[/);
   assert.match(reply, /Собрать корзину|Ссылки ниже/);
@@ -99,10 +106,13 @@ assert.ok(BOT_LINKS_MAX >= 8 && BOT_LINKS_MAX <= 12);
   const vv = buildVkusvillAdmitadUrl('творог 5%');
   const fish = buildVipfishAdmitadUrl('лосось');
   const hv = buildHvalwatersAdmitadUrl('premium');
-  assert.strictEqual(links.length, 3);
+  const au = buildAuchanAdmitadUrl('гречка');
+  assert.strictEqual(links.length, 4);
   assert.ok(links.some((l) => l.url === vv && l.store === 'vkusvill'));
   assert.ok(links.some((l) => l.url === fish && l.store === 'vipfish'));
   assert.ok(links.some((l) => l.url === hv && l.store === 'hvalwaters'));
+  assert.ok(links.some((l) => l.url === au && l.store === 'auchan'));
+  assert.ok(au && au.includes('rthsu.com') && AUCHAN_DEEPLINK.enabled);
 }
 
 // No chips → unchanged reply, empty links

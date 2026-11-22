@@ -83,6 +83,8 @@ npm start
 | `ADMITAD_HVALWATERS_ERID`    | erid для дисклеймера у блока ссылок Хваловской воды                      |
 | `ADMITAD_GROWFOOD_BASE`      | Admitad webmaster base GrowFood (naiawork…, не growfood.pro / gf.ru)     |
 | `ADMITAD_GROWFOOD_ERID`      | erid для дисклеймера у блока ссылок GrowFood                             |
+| `ADMITAD_AUCHAN_BASE`        | Admitad webmaster base Ашан (rthsu…, не auchan.ru)                       |
+| `ADMITAD_AUCHAN_ERID`        | erid для дисклеймера у блока ссылок Ашан                                 |
 
 `gemini-3.8-flash` — опционально через `GEMINI_MODEL` или `GEMINI_MODEL_CHAIN` (см. `.env.example`).
 
@@ -100,6 +102,7 @@ npm start
 | `[[befit:keto-start]]` / `[[letbefit:superstrongpremium]]` | `/programmy/{slug}/` или WP `https://letbefit.ru/?s=` (`/search/?q=` → 404) | `ADMITAD_BEFIT_BASE` (uuwgc…) |
 | `[[hval:premium]]` / `[[water:premium]]` / `[[hvalwaters:premium]]` | `/water/{slug}/` или WP `https://hvalwaters.ru/?s=` (`/search/?q=` → 404) | `ADMITAD_HVALWATERS_BASE` (xmknb…, prefer без i=3) |
 | `[[growfood:super-fit]]` / `[[gf:daily]]` | `/new-order/{slug}` или хаб `https://growfood.pro/new-order/` (поиска нет; `#menu-plans`/bare `/` → 307 loop) | `ADMITAD_GROWFOOD_BASE` (naiawork…) |
+| `[[auchan:гречка]]` / `[[ashan:творог]]` | `https://www.auchan.ru/search/?query=` или `/product/{slug}/` (`/search/?q=` → home) | `ADMITAD_AUCHAN_BASE` (rthsu…) |
 
 База берётся из env → `partners.json` (`admitad_base` / Admitad-`link`) → дефолт в коде. URL вида `vkusvill.ru/?utm_…`, `vipfish.ru/…`, `letbefit.ru/…`, `hvalwaters.ru/…` или `growfood.pro/…` (merchant-лендинг) **не** считаются базой. Промокоды в чат/бот/плашку/`/api/config` не отдаются — только Admitad-чипы и ссылки. Coupon-ish Hvalwaters (`admitad_coupon_base`, i=3) — справочно, чипы используют base без i=3.
 
