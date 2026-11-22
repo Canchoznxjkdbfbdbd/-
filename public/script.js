@@ -8,6 +8,8 @@
 
   /** Fallback if /api/config has no communityVkUrl — keep in sync with server COMMUNITY_VK_URL. */
   const COMMUNITY_VK_URL_DEFAULT = 'https://vk.ru/ai.nutricode';
+  /** Soft support CTA placeholder until /api/config loads DONATE_URL. */
+  const DONATE_URL_DEFAULT = '#donate';
   /** Fallback if /api/config has no yandexMetrikaId yet — must match live counter. */
   window.__nkMetrikaId = window.__nkMetrikaId || '114157729';
 
@@ -50,6 +52,8 @@
   const sendBtn = document.getElementById('send');
   const clearChatBtn = document.getElementById('clear-chat');
   const communityVkLink = document.getElementById('community-vk');
+  const termSupport = document.getElementById('term-support');
+  const supportLinks = Array.from(document.querySelectorAll('.support-href'));
   const emptyStart = document.getElementById('empty-start');
   const modeBar = document.getElementById('mode-bar');
   const modeChipsEl = document.querySelector('.mode-chips');
@@ -66,6 +70,7 @@
   let history = [];
   let streaming = false;
   let partnerShown = false;
+  let donateUrl = DONATE_URL_DEFAULT;
   let communityVkUrl = COMMUNITY_VK_URL_DEFAULT;
   /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,disclaimer:string,legalName:string,inn:string}} */
   let vkusvillDeeplink = {
@@ -303,6 +308,7 @@
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
     if (persist) persistTheme(activeTheme);
+    syncSupportChrome();
     // Re-paint transcript so Terminal shell text vs default cards stay in sync.
     if (prev !== activeTheme && !streaming && hasUserMessage()) {
       renderRestoredHistory({ messages: history, partnerShown, userTurns });
@@ -312,6 +318,29 @@
     syncTermLive();
     syncTermKeyboardInset();
     focusActiveTypeIn();
+  }
+
+  /** Soft support links: Normal uses footer; Terminal shows mono `# donate` (no amounts). */
+  function applySupportHrefs() {
+    const base = donateUrl || DONATE_URL_DEFAULT;
+    const isPlaceholder = base === '#donate' || base.startsWith('#');
+    supportLinks.forEach((a) => {
+      a.href = base;
+      if (isPlaceholder) {
+        a.removeAttribute('target');
+        a.removeAttribute('rel');
+      } else {
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+      }
+    });
+  }
+
+  function syncSupportChrome() {
+    applySupportHrefs();
+    if (termSupport) {
+      termSupport.hidden = activeTheme !== 'terminal';
+    }
   }
 
   /** While typing, keep the block caret solid; resume blink after idle. */
@@ -1424,6 +1453,11 @@
         return;
       }
       const data = await res.json();
+      if (data.donateUrl != null) {
+        const raw = String(data.donateUrl).trim();
+        donateUrl = raw || DONATE_URL_DEFAULT;
+      }
+      applySupportHrefs();
       if (data.communityVkUrl) {
         communityVkUrl = String(data.communityVkUrl).trim() || COMMUNITY_VK_URL_DEFAULT;
       }
