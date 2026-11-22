@@ -46,5 +46,18 @@ assert.ok(
   /Предпочтительно ставь метки в конце/.test(prompt),
   'prompt should prefer tags at end'
 );
+assert.ok(/7d\.\s*Рецепт/.test(prompt), 'prompt should have recipe block 7d');
+assert.ok(/Мясо\s*\/\s*птица\s*\/\s*рыба/.test(prompt), 'prompt recipe: meat block');
+assert.ok(/Овощи\s*\/\s*крупы/.test(prompt), 'prompt recipe: veg/grains block');
+assert.ok(/Зелень/.test(prompt), 'prompt recipe: greens block');
+assert.ok(/Специи/.test(prompt), 'prompt recipe: spices block');
+assert.ok(/не обрывай на полуслове/.test(prompt), 'prompt should forbid mid-word cutoff');
+assert.ok(script.includes("payload.type === 'done'"), 'client should reconcile on done');
+assert.ok(script.includes('syncTermLinkDock'), 'terminal link dock sync missing');
+assert.ok(
+  !/body:not\(\.page-privacy\) \.composer[\s\S]{0,80}order:\s*2/.test(css) &&
+    /\.composer \{[\s\S]*?order:\s*-1/.test(css),
+  'terminal composer must stay on top (order -1), not bottom'
+);
 
 console.log('verify-cart-block-ux: ok');

@@ -40,6 +40,9 @@
   const form = document.getElementById('composer');
   const input = document.getElementById('input');
   const termCaret = document.getElementById('term-caret');
+  const termLinkDock = document.getElementById('term-link-dock');
+  const termLinkAd = document.getElementById('term-link-ad');
+  const termLinkRow = document.getElementById('term-link-row');
   const sendBtn = document.getElementById('send');
   const clearChatBtn = document.getElementById('clear-chat');
   const communityVkLink = document.getElementById('community-vk');
@@ -202,6 +205,7 @@
     userTurns = 0;
     if (input) input.value = '';
     if (HistoryStore) HistoryStore.clear(window.localStorage);
+    clearTermLinkDock();
     syncSessionChrome();
     input.focus();
   }
@@ -286,6 +290,7 @@
     } else {
       document.documentElement.removeAttribute('data-theme');
       if (themeColorMeta) themeColorMeta.setAttribute('content', '#1f6b4f');
+      clearTermLinkDock();
     }
     themeBtns.forEach((btn) => {
       const on = btn.getAttribute('data-theme-choice') === activeTheme;
@@ -1143,16 +1148,84 @@
     });
   }
 
-  /** Paint assistant bubble: plain names in prose; chips + soft CTA in cart block under the message. */
-  function fillAssistantBubble(bubble, text, wrap, opts = {}) {
-    // Terminal: clean shell text only — no markdown cards / chips / partner plaques.
-    if (activeTheme === 'terminal') {
-      bubble.textContent = formatTerminalPlain(stripBracketTags(text));
-      clearTerminalExtras(wrap);
+  /** Linux-style ad lines above Terminal product buttons (no English chrome). */
+  function formatTermAdMark(disclosures) {
+    const lines = Array.isArray(disclosures) ? disclosures.filter(Boolean) : [];
+    /** @type {string[]} */
+    const erids = [];
+    for (const line of lines) {
+      const re = /erid\s*[:=]\s*([A-Za-z0-9_-]+)/gi;
+      let m;
+      while ((m = re.exec(String(line)))) {
+        const id = String(m[1] || '').trim();
+        if (id && !erids.includes(id)) erids.push(id);
+      }
+    }
+    if (!erids.length && !lines.length) return '';
+    if (!erids.length) {
+      return '# реклама';
+    }
+    const bits = erids.map((id) => `#   erid: ${id}`);
+    return ['# реклама · Admitad', ...bits].join('\n');
+  }
+
+  /** Terminal dock: product buttons at the bottom of the output zone (composer stays on top). */
+  function clearTermLinkDock() {
+    if (termLinkRow) termLinkRow.replaceChildren();
+    if (termLinkAd) termLinkAd.textContent = '';
+    if (termLinkDock) termLinkDock.hidden = true;
+  }
+
+  function syncTermLinkDock(chips, disclosures) {
+    if (!termLinkDock || !termLinkRow || !termLinkAd) return;
+    if (activeTheme !== 'terminal') {
+      clearTermLinkDock();
       return;
     }
+    const list = Array.isArray(chips) ? chips.filter((c) => c && c.href && c.label) : [];
+    if (!list.length) {
+      clearTermLinkDock();
+      return;
+    }
+    const ad = formatTermAdMark(disclosures);
+    termLinkAd.textContent = ad;
+    termLinkAd.hidden = !ad;
+    termLinkRow.replaceChildren();
+    for (const chip of list) {
+      const a = document.createElement('a');
+      a.className = 'term-link-btn';
+      a.href = chip.href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer sponsored';
+      a.textContent = chip.label;
+      const partnerId = storePartnerId(chip.store);
+      if (partnerId) a.dataset.partner = partnerId;
+      if (chip.store === 'vipfish') a.title = `${chip.label} — поиск`;
+      else if (chip.store === 'auchan') a.title = `${chip.label} — поиск / товар`;
+      else if (chip.store === 'befit') a.title = `${chip.label} — программа / поиск`;
+      else if (chip.store === 'hvalwaters') a.title = `${chip.label} — товар / поиск`;
+      else if (chip.store === 'growfood') a.title = `${chip.label} — линейка / каталог`;
+      else a.title = 'ВкусВилл — поиск';
+      termLinkRow.appendChild(a);
+    }
+    termLinkDock.hidden = false;
+  }
+
+  /** Paint assistant bubble: plain names in prose; chips + soft CTA in cart block under the message. */
+  function fillAssistantBubble(bubble, text, wrap, opts = {}) {
     // First user turn (starter / opening) — never paint cart chips even if the model dumped [[tags]].
     const allowChips = opts.allowChips != null ? Boolean(opts.allowChips) : userTurns >= 2;
+
+    // Terminal: clean shell text in the transcript; product links as bottom dock buttons.
+    if (activeTheme === 'terminal') {
+      const { chips, disclosures } = renderProductDeeplinks(text, { allowChips });
+      bubble.textContent = formatTerminalPlain(stripBracketTags(text));
+      clearTerminalExtras(wrap);
+      syncTermLinkDock(chips, disclosures);
+      return;
+    }
+
+    clearTermLinkDock();
     const { fragment, chips, primaryStore, disclosures } = renderProductDeeplinks(text, { allowChips });
     bubble.replaceChildren(fragment);
     if (wrap) {
@@ -1652,8 +1725,29 @@
           stage = 'reply';
           bubble.dataset.stage = 'reply';
         }
+      } else if (payload.type === 'done') {
+        // Reconcile with server-assembled text (covers dropped trailing SSE frames).
+        const serverText = typeof payload.text === 'string' ? payload.text : '';
+        if (serverText && serverText.length >= full.length && serverText !== full) {
+          beginReply();
+          full = serverText;
+          paint();
+        } else if (serverText && !full) {
+          beginReply();
+          full = serverText;
+          paint();
+        }
+        if (payload.truncated && full && activeTheme !== 'terminal') {
+          // Soft notice only in Ordinary — Terminal stays clean shell text.
+          let tip = wrap.querySelector(':scope > .stream-truncated-tip');
+          if (!tip) {
+            tip = document.createElement('p');
+            tip.className = 'stream-truncated-tip';
+            tip.textContent = 'Ответ оборвался на середине — напишите «продолжи», если нужно добить.';
+            insertBeforeMessageMeta(wrap, tip);
+          }
+        }
       }
-      // type:done — keep whatever text we already painted (including after continues).
     };
 
     const consumeEventBlock = (raw) => {

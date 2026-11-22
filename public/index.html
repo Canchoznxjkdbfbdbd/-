@@ -43,7 +43,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/fonts.css" />
-    <link rel="stylesheet" href="/style.css?v=20261122-terminal-input-top" />
+    <link rel="stylesheet" href="/style.css?v=20261122-recipe-term-links" />
     <script>
       (function () {
         try {
@@ -147,6 +147,12 @@
           <div class="mode-chips"></div>
         </div>
 
+        <!-- Terminal-only: product link buttons docked under the transcript (composer stays on top). -->
+        <aside id="term-link-dock" class="term-link-dock" hidden aria-label="Ссылки на товары">
+          <pre class="term-link-ad" id="term-link-ad"></pre>
+          <div class="term-link-row" id="term-link-row" role="group" aria-label="Товары"></div>
+        </aside>
+
         <form id="composer" class="composer" autocomplete="off">
           <label class="sr-only" for="input">Сообщение</label>
           <div class="term-field">
@@ -193,8 +199,8 @@
       </p>
     </footer>
 
-    <script src="/history-store.js?v=20261122-terminal-input-top" defer></script>
-    <script src="/script.js?v=20261122-terminal-input-top" defer></script>
+    <script src="/history-store.js?v=20261122-recipe-term-links" defer></script>
+    <script src="/script.js?v=20261122-recipe-term-links" defer></script>
 
     <!-- Yandex.Metrika: JS loads after chat boot from script.js (async, timeout). -->
     <noscript

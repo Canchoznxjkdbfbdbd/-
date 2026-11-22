@@ -723,9 +723,10 @@ function resolveGrowfoodDeeplinkConfig(partners) {
 /** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
 const MAX_OUTPUT_TOKENS = Math.min(
   Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 1024),
-  8192
+  16384
 );
-const MAX_CONTINUES = 2;
+/** Extra continues so mid-word cutoffs (MAX_TOKENS / thinking budget) still finish. */
+const MAX_CONTINUES = 3;
 /** Retries per model on overload before switching to the next fallback. */
 const OVERLOAD_RETRIES = Math.min(
   Math.max(Number(process.env.GEMINI_OVERLOAD_RETRIES) || 2, 0),
@@ -2582,7 +2583,14 @@ async function streamMock(res, partner) {
   if (partner) {
     writeEvent(res, { type: 'partner', partner: partnerPayload(partner) });
   }
-  writeEvent(res, { type: 'done', mock: true, finishReason: 'STOP' });
+  writeEvent(res, {
+    type: 'done',
+    mock: true,
+    finishReason: 'STOP',
+    truncated: false,
+    text: MOCK_REPLY,
+    continues: 0,
+  });
   res.end();
 }
 
@@ -2905,11 +2913,15 @@ app.post('/api/chat', chatLimiterMinute, chatLimiterBurst, async (req, res) => {
       writeEvent(res, { type: 'partner', partner: partnerPayload(partner) });
     }
 
+    // Include full assembled text so the client can reconcile if the last SSE
+    // token frames were dropped by a proxy / leftover buffer edge-case.
     writeEvent(res, {
       type: 'done',
       finishReason: result.finishReason || 'STOP',
       truncated: Boolean(result.truncated),
       model: result.model,
+      text: String(result.text || ''),
+      continues: Number(result.continues) || 0,
     });
     res.end();
   } catch (err) {

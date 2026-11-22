@@ -188,18 +188,46 @@ async function testHttpMock() {
   if (paragraphs.length < 3) throw new Error(`expected 3+ paragraphs, got ${paragraphs.length}: ${full.slice(0, 200)}`);
   if (!full.includes('Готово')) throw new Error('missing completion marker Готово');
   if (!full.includes('Пример дня')) throw new Error('missing mid section');
+  if (!doneMeta || doneMeta.type !== 'done') throw new Error('missing done event');
+  if (typeof doneMeta.text !== 'string' || !doneMeta.text.includes('Готово')) {
+    throw new Error('done event must carry full assembled text for client reconcile');
+  }
   console.log('ok http_mock', {
     chars: full.length,
     paragraphs: paragraphs.length,
     endsWith: full.trim().slice(-20),
     stages,
-    doneMeta,
+    doneMeta: {
+      finishReason: doneMeta.finishReason,
+      truncated: doneMeta.truncated,
+      textChars: String(doneMeta.text || '').length,
+    },
   });
+}
+
+/** Client must adopt longer server text from done (simulates dropped trailing tokens). */
+function testDoneReconcile() {
+  let full = 'Приятного ап';
+  const payload = {
+    type: 'done',
+    finishReason: 'STOP',
+    truncated: false,
+    text: 'Приятного аппетита!\n\n[[говядина лопатка]] [[лапша для лагмана]]',
+  };
+  const serverText = typeof payload.text === 'string' ? payload.text : '';
+  if (serverText && serverText.length >= full.length && serverText !== full) {
+    full = serverText;
+  }
+  if (!full.includes('аппетита') || !full.includes('[[говядина лопатка]]')) {
+    throw new Error(`done reconcile failed: ${full}`);
+  }
+  console.log('ok done_reconcile', JSON.stringify(full.slice(0, 40)));
 }
 
 (async () => {
   await testLeftoverFlush();
   testClientLeftover();
+  testDoneReconcile();
   await testHttpMock();
   console.log('ALL_PASSED');
 })().catch((err) => {
