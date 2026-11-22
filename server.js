@@ -52,6 +52,17 @@ const VKUSVILL_SEARCH_PREFIX = 'https://vkusvill.ru/search/?q=';
 const DEFAULT_ADMITAD_VKUSVILL_BASE =
   'https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx';
 const DEFAULT_ADMITAD_VKUSVILL_ERID = '2bL9aMPo2e49hMef4phUrdrQCx';
+/**
+ * Owner lock (2026-11-22): ВкусВилл — РФ nationwide (включая г. Москву, г. Санкт-Петербург, МО, ЛО).
+ * Soft note in prompt; not a hard city-gate (chips ok without city).
+ */
+const VKUSVILL_GEO = [
+  'Россия',
+  'Москва',
+  'Санкт-Петербург',
+  'Московская область',
+  'Ленинградская область',
+];
 
 const VIPFISH_SEARCH_PREFIX = 'https://vipfish.ru/search/?q=';
 const DEFAULT_ADMITAD_VIPFISH_BASE =
@@ -333,7 +344,13 @@ function resolveAdmitadDeeplinkConfig({
 }
 
 function resolveVkusvillDeeplinkConfig(partners) {
-  return resolveAdmitadDeeplinkConfig({
+  const row = findPartnerRow(partners, 'vkusvill');
+  const geoFromPartner = Array.isArray(row && row.geo) ? row.geo : null;
+  const cities =
+    geoFromPartner && geoFromPartner.length
+      ? geoFromPartner.map((c) => String(c || '').trim()).filter(Boolean)
+      : VKUSVILL_GEO.slice();
+  const cfg = resolveAdmitadDeeplinkConfig({
     partners,
     partnerId: 'vkusvill',
     envBaseKey: 'ADMITAD_VKUSVILL_BASE',
@@ -342,6 +359,13 @@ function resolveVkusvillDeeplinkConfig(partners) {
     defaultErid: DEFAULT_ADMITAD_VKUSVILL_ERID,
     searchPrefix: VKUSVILL_SEARCH_PREFIX,
   });
+  return {
+    ...cfg,
+    id: 'vkusvill',
+    name: String((row && row.name) || 'ВкусВилл'),
+    geoMode: String((row && row.geo_mode) || 'nationwide').trim() || 'nationwide',
+    cities,
+  };
 }
 
 function resolveVipfishDeeplinkConfig(partners) {
@@ -1632,9 +1656,12 @@ app.get('/api/config', (_req, res) => {
       admitadBase: VKUSVILL_DEEPLINK.admitadBase,
       erid: VKUSVILL_DEEPLINK.erid,
       searchPrefix: VKUSVILL_DEEPLINK.searchPrefix,
+      geoMode: VKUSVILL_DEEPLINK.geoMode,
+      cities: VKUSVILL_DEEPLINK.cities,
       disclaimer: VKUSVILL_DEEPLINK.disclaimer,
       legalName: VKUSVILL_DEEPLINK.legalName,
       inn: VKUSVILL_DEEPLINK.inn,
+      name: VKUSVILL_DEEPLINK.name,
     },
     /** Важная рыба (vipfish.ru) — СПб зона; chips via [[vipfish:…]] / [[ryba:…]]. */
     vipfishDeeplink: {
@@ -3342,6 +3369,7 @@ module.exports = {
   resolveGrowfoodDeeplinkConfig,
   VKUSVILL_SEARCH_PREFIX,
   VKUSVILL_DEEPLINK,
+  VKUSVILL_GEO,
   VIPFISH_SEARCH_PREFIX,
   VIPFISH_DEEPLINK,
   VIPFISH_GEO_CITIES,

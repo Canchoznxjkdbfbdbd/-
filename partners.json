@@ -2,7 +2,14 @@
   {
     "id": "vkusvill",
     "name": "ВкусВилл",
-    "geo": ["Россия", "онлайн"],
+    "geo": [
+      "Россия",
+      "Москва",
+      "Санкт-Петербург",
+      "Московская область",
+      "Ленинградская область"
+    ],
+    "geo_mode": "nationwide",
     "tags": [
       "вкусвилл",
       "vkusvill",
@@ -24,7 +31,7 @@
     "erid": "2bL9aMPo2e49hMef4phUrdrQCx",
     "link": "https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx",
     "landing_url": "https://vkusvill.ru/?utm_medium=677297&utm_source=partners&utm_campaign=16031&utm_content=381&promo_code=VSC7247&web_id=2603881&click_id=3b650a472375dbe278075b7ea2f168b6",
-    "blurb": "Продукты и доставка: супермаркет здоровой еды ВкусВилл.",
+    "blurb": "Продукты и доставка ВкусВилл по РФ (включая г. Москву, г. Санкт-Петербург, МО, ЛО).",
     "legal_name": "АО «ВкусВилл»",
     "inn": "7734443270",
     "disclaimer": "Реклама. АО «ВкусВилл», ИНН 7734443270. erid: 2bL9aMPo2e49hMef4phUrdrQCx. Партнёрская ссылка Admitad."
