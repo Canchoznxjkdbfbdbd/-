@@ -748,7 +748,8 @@ body {
 .legal {
   width: min(720px, 100%);
   margin: 0 auto;
-  padding: 0 1rem 2rem;
+  /* Extra top gap so support stays away from composer / send. */
+  padding: 1.75rem 1rem max(1.35rem, env(safe-area-inset-bottom, 0px));
 }
 
 .legal p {
@@ -756,6 +757,21 @@ body {
   font-size: 0.78rem;
   color: var(--muted);
   line-height: 1.45;
+}
+
+/* Own line at the bottom edge — same type size, not next to composer. */
+.legal-support {
+  margin: 1.1rem 0 0;
+  padding: 0;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.legal-support .support-href {
+  /* Hit area = text only; no padded chip near the thumb zone. */
+  display: inline;
+  padding: 0;
+  margin: 0;
 }
 
 .legal-link {
@@ -784,7 +800,7 @@ body {
   border-radius: 2px;
 }
 
-/* Soft support CTA — Normal: quiet footer link; Terminal: mono line (no amount strip). */
+/* Soft support CTA — Terminal twin lives at viewport safe-bottom (not in chat). */
 .term-support {
   display: none;
   margin: 0;
@@ -1060,12 +1076,21 @@ html[data-theme='terminal'] .ad-disclosure {
   display: none !important;
 }
 
-/* Terminal: quiet mono support line — no badge, no amounts, does not block type-in. */
+/*
+ * Terminal: quiet mono support at true viewport safe-bottom.
+ * Same size as before — only farther from type-in / product links / keyboard.
+ * Hidden while the soft keyboard covers the bottom (data-term-kb).
+ */
 html[data-theme='terminal'] body:not(.page-privacy) .term-support:not([hidden]) {
+  position: fixed;
+  left: max(0.85rem, env(safe-area-inset-left, 0px));
+  bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
+  z-index: 3;
   display: block;
-  flex: 0 0 auto;
+  width: fit-content;
+  max-width: calc(100vw - 2rem);
   margin: 0;
-  padding: 0.2rem 0.85rem 0.45rem;
+  padding: 0;
   border: 0;
   background: transparent;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
@@ -1074,13 +1099,19 @@ html[data-theme='terminal'] body:not(.page-privacy) .term-support:not([hidden]) 
   line-height: 1.35;
   letter-spacing: 0.01em;
   color: rgba(139, 148, 158, 0.85);
+  pointer-events: none;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .term-support-link {
+  pointer-events: auto;
   color: rgba(139, 148, 158, 0.9);
   text-decoration: none;
   border-bottom: 1px dotted rgba(139, 148, 158, 0.45);
   font-weight: 400;
+  /* Text-sized hit target only — no padded chip near the keyboard. */
+  display: inline;
+  padding: 0;
+  margin: 0;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .term-support-link:hover {
@@ -1091,6 +1122,12 @@ html[data-theme='terminal'] body:not(.page-privacy) .term-support-link:hover {
 html[data-theme='terminal'] body:not(.page-privacy) .term-support-link:focus-visible {
   outline: 1px solid rgba(63, 185, 80, 0.55);
   outline-offset: 2px;
+}
+
+/* Soft keyboard up: hide donate so it cannot sit on the thumb/keyboard edge. */
+html[data-theme='terminal'][data-term-kb] body:not(.page-privacy) .term-support {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 html[data-theme='terminal'] .atmosphere {
@@ -1162,10 +1199,11 @@ html[data-theme='terminal'] body:not(.page-privacy) .shell {
   margin-inline: 0;
   justify-content: flex-start;
   padding-top: 0.45rem;
-  /* --term-kb-inset: obscured bottom from visualViewport (mobile keyboard). */
+  /* --term-kb-inset: obscured bottom from visualViewport (mobile keyboard).
+   * Reserve ~1.6rem for the fixed safe-bottom support line when KB is closed. */
   padding-bottom: max(
-    1.1rem,
-    env(safe-area-inset-bottom, 0px),
+    1.6rem,
+    calc(env(safe-area-inset-bottom, 0px) + 1.25rem),
     var(--term-kb-inset, 0px)
   );
   padding-left: max(1.1rem, env(safe-area-inset-left, 0px));
@@ -1456,8 +1494,8 @@ html[data-theme='terminal'] .stream-truncated-tip {
     padding-left: max(0.7rem, env(safe-area-inset-left, 0px));
     padding-right: max(0.7rem, env(safe-area-inset-right, 0px));
     padding-bottom: max(
-      0.55rem,
-      env(safe-area-inset-bottom, 0px),
+      1.45rem,
+      calc(env(safe-area-inset-bottom, 0px) + 1.1rem),
       var(--term-kb-inset, 0px)
     );
   }
