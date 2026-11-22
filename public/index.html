@@ -43,12 +43,14 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/fonts.css" />
-    <link rel="stylesheet" href="/style.css?v=20261122-matrix-soft2" />
+    <link rel="stylesheet" href="/style.css?v=20261122-terminal" />
     <script>
       (function () {
         try {
-          if (localStorage.getItem('nutrikod_theme') === 'matrix') {
-            document.documentElement.setAttribute('data-theme', 'matrix');
+          var t = localStorage.getItem('nutrikod_theme');
+          if (t === 'matrix' || t === 'terminal') {
+            if (t === 'matrix') localStorage.setItem('nutrikod_theme', 'terminal');
+            document.documentElement.setAttribute('data-theme', 'terminal');
             var m = document.getElementById('theme-color-meta');
             if (m) m.setAttribute('content', '#0d1117');
           }
@@ -72,7 +74,6 @@
     </script>
   </head>
   <body>
-    <canvas id="matrix-rain" class="matrix-rain" aria-hidden="true" hidden></canvas>
     <div class="atmosphere" aria-hidden="true">
       <div class="atmosphere-photo"></div>
       <div class="atmosphere-wash"></div>
@@ -98,8 +99,8 @@
           <button type="button" class="theme-btn" data-theme-choice="default" aria-pressed="true">
             Обычная
           </button>
-          <button type="button" class="theme-btn" data-theme-choice="matrix" aria-pressed="false">
-            Матрица
+          <button type="button" class="theme-btn" data-theme-choice="terminal" aria-pressed="false">
+            Терминал
           </button>
         </div>
         <button type="button" id="clear-chat" class="clear-chat" hidden aria-expanded="false">
@@ -119,6 +120,13 @@
 
       <section class="chat" aria-label="Чат с НутриКод">
         <div id="messages" class="messages" role="log" aria-live="polite"></div>
+
+        <div id="terminal-idle" class="terminal-idle" hidden aria-hidden="true">
+          <p class="terminal-idle-title">terminal · примеры запросов</p>
+          <div class="terminal-idle-zone" id="terminal-idle-zone">
+            <div class="terminal-idle-stream" id="terminal-idle-stream"></div>
+          </div>
+        </div>
 
         <div id="empty-start" class="empty-start">
           <p class="empty-invite">С чего начнём?</p>
@@ -189,8 +197,8 @@
       </p>
     </footer>
 
-    <script src="/history-store.js?v=20261122-matrix-soft2" defer></script>
-    <script src="/script.js?v=20261122-matrix-soft2" defer></script>
+    <script src="/history-store.js?v=20261122-terminal" defer></script>
+    <script src="/script.js?v=20261122-terminal" defer></script>
 
     <!-- Yandex.Metrika: JS loads after chat boot from script.js (async, timeout). -->
     <noscript
