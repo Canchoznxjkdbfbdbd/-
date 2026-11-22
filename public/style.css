@@ -1154,16 +1154,17 @@ html[data-theme='terminal'] body:not(.page-privacy) .messages {
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .msg {
-  max-width: 100%;
-  width: 100%;
-  align-self: stretch;
+  /* Same mid-screen wrap column as the live type-in («ДО СЮ»). */
+  max-width: min(50vw, 36rem);
+  width: min(50vw, 36rem);
+  align-self: flex-start;
   gap: 0.2rem;
   animation: none;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .msg.user,
 html[data-theme='terminal'] body:not(.page-privacy) .msg.assistant {
-  align-self: stretch;
+  align-self: flex-start;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .bubble {
@@ -1216,13 +1217,16 @@ html[data-theme='terminal'] body:not(.page-privacy) .composer {
   display: none !important;
 }
 
-/* Live prompt line: chars appear in the transcript; wrap by window width. */
+/* Live prompt: left of the window; wrap at ~mid screen («ДО СЮ»). */
 html[data-theme='terminal'] body:not(.page-privacy) .term-live {
   display: block;
   flex: 0 0 auto;
   position: relative;
+  align-self: flex-start;
   margin: 0;
   padding: 0.15rem 0.15rem 0.85rem;
+  width: min(50vw, 36rem);
+  max-width: 100%;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
   font-size: 1.02rem;
   line-height: 1.45;
