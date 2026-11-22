@@ -337,6 +337,7 @@
     terminalIdlePhrase.hidden = true;
     terminalIdlePhrase.innerHTML = '';
     terminalIdlePhrase.removeAttribute('data-full');
+    terminalIdlePhrase.style.top = '';
     terminalIdlePhrase.style.transform = 'translate3d(0, -50%, 0)';
   }
 
@@ -383,9 +384,12 @@
     const text = TERMINAL_IDLE_EXAMPLES[terminalIdleExampleIdx % TERMINAL_IDLE_EXAMPLES.length];
     terminalIdleExampleIdx += 1;
     const zoneW = terminalIdleZone.clientWidth || 320;
+    // Y: random between ~mid height and near bottom (never top).
+    const yPct = randomBetween(52, 88);
     terminalIdlePhrase.hidden = false;
     terminalIdlePhrase.removeAttribute('data-decoded');
     terminalIdlePhrase.setAttribute('data-full', text);
+    terminalIdlePhrase.style.top = yPct + '%';
     paintScrambleText(text, 0);
     // Start just past the right edge so the mask fades it in.
     const startX = zoneW + 24;
@@ -394,7 +398,8 @@
       x: startX,
       bornAt: now,
       scrambleMs: randomBetween(500, 1000),
-      speed: randomBetween(0.55, 0.95),
+      // Noticeably faster horizontal pass.
+      speed: randomBetween(1.55, 2.35),
     };
     terminalIdlePhrase.style.transform = 'translate3d(' + startX + 'px, -50%, 0)';
   }
@@ -422,8 +427,9 @@
       terminalIdlePhrase.style.transform = 'translate3d(' + active.x + 'px, -50%, 0)';
 
       const phraseW = terminalIdlePhrase.offsetWidth || 0;
-      // Fully past left fade (mask soft edge ~25%).
-      if (active.x + phraseW < -(terminalIdleZone.clientWidth * 0.05)) {
+      const zoneW = terminalIdleZone.clientWidth || 320;
+      // Despawn once past the earlier left dissolve (~mid), not the far edge.
+      if (active.x + phraseW < zoneW * 0.28) {
         terminalIdlePhrase.removeAttribute('data-decoded');
         clearTerminalIdlePhrase();
         terminalIdleActive = null;
@@ -443,6 +449,7 @@
       terminalIdlePhrase.hidden = false;
       terminalIdlePhrase.setAttribute('data-full', text);
       terminalIdlePhrase.textContent = text;
+      terminalIdlePhrase.style.top = '70%';
       terminalIdlePhrase.style.transform = 'translate3d(12%, -50%, 0)';
       return;
     }

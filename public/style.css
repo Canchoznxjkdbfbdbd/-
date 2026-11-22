@@ -1302,14 +1302,15 @@ html[data-theme='terminal'] .legal-link:focus-visible {
   flex: 1;
   min-height: 7.5rem;
   overflow: hidden;
-  /* Appear right → read center → dissolve left before edge */
-  mask-image: linear-gradient(to right, transparent 0%, black 25%, black 90%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 25%, black 90%, transparent 100%);
+  /* Appear right → read mid-right → dissolve a bit past mid toward left (not to edge) */
+  mask-image: linear-gradient(to right, transparent 0%, black 52%, black 88%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 52%, black 88%, transparent 100%);
 }
 
 .terminal-idle-phrase {
   position: absolute;
-  top: 42%;
+  /* Default mid-lower; JS randomizes between mid and bottom per phrase */
+  top: 68%;
   left: 0;
   margin: 0;
   padding: 0;
