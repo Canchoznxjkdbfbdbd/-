@@ -1151,6 +1151,7 @@ html[data-theme='terminal'] body:not(.page-privacy) .msg.assistant {
 
 html[data-theme='terminal'] body:not(.page-privacy) .bubble {
   padding: 0;
+  border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
@@ -1163,6 +1164,8 @@ html[data-theme='terminal'] body:not(.page-privacy) .bubble {
 html[data-theme='terminal'] body:not(.page-privacy) .msg.user .bubble {
   color: #7ef0e4;
   background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .msg.user .bubble::before {
@@ -1175,6 +1178,8 @@ html[data-theme='terminal'] body:not(.page-privacy) .msg.user .bubble::before {
 html[data-theme='terminal'] body:not(.page-privacy) .msg.assistant .bubble {
   color: #b7ebe4;
   background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .msg.assistant .bubble.typing {
