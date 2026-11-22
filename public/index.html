@@ -43,7 +43,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/fonts.css" />
-    <link rel="stylesheet" href="/style.css?v=20261122-terminal" />
+    <link rel="stylesheet" href="/style.css?v=20261122-terminal-ticker" />
     <script>
       (function () {
         try {
@@ -122,9 +122,15 @@
         <div id="messages" class="messages" role="log" aria-live="polite"></div>
 
         <div id="terminal-idle" class="terminal-idle" hidden aria-hidden="true">
-          <p class="terminal-idle-title">terminal · примеры запросов</p>
+          <p class="terminal-idle-title">Терминал</p>
           <div class="terminal-idle-zone" id="terminal-idle-zone">
-            <div class="terminal-idle-stream" id="terminal-idle-stream"></div>
+            <button
+              type="button"
+              class="terminal-idle-phrase"
+              id="terminal-idle-phrase"
+              hidden
+              aria-label="Подставить пример в поле ввода"
+            ></button>
           </div>
         </div>
 
@@ -197,8 +203,8 @@
       </p>
     </footer>
 
-    <script src="/history-store.js?v=20261122-terminal" defer></script>
-    <script src="/script.js?v=20261122-terminal" defer></script>
+    <script src="/history-store.js?v=20261122-terminal-ticker" defer></script>
+    <script src="/script.js?v=20261122-terminal-ticker" defer></script>
 
     <!-- Yandex.Metrika: JS loads after chat boot from script.js (async, timeout). -->
     <noscript

@@ -1266,7 +1266,7 @@ html[data-theme='terminal'] .legal-link:focus-visible {
 }
 
 
-/* Terminal idle: example query stream (pre-first-message) */
+/* Terminal idle: horizontal RTL ticker + scramble (pre-first-message) */
 .terminal-idle {
   display: flex;
   flex-direction: column;
@@ -1274,10 +1274,17 @@ html[data-theme='terminal'] .legal-link:focus-visible {
   min-height: 0;
   padding: 0.85rem 0 0.35rem;
   overflow: hidden;
+  opacity: 1;
+  transition: opacity 0.35s ease;
 }
 
 .terminal-idle[hidden] {
   display: none !important;
+}
+
+.terminal-idle.is-paused {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .terminal-idle-title {
@@ -1293,31 +1300,48 @@ html[data-theme='terminal'] .legal-link:focus-visible {
 .terminal-idle-zone {
   position: relative;
   flex: 1;
-  min-height: 9.5rem;
+  min-height: 7.5rem;
   overflow: hidden;
-  mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 92%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 92%);
+  /* Appear right → read center → dissolve left before edge */
+  mask-image: linear-gradient(to right, transparent 0%, black 25%, black 90%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 25%, black 90%, transparent 100%);
 }
 
-.terminal-idle-stream {
+.terminal-idle-phrase {
   position: absolute;
-  left: 1rem;
-  right: 1rem;
-  bottom: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
+  top: 42%;
+  left: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  color: var(--ink, #b3d4b3);
+  white-space: nowrap;
   will-change: transform;
+  transform: translate3d(0, -50%, 0);
+  text-align: left;
 }
 
-.terminal-idle-line {
-  margin: 0;
-  font-size: 0.92rem;
-  line-height: 1.55;
+.terminal-idle-phrase[hidden] {
+  display: none !important;
+}
+
+.terminal-idle-phrase:focus-visible {
+  outline: 2px solid var(--leaf, #3fb950);
+  outline-offset: 4px;
+}
+
+.terminal-idle-phrase .term-scramble {
+  color: var(--term-accent, #3fb950);
+}
+
+.terminal-idle-phrase .term-plain {
   color: var(--ink, #b3d4b3);
-  white-space: pre-wrap;
-  word-break: break-word;
-  opacity: 0.95;
 }
 
 .messages[hidden] {
@@ -1336,7 +1360,11 @@ html[data-theme='terminal'] .lede {
     transition: none !important;
   }
 
-  .terminal-idle-stream {
+  .terminal-idle {
+    transition: none;
+  }
+
+  .terminal-idle-phrase {
     will-change: auto;
   }
 }
