@@ -43,7 +43,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/fonts.css" />
-    <link rel="stylesheet" href="/style.css?v=20261122-recipe-labels-links" />
+    <link rel="stylesheet" href="/style.css?v=20261122-soft-support" />
     <script>
       (function () {
         try {
@@ -190,6 +190,17 @@
             </svg>
           </button>
         </form>
+
+        <!-- Soft support: Normal footer twin + Terminal mono line. No amounts. -->
+        <p class="term-support" id="term-support" hidden>
+          <a
+            class="term-support-link support-href"
+            href="#donate"
+            target="_blank"
+            rel="noopener noreferrer"
+            ># donate — support</a
+          >
+        </p>
       </section>
     </main>
 
@@ -208,11 +219,20 @@
           rel="noopener noreferrer"
           >Сообщество ВК</a
         >
+        ·
+        <a
+          class="legal-link legal-link-muted support-href"
+          id="support-cta"
+          href="#donate"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Поддержать · донат</a
+        >
       </p>
     </footer>
 
-    <script src="/history-store.js?v=20261122-recipe-labels-links" defer></script>
-    <script src="/script.js?v=20261122-recipe-labels-links" defer></script>
+    <script src="/history-store.js?v=20261122-soft-support" defer></script>
+    <script src="/script.js?v=20261122-soft-support" defer></script>
 
     <!-- Yandex.Metrika: JS loads after chat boot from script.js (async, timeout). -->
     <noscript

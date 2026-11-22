@@ -127,6 +127,10 @@ assert.ok(!/DONATE_URL/.test(system), 'system must not inject DONATE_URL');
 assert.ok(!/Контекст доната/i.test(system), 'system must not append donate context');
 assert.ok(!/кнопка поддержки ниже/i.test(system), 'system must not soft-promo donate UI');
 assert.ok(/Не упоминай донат/i.test(system), 'system must explicitly forbid donate mentions in replies');
+assert.ok(
+  !/pay\.cloudtips\.ru|Поддержать · донат|# donate/i.test(system),
+  'system must not carry support CTA copy or URL'
+);
 
 async function main() {
   cleanupTempModes();
@@ -135,6 +139,15 @@ async function main() {
   const { server, base } = await listen(app);
 
   try {
+    // Soft support CTA is UI-only via /api/config (not prompt).
+    {
+      const res = await fetch(`${base}/api/config`);
+      assert.strictEqual(res.status, 200);
+      const cfg = await res.json();
+      assert.ok(Object.prototype.hasOwnProperty.call(cfg, 'donateUrl'), 'config must expose donateUrl');
+      assert.strictEqual(typeof cfg.donateUrl, 'string');
+    }
+
     // Baseline: 4 modes from modes/*.json
     {
       const r = await getModes(base);
