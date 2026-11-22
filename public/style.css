@@ -1302,9 +1302,9 @@ html[data-theme='terminal'] .legal-link:focus-visible {
   flex: 1;
   min-height: 7.5rem;
   overflow: hidden;
-  /* Appear right → read mid-right → dissolve a bit past mid toward left (not to edge) */
-  mask-image: linear-gradient(to right, transparent 0%, black 52%, black 88%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 52%, black 88%, transparent 100%);
+  /* Appear right → short readable band → dissolve earlier toward left */
+  mask-image: linear-gradient(to right, transparent 0%, black 64%, black 84%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 64%, black 84%, transparent 100%);
 }
 
 .terminal-idle-phrase {
@@ -1343,6 +1343,11 @@ html[data-theme='terminal'] .legal-link:focus-visible {
 
 .terminal-idle-phrase .term-plain {
   color: var(--ink, #b3d4b3);
+}
+
+.terminal-idle-phrase .term-dots {
+  color: var(--muted, #8b9a8b);
+  letter-spacing: 0.06em;
 }
 
 .messages[hidden] {

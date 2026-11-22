@@ -66,8 +66,14 @@
   let terminalIdleActive = null;
   /** @type {number} */
   let terminalIdleNextAt = 0;
+  /** Last Y band index — avoid same height twice in a row. */
+  let terminalIdleLastYBand = -1;
 
   const TERMINAL_SCRAMBLE_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ#$%&';
+  /** Visual only — click still fills data-full without these. */
+  const TERMINAL_IDLE_DOTS = '……';
+  /** Distinct mid→bottom lanes for noticeable vertical spread. */
+  const TERMINAL_IDLE_Y_BANDS = [48, 60, 72, 86];
   /** Full example prompts — visual clip only via mask/overflow, never truncated in data. */
   const TERMINAL_IDLE_EXAMPLES = [
     'давай разберёмся почему у меня изжога к обеду, я встаю завариваю крепкий чай…',
@@ -356,7 +362,7 @@
     if (!terminalIdlePhrase) return;
     const len = target.length;
     const revealed = Math.floor(Math.max(0, Math.min(1, progress)) * len);
-    let html = '';
+    let html = '<span class="term-dots">' + TERMINAL_IDLE_DOTS + '</span><span class="term-plain"> </span>';
     for (let i = 0; i < len; i += 1) {
       const ch = target.charAt(i);
       if (i < revealed || ch === ' ') {
@@ -368,7 +374,36 @@
         html += '<span class="term-scramble">' + escapeHtmlChar(rnd) + '</span>';
       }
     }
+    html += '<span class="term-plain"> </span><span class="term-dots">' + TERMINAL_IDLE_DOTS + '</span>';
     terminalIdlePhrase.innerHTML = html;
+  }
+
+  function paintDecodedPhrase(text) {
+    if (!terminalIdlePhrase) return;
+    let body = '';
+    const raw = String(text || '');
+    for (let i = 0; i < raw.length; i += 1) {
+      body += '<span class="term-plain">' + escapeHtmlChar(raw.charAt(i)) + '</span>';
+    }
+    terminalIdlePhrase.innerHTML =
+      '<span class="term-dots">' +
+      TERMINAL_IDLE_DOTS +
+      '</span><span class="term-plain"> </span>' +
+      body +
+      '<span class="term-plain"> </span><span class="term-dots">' +
+      TERMINAL_IDLE_DOTS +
+      '</span>';
+  }
+
+  function pickTerminalIdleYPct() {
+    const bands = TERMINAL_IDLE_Y_BANDS;
+    if (!bands.length) return 70;
+    let idx = Math.floor(Math.random() * bands.length);
+    if (bands.length > 1 && idx === terminalIdleLastYBand) {
+      idx = (idx + 1 + Math.floor(Math.random() * (bands.length - 1))) % bands.length;
+    }
+    terminalIdleLastYBand = idx;
+    return bands[idx];
   }
 
   function escapeHtmlChar(ch) {
@@ -384,8 +419,8 @@
     const text = TERMINAL_IDLE_EXAMPLES[terminalIdleExampleIdx % TERMINAL_IDLE_EXAMPLES.length];
     terminalIdleExampleIdx += 1;
     const zoneW = terminalIdleZone.clientWidth || 320;
-    // Y: random between ~mid height and near bottom (never top).
-    const yPct = randomBetween(52, 88);
+    // Y: distinct mid→bottom lanes (noticeable vertical spread, never top).
+    const yPct = pickTerminalIdleYPct();
     terminalIdlePhrase.hidden = false;
     terminalIdlePhrase.removeAttribute('data-decoded');
     terminalIdlePhrase.setAttribute('data-full', text);
@@ -421,15 +456,15 @@
       if (scrambleProgress < 1) {
         paintScrambleText(active.text, scrambleProgress);
       } else if (terminalIdlePhrase.getAttribute('data-decoded') !== '1') {
-        terminalIdlePhrase.textContent = active.text;
+        paintDecodedPhrase(active.text);
         terminalIdlePhrase.setAttribute('data-decoded', '1');
       }
       terminalIdlePhrase.style.transform = 'translate3d(' + active.x + 'px, -50%, 0)';
 
       const phraseW = terminalIdlePhrase.offsetWidth || 0;
       const zoneW = terminalIdleZone.clientWidth || 320;
-      // Despawn once past the earlier left dissolve (~mid), not the far edge.
-      if (active.x + phraseW < zoneW * 0.28) {
+      // Despawn once into the earlier left dissolve band.
+      if (active.x + phraseW < zoneW * 0.42) {
         terminalIdlePhrase.removeAttribute('data-decoded');
         clearTerminalIdlePhrase();
         terminalIdleActive = null;
@@ -448,8 +483,8 @@
       const text = TERMINAL_IDLE_EXAMPLES[0];
       terminalIdlePhrase.hidden = false;
       terminalIdlePhrase.setAttribute('data-full', text);
-      terminalIdlePhrase.textContent = text;
-      terminalIdlePhrase.style.top = '70%';
+      paintDecodedPhrase(text);
+      terminalIdlePhrase.style.top = '72%';
       terminalIdlePhrase.style.transform = 'translate3d(12%, -50%, 0)';
       return;
     }
