@@ -126,6 +126,19 @@
     promoCode: null,
     promos: [],
   };
+  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,productPrefix:string,disclaimer:string,legalName:string,inn:string,name:string,tagPrefixes:string[]}} */
+  let auchanDeeplink = {
+    enabled: false,
+    admitadBase: '',
+    erid: '',
+    searchPrefix: 'https://www.auchan.ru/search/?query=',
+    productPrefix: 'https://www.auchan.ru/product/',
+    disclaimer: '',
+    legalName: 'ООО «АШАН»',
+    inn: '7703270067',
+    name: 'Ашан',
+    tagPrefixes: ['auchan', 'ashan'],
+  };
   let userTurns = 0;
   let selectedMode = 'normal';
 
@@ -339,7 +352,7 @@
 
   /**
    * Build Admitad deeplink: search URL → double-encode into admitadBase as ulp=.
-   * Base must be Admitad webmaster (kdbov… / dorinebeaumont… / uuwgc… / xmknb… / naiawork…), never raw merchant landing.
+   * Base must be Admitad webmaster (kdbov… / dorinebeaumont… / uuwgc… / xmknb… / naiawork… / rthsu…), never raw merchant landing.
    */
   function buildAdmitadUlpUrl(productName, cfg) {
     const name = String(productName || '').trim();
@@ -347,6 +360,35 @@
     const prefix = String((cfg && cfg.searchPrefix) || '').trim();
     if (!name || !base || !prefix) return null;
     const target = `${prefix}${encodeURIComponent(name)}`;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+  }
+
+  /** Ашан: product/{slug} → /product/{slug}/; else search ?query=. */
+  function resolveAuchanTargetUrl(label) {
+    const raw = String(label || '').trim();
+    if (!raw) return null;
+    let key = raw.toLowerCase().replace(/^\/+/, '');
+    key = key.replace(/^product\//i, '').replace(/\/+$/, '');
+    const isProductPath =
+      (/^[a-z0-9][a-z0-9_-]*$/i.test(key) && /[-_]/.test(key)) ||
+      (/^product\//i.test(raw) && /^[a-z0-9][a-z0-9_-]*$/i.test(key));
+    if (isProductPath) {
+      const productPrefix = String(
+        auchanDeeplink.productPrefix || 'https://www.auchan.ru/product/'
+      ).replace(/\/?$/, '/');
+      return `${productPrefix}${key}/`;
+    }
+    const prefix = String(
+      auchanDeeplink.searchPrefix || 'https://www.auchan.ru/search/?query='
+    );
+    return `${prefix}${encodeURIComponent(raw)}`;
+  }
+
+  function buildAuchanAdmitadUrl(label) {
+    const target = resolveAuchanTargetUrl(label);
+    const base = String(auchanDeeplink.admitadBase || '').trim();
+    if (!target || !base) return null;
     const sep = base.includes('?') ? '&' : '?';
     return `${base}${sep}ulp=${encodeURIComponent(target)}`;
   }
@@ -483,8 +525,14 @@
       const gfPrefixes = (growfoodDeeplink.tagPrefixes || ['growfood', 'gf']).map((p) =>
         String(p).toLowerCase()
       );
+      const auchanPrefixes = (auchanDeeplink.tagPrefixes || ['auchan', 'ashan']).map((p) =>
+        String(p).toLowerCase()
+      );
       if (fishPrefixes.includes(prefix)) {
         return { kind: 'product', label, store: 'vipfish' };
+      }
+      if (auchanPrefixes.includes(prefix)) {
+        return { kind: 'product', label, store: 'auchan' };
       }
       if (befitPrefixes.includes(prefix)) {
         return { kind: 'product', label, store: 'befit' };
@@ -514,6 +562,7 @@
 
   function storePartnerId(store) {
     if (store === 'vipfish') return 'vazhnaya-ryba';
+    if (store === 'auchan') return 'auchan';
     if (store === 'befit') return 'befit';
     if (store === 'hvalwaters') return 'hvalwaters';
     if (store === 'growfood') return 'growfood';
@@ -523,6 +572,7 @@
 
   function storeDisplayName(store) {
     if (store === 'vipfish') return vipfishDeeplink.name || 'Важная рыба';
+    if (store === 'auchan') return auchanDeeplink.name || 'Ашан';
     if (store === 'befit') return befitDeeplink.name || 'BeFit';
     if (store === 'hvalwaters') return hvalwatersDeeplink.name || 'Хваловская вода';
     if (store === 'growfood') return growfoodDeeplink.name || 'GrowFood';
@@ -549,6 +599,7 @@
     if (partnerId) a.dataset.partner = partnerId;
     const name = storeDisplayName(hit.store);
     if (hit.store === 'vipfish') a.title = `${name} — поиск`;
+    else if (hit.store === 'auchan') a.title = `${name} — поиск / товар`;
     else if (hit.store === 'befit') a.title = `${name} — программа / поиск`;
     else if (hit.store === 'hvalwaters') a.title = `${name} — товар / поиск`;
     else if (hit.store === 'growfood') a.title = `${name} — линейка / каталог`;
@@ -567,7 +618,7 @@
   }
 
   /**
-   * Strip [[product]] / [[vipfish:…]] / [[befit:…]] / [[hval:…]] / [[growfood:…]] from prose
+   * Strip [[product]] / [[vipfish:…]] / [[auchan:…]] / [[befit:…]] / [[hval:…]] / [[growfood:…]] from prose
    * (plain names); collect Admitad chips for the cart block under the message. Hide [[partner:id]].
    * Incomplete trailing [[… stays plain text while streaming.
    * @param {string} text
@@ -588,6 +639,8 @@
         href = buildAdmitadUlpUrl(parsed.label, vkusvillDeeplink);
       } else if (allowChips && parsed.kind === 'product' && parsed.store === 'vipfish' && vipfishDeeplink.enabled) {
         href = buildAdmitadUlpUrl(parsed.label, vipfishDeeplink);
+      } else if (allowChips && parsed.kind === 'product' && parsed.store === 'auchan' && auchanDeeplink.enabled) {
+        href = buildAuchanAdmitadUrl(parsed.label);
       } else if (allowChips && parsed.kind === 'product' && parsed.store === 'befit' && befitDeeplink.enabled) {
         href = buildBefitAdmitadUrl(parsed.label);
       } else if (
@@ -619,6 +672,7 @@
     let cursor = 0;
     let vvCount = 0;
     let fishCount = 0;
+    let auchanCount = 0;
     let befitCount = 0;
     let hvalCount = 0;
     let gfCount = 0;
@@ -641,6 +695,7 @@
         pushText(hit.label);
         chips.push({ label: hit.label, store: hit.store, href: hit.href });
         if (hit.store === 'vipfish') fishCount += 1;
+        else if (hit.store === 'auchan') auchanCount += 1;
         else if (hit.store === 'befit') befitCount += 1;
         else if (hit.store === 'hvalwaters') hvalCount += 1;
         else if (hit.store === 'growfood') gfCount += 1;
@@ -663,6 +718,10 @@
       const line = disclosureLine(vipfishDeeplink, 'ООО «Кейтеринг-Рент»');
       if (line) disclosures.push(line);
     }
+    if (auchanCount >= 1) {
+      const line = disclosureLine(auchanDeeplink, 'ООО «АШАН»');
+      if (line) disclosures.push(line);
+    }
     if (befitCount >= 1) {
       const line = disclosureLine(befitDeeplink, 'ООО «АЛ-МУЛК»');
       if (line) disclosures.push(line);
@@ -681,6 +740,7 @@
     if (gfCount >= 1) primaryStore = 'growfood';
     else if (hvalCount >= 1) primaryStore = 'hvalwaters';
     else if (befitCount >= 1) primaryStore = 'befit';
+    else if (auchanCount >= 1) primaryStore = 'auchan';
     else if (fishCount >= 1) primaryStore = 'vipfish';
     else if (vvCount >= 1) primaryStore = 'vkusvill';
 
@@ -688,7 +748,7 @@
       fragment: root,
       chips,
       primaryStore,
-      linkCount: vvCount + fishCount + befitCount + hvalCount + gfCount,
+      linkCount: vvCount + fishCount + auchanCount + befitCount + hvalCount + gfCount,
       disclosures,
       erid:
         gfCount >= 1
@@ -697,11 +757,13 @@
             ? hvalwatersDeeplink.erid || ''
             : befitCount >= 1
               ? befitDeeplink.erid || ''
-              : fishCount >= 1
-                ? vipfishDeeplink.erid || ''
-                : vvCount >= 1
-                  ? vkusvillDeeplink.erid || ''
-                  : '',
+              : auchanCount >= 1
+                ? auchanDeeplink.erid || ''
+                : fishCount >= 1
+                  ? vipfishDeeplink.erid || ''
+                  : vvCount >= 1
+                    ? vkusvillDeeplink.erid || ''
+                    : '',
     };
   }
 
@@ -1152,6 +1214,24 @@
           tagPrefixes: prefixes.length ? prefixes : ['growfood', 'gf'],
           promoCode: gf.promoCode ? String(gf.promoCode).trim() : null,
           promos: Array.isArray(gf.promos) ? gf.promos : [],
+        };
+      }
+      const au = data.auchanDeeplink;
+      if (au && typeof au === 'object') {
+        const prefixes = Array.isArray(au.tagPrefixes)
+          ? au.tagPrefixes.map((p) => String(p || '').trim().toLowerCase()).filter(Boolean)
+          : ['auchan', 'ashan'];
+        auchanDeeplink = {
+          enabled: Boolean(au.enabled && au.admitadBase),
+          admitadBase: String(au.admitadBase || '').trim(),
+          erid: String(au.erid || '').trim(),
+          searchPrefix: String(au.searchPrefix || 'https://www.auchan.ru/search/?query=').trim(),
+          productPrefix: String(au.productPrefix || 'https://www.auchan.ru/product/').trim(),
+          disclaimer: String(au.disclaimer || '').trim(),
+          legalName: String(au.legalName || 'ООО «АШАН»').trim(),
+          inn: String(au.inn || '7703270067').trim(),
+          name: String(au.name || 'Ашан').trim(),
+          tagPrefixes: prefixes.length ? prefixes : ['auchan', 'ashan'],
         };
       }
       scheduleYandexMetrika(data.yandexMetrikaId || window.__nkMetrikaId || '');

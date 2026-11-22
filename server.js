@@ -43,6 +43,8 @@ const YANDEX_METRIKA_ID = String(process.env.YANDEX_METRIKA_ID || '').trim();
  * BeFit: WP search https://letbefit.ru/?s= ( /search/?q= → 404); programs /programmy/{slug}/.
  * Хваловская вода: WP https://hvalwaters.ru/?s= (/search/?q= → 404); products /water/{slug}/.
  * GrowFood: order hub https://growfood.pro/new-order/ (no WP search); lines /new-order/{slug}.
+ * Ашан (auchan.ru): search https://www.auchan.ru/search/?query= (/search/?q= → home; catalogsearch → 404);
+ *   product https://www.auchan.ru/product/{slug}/. Webmaster rthsu.com (not /job/).
  */
 const VKUSVILL_SEARCH_PREFIX = 'https://vkusvill.ru/search/?q=';
 const DEFAULT_ADMITAD_VKUSVILL_BASE =
@@ -65,6 +67,15 @@ const VIPFISH_GEO_CITIES = [
   'Шушары',
   'Сестрорецк',
 ];
+
+/** Ашан (www.auchan.ru) — chips [[auchan:…]] / [[ashan:…]]. Search ?query= (verified 200). */
+const AUCHAN_SEARCH_PREFIX = 'https://www.auchan.ru/search/?query=';
+const AUCHAN_PRODUCT_PREFIX = 'https://www.auchan.ru/product/';
+const DEFAULT_ADMITAD_AUCHAN_BASE =
+  'https://rthsu.com/g/g1f8w0wsou268e100ca0414eca7795/?erid=2bL9aMPo2e49hMef4rrTkXfiWn';
+const DEFAULT_ADMITAD_AUCHAN_ERID = '2bL9aMPo2e49hMef4rrTkXfiWn';
+/** Soft-geo: hypermarkets in MSK, SPb + many RF cities — delivery not everywhere. */
+const AUCHAN_GEO_CITIES = ['Москва', 'Санкт-Петербург'];
 
 /** BeFit (letbefit.ru) — WP search works; /search/?q= 404. Chips: [[befit:…]] / [[letbefit:…]]. */
 const BEFIT_SEARCH_PREFIX = 'https://letbefit.ru/?s=';
@@ -244,21 +255,21 @@ function eridFromUrl(raw) {
 
 /**
  * Admitad webmaster hosts only — never raw merchant landings
- * (vkusvill.ru / vipfish.ru / letbefit.ru / hvalwaters.ru / growfood.pro / gf.ru).
+ * (vkusvill.ru / vipfish.ru / letbefit.ru / hvalwaters.ru / growfood.pro / gf.ru / auchan.ru).
  * VV kdbov.com; рыба dorinebeaumont.com; BeFit uuwgc.com; Hvalwaters xmknb.com;
- * GrowFood naiawork.com; classic admitad.com also ok.
+ * GrowFood naiawork.com; Ашан rthsu.com; classic admitad.com also ok.
  */
 function looksLikeAdmitadWebmaster(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (!value) return false;
   if (
-    /vkusvill\.ru|vipfish\.ru|letbefit\.ru|hvalwaters\.ru|growfood\.pro|gf\.ru/i.test(
+    /vkusvill\.ru|vipfish\.ru|letbefit\.ru|hvalwaters\.ru|growfood\.pro|gf\.ru|auchan\.ru/i.test(
       value
     )
   ) {
     return false;
   }
-  return /kdbov\.com|dorinebeaumont\.com|uuwgc\.com|xmknb\.com|naiawork\.com|admitad\.com|ad\.admitad\.com/i.test(
+  return /kdbov\.com|dorinebeaumont\.com|uuwgc\.com|xmknb\.com|naiawork\.com|rthsu\.com|admitad\.com|ad\.admitad\.com/i.test(
     value
   );
 }
@@ -346,6 +357,64 @@ function resolveVipfishDeeplinkConfig(partners) {
     name: String((row && row.name) || 'Важная рыба'),
     cities,
     tagPrefixes: ['vipfish', 'ryba'],
+  };
+}
+
+function resolveAuchanProductSlug(label) {
+  const raw = String(label || '').trim();
+  if (!raw) return null;
+  let key = raw.toLowerCase().replace(/^\/+/, '');
+  key = key.replace(/^product\//i, '').replace(/\/+$/, '');
+  // Only ASCII product path slugs (e.g. organik-0-5), not Russian grocery names.
+  if (/^[a-z0-9][a-z0-9_-]*$/i.test(key) && /[-_]/.test(key)) {
+    return key;
+  }
+  if (/^product\//i.test(raw) && /^[a-z0-9][a-z0-9_-]*$/i.test(key)) {
+    return key;
+  }
+  return null;
+}
+
+function resolveAuchanTargetUrl(label, cfg = {}) {
+  const raw = String(label || '').trim();
+  if (!raw) return null;
+  const slug = resolveAuchanProductSlug(raw);
+  if (slug) {
+    const productPrefix = String(
+      (cfg && cfg.productPrefix) || AUCHAN_PRODUCT_PREFIX
+    ).replace(/\/?$/, '/');
+    return `${productPrefix}${slug}/`;
+  }
+  const prefix = String((cfg && cfg.searchPrefix) || AUCHAN_SEARCH_PREFIX);
+  return `${prefix}${encodeURIComponent(raw)}`;
+}
+
+function resolveAuchanDeeplinkConfig(partners) {
+  const row =
+    findPartnerRow(partners, 'auchan') ||
+    findPartnerRow(partners, 'ashan') ||
+    findPartnerRow(partners, 'ашан');
+  const geoFromPartner = Array.isArray(row && row.geo) ? row.geo : null;
+  const cities =
+    geoFromPartner && geoFromPartner.length
+      ? geoFromPartner.map((c) => String(c || '').trim()).filter(Boolean)
+      : AUCHAN_GEO_CITIES.slice();
+  const cfg = resolveAdmitadDeeplinkConfig({
+    partners: row ? [row] : partners,
+    partnerId: (row && row.id) || 'auchan',
+    envBaseKey: 'ADMITAD_AUCHAN_BASE',
+    envEridKey: 'ADMITAD_AUCHAN_ERID',
+    defaultBase: DEFAULT_ADMITAD_AUCHAN_BASE,
+    defaultErid: DEFAULT_ADMITAD_AUCHAN_ERID,
+    searchPrefix: AUCHAN_SEARCH_PREFIX,
+  });
+  return {
+    ...cfg,
+    id: 'auchan',
+    name: String((row && row.name) || 'Ашан'),
+    cities,
+    tagPrefixes: ['auchan', 'ashan'],
+    productPrefix: AUCHAN_PRODUCT_PREFIX,
   };
 }
 
@@ -801,6 +870,7 @@ loadPartners();
 // Admitad bases refresh on next process start — rare).
 const VKUSVILL_DEEPLINK = resolveVkusvillDeeplinkConfig(loadPartners());
 const VIPFISH_DEEPLINK = resolveVipfishDeeplinkConfig(loadPartners());
+const AUCHAN_DEEPLINK = resolveAuchanDeeplinkConfig(loadPartners());
 const BEFIT_DEEPLINK = resolveBefitDeeplinkConfig(loadPartners());
 const HVALWATERS_DEEPLINK = resolveHvalwatersDeeplinkConfig(loadPartners());
 const GROWFOOD_DEEPLINK = resolveGrowfoodDeeplinkConfig(loadPartners());
@@ -1582,6 +1652,20 @@ app.get('/api/config', (_req, res) => {
       inn: GROWFOOD_DEEPLINK.inn,
       name: GROWFOOD_DEEPLINK.name,
     },
+    /** Ашан (auchan.ru) — hypermarkets MSK/SPb+RF; chips [[auchan:…]] / [[ashan:…]]. */
+    auchanDeeplink: {
+      enabled: AUCHAN_DEEPLINK.enabled,
+      admitadBase: AUCHAN_DEEPLINK.admitadBase,
+      erid: AUCHAN_DEEPLINK.erid,
+      searchPrefix: AUCHAN_DEEPLINK.searchPrefix,
+      productPrefix: AUCHAN_DEEPLINK.productPrefix,
+      cities: AUCHAN_DEEPLINK.cities,
+      tagPrefixes: AUCHAN_DEEPLINK.tagPrefixes,
+      disclaimer: AUCHAN_DEEPLINK.disclaimer,
+      legalName: AUCHAN_DEEPLINK.legalName,
+      inn: AUCHAN_DEEPLINK.inn,
+      name: AUCHAN_DEEPLINK.name,
+    },
   });
 });
 
@@ -1609,6 +1693,15 @@ function buildVipfishAdmitadUrl(productName, cfg = VIPFISH_DEEPLINK) {
     ...(cfg || {}),
     searchPrefix: (cfg && cfg.searchPrefix) || VIPFISH_SEARCH_PREFIX,
   });
+}
+
+/** Ашан: product/{slug}/ → /product/{slug}/; else search ?query=. */
+function buildAuchanAdmitadUrl(label, cfg = AUCHAN_DEEPLINK) {
+  const target = resolveAuchanTargetUrl(label, cfg || AUCHAN_DEEPLINK);
+  const base = normalizeAdmitadBase(cfg && cfg.admitadBase);
+  if (!target || !base) return null;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}ulp=${encodeURIComponent(target)}`;
 }
 
 /** BeFit: program slug → /programmy/{slug}/; else WP search ?s=. */
@@ -1669,8 +1762,14 @@ function parseBotProductTag(inner) {
     const gfPrefixes = (GROWFOOD_DEEPLINK.tagPrefixes || ['growfood', 'gf']).map((p) =>
       String(p).toLowerCase()
     );
+    const auchanPrefixes = (AUCHAN_DEEPLINK.tagPrefixes || ['auchan', 'ashan']).map((p) =>
+      String(p).toLowerCase()
+    );
     if (fishPrefixes.includes(prefix)) {
       return { kind: 'product', label, store: 'vipfish' };
+    }
+    if (auchanPrefixes.includes(prefix)) {
+      return { kind: 'product', label, store: 'auchan' };
     }
     if (befitPrefixes.includes(prefix)) {
       return { kind: 'product', label, store: 'befit' };
@@ -1689,6 +1788,7 @@ function parseBotProductTag(inner) {
 
 function botStoreDisplayName(store) {
   if (store === 'vipfish') return VIPFISH_DEEPLINK.name || 'Важная рыба';
+  if (store === 'auchan') return AUCHAN_DEEPLINK.name || 'Ашан';
   if (store === 'befit') return BEFIT_DEEPLINK.name || 'BeFit';
   if (store === 'hvalwaters') return HVALWATERS_DEEPLINK.name || 'Хваловская вода';
   if (store === 'growfood') return GROWFOOD_DEEPLINK.name || 'GrowFood';
@@ -1702,6 +1802,9 @@ function botBuildChipHref(store, label) {
   }
   if (store === 'vipfish' && VIPFISH_DEEPLINK.enabled) {
     return buildVipfishAdmitadUrl(label, VIPFISH_DEEPLINK);
+  }
+  if (store === 'auchan' && AUCHAN_DEEPLINK.enabled) {
+    return buildAuchanAdmitadUrl(label, AUCHAN_DEEPLINK);
   }
   if (store === 'befit' && BEFIT_DEEPLINK.enabled) {
     return buildBefitAdmitadUrl(label, BEFIT_DEEPLINK);
@@ -1718,6 +1821,7 @@ function botBuildChipHref(store, label) {
 function botStoreDeeplinkCfg(store) {
   if (store === 'vkusvill') return { cfg: VKUSVILL_DEEPLINK, fallback: 'АО «ВкусВилл»' };
   if (store === 'vipfish') return { cfg: VIPFISH_DEEPLINK, fallback: 'ООО «Кейтеринг-Рент»' };
+  if (store === 'auchan') return { cfg: AUCHAN_DEEPLINK, fallback: 'ООО «АШАН»' };
   if (store === 'befit') return { cfg: BEFIT_DEEPLINK, fallback: 'ООО «АЛ-МУЛК»' };
   if (store === 'hvalwaters') return { cfg: HVALWATERS_DEEPLINK, fallback: 'ООО «АКВАСИТИ»' };
   if (store === 'growfood') return { cfg: GROWFOOD_DEEPLINK, fallback: 'ООО «ГФ Трейд»' };
@@ -1739,6 +1843,7 @@ function botDisclosureLine(store) {
 /** Short partner name for compact Telegram ad block (unique by erid). */
 function botDisclosureShortName(store) {
   if (store === 'vkusvill') return 'ВкусВилл';
+  if (store === 'auchan') return 'Ашан';
   const { cfg, fallback } = botStoreDeeplinkCfg(store);
   const legal = String((cfg && cfg.legalName) || fallback || '').trim();
   if (legal) return legal;
@@ -1755,7 +1860,7 @@ function buildCompactAdDisclosure(storesUsed) {
   const items = [];
   /** @type {Set<string>} */
   const seenErids = new Set();
-  for (const store of ['vkusvill', 'vipfish', 'befit', 'hvalwaters', 'growfood']) {
+  for (const store of ['vkusvill', 'vipfish', 'auchan', 'befit', 'hvalwaters', 'growfood']) {
     if (!used.has(store)) continue;
     const { cfg } = botStoreDeeplinkCfg(store);
     const erid = String((cfg && cfg.erid) || '').trim();
@@ -3091,6 +3196,9 @@ module.exports = {
   buildAdmitadUlpUrl,
   buildVkusvillAdmitadUrl,
   buildVipfishAdmitadUrl,
+  buildAuchanAdmitadUrl,
+  resolveAuchanTargetUrl,
+  resolveAuchanProductSlug,
   buildBefitAdmitadUrl,
   resolveBefitTargetUrl,
   resolveBefitProgramSlug,
@@ -3104,6 +3212,7 @@ module.exports = {
   looksLikeAdmitadWebmaster,
   resolveVkusvillDeeplinkConfig,
   resolveVipfishDeeplinkConfig,
+  resolveAuchanDeeplinkConfig,
   resolveBefitDeeplinkConfig,
   resolveHvalwatersDeeplinkConfig,
   resolveGrowfoodDeeplinkConfig,
@@ -3112,6 +3221,10 @@ module.exports = {
   VIPFISH_SEARCH_PREFIX,
   VIPFISH_DEEPLINK,
   VIPFISH_GEO_CITIES,
+  AUCHAN_SEARCH_PREFIX,
+  AUCHAN_PRODUCT_PREFIX,
+  AUCHAN_DEEPLINK,
+  AUCHAN_GEO_CITIES,
   BEFIT_SEARCH_PREFIX,
   BEFIT_PROGRAM_PREFIX,
   BEFIT_DEEPLINK,
