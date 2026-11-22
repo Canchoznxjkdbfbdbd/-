@@ -1096,7 +1096,7 @@ html[data-theme='terminal'] .send:focus-visible {
   outline-color: rgba(46, 160, 67, 0.45);
 }
 
-/* Shell: left-edged transcript + type-in (not screen-centered). */
+/* Shell: type-in under brand (top-left), transcript below. */
 html[data-theme='terminal'] body:not(.page-privacy) .shell {
   position: relative;
   z-index: 1;
@@ -1105,8 +1105,8 @@ html[data-theme='terminal'] body:not(.page-privacy) .shell {
   width: min(920px, 100%);
   margin: 0;
   margin-inline: 0;
-  justify-content: flex-end;
-  padding-top: 0.75rem;
+  justify-content: flex-start;
+  padding-top: 0.45rem;
   padding-bottom: max(1.1rem, env(safe-area-inset-bottom, 0px));
   padding-left: max(1.1rem, env(safe-area-inset-left, 0px));
   padding-right: max(1.1rem, env(safe-area-inset-right, 0px));
@@ -1123,10 +1123,14 @@ html[data-theme='terminal'] body:not(.page-privacy) .chat {
   box-shadow: none;
   overflow: hidden;
   animation: none;
+  /* Composer first (order), then shell transcript. */
+  display: flex;
+  flex-direction: column;
 }
 
-/* 1+4: shell session — query line, then clean reply text. */
+/* 1+4: shell session under the type-in — query line, then clean reply text. */
 html[data-theme='terminal'] body:not(.page-privacy) .messages {
+  order: 1;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -1194,11 +1198,15 @@ html[data-theme='terminal'] body:not(.page-privacy) .msg.error .bubble {
   color: #8ebbb5;
 }
 
-/* Soft CRT compose strip — cyan phosphor type-in, quiet bezel, no theatrics. */
+/* Soft CRT compose strip — under brand, cyan phosphor, quiet bezel. */
 
 html[data-theme='terminal'] body:not(.page-privacy) .composer {
+  order: -1;
+  flex-shrink: 0;
+  margin: 0 0 0.55rem;
   border: 1px solid #1a2a2c;
   border-radius: 4px;
+  border-top: 1px solid #1a2a2c;
   background:
     linear-gradient(180deg, rgba(64, 220, 210, 0.035), transparent 42%),
     #070b0c;
@@ -1228,6 +1236,10 @@ html[data-theme='terminal'] body:not(.page-privacy) .composer textarea {
   font-size: 1.02rem;
   line-height: 1.45;
   letter-spacing: 0.01em;
+  /* Long unbroken type-in wraps instead of one horizontal run. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .composer textarea:focus {
@@ -1242,6 +1254,7 @@ html[data-theme='terminal'] body:not(.page-privacy) .composer textarea::placehol
   text-shadow: none;
 }
 
+/* Block caret: always occupies layout while shown; blink dims, never display:none. */
 html[data-theme='terminal'] body:not(.page-privacy) .term-caret {
   display: block;
   position: absolute;
@@ -1255,17 +1268,29 @@ html[data-theme='terminal'] body:not(.page-privacy) .term-caret {
   pointer-events: none;
   z-index: 2;
   opacity: 1;
+  visibility: visible;
   animation: term-caret-blink 1.05s steps(1, end) infinite;
+}
+
+html[data-theme='terminal'] body:not(.page-privacy) .term-caret.is-typing {
+  animation: none;
+  opacity: 1;
+  visibility: visible;
 }
 
 @keyframes term-caret-blink {
   0%,
   49% {
     opacity: 1;
+    /* Keep a faint footprint so the square never vanishes from the stage. */
+    background: #f4fffd;
+    box-shadow: 0 0 6px rgba(180, 255, 245, 0.35);
   }
   50%,
   100% {
-    opacity: 0;
+    opacity: 0.28;
+    background: #7ef0e4;
+    box-shadow: 0 0 3px rgba(126, 240, 228, 0.2);
   }
 }
 

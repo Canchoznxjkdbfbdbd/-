@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Smoke: Terminal = header + LTR cyan type-in + block caret + shell transcript (1+4).
+ * Smoke: Terminal = header + type-in under brand + wrap + block caret + shell (1+4).
  * Default theme paths stay card/chip based.
  */
 'use strict';
@@ -26,7 +26,7 @@ const checks = [
   ['index FOUC key', /nutrikod_theme/, indexHtml],
   ['index FOUC migrate matrix', /t === 'matrix' \|\| t === 'terminal'/, indexHtml],
   ['index metrika preserved', /114157729/, indexHtml],
-  ['index cache bust', /style\.css\?v=20261122-terminal-crt2/, indexHtml],
+  ['index cache bust', /style\.css\?v=20261122-terminal-input-top/, indexHtml],
   ['css no bubble border terminal', /msg\.assistant \.bubble \{[\s\S]*?border:\s*0/, styleCss],
   ['css terminal vars', /html\[data-theme='terminal'\]/, styleCss],
   ['css soft leaf not acid', /--leaf:\s*#3fb950/, styleCss],
@@ -40,16 +40,23 @@ const checks = [
   ['css hide partner cards on terminal', /html\[data-theme='terminal'\] \.partner/, styleCss],
   ['css shell prompt prefix', /content:\s*'nutrikod:~\$ '/, styleCss],
   ['css messages visible terminal', /body:not\(\.page-privacy\) \.messages \{/, styleCss],
+  ['css composer under brand', /justify-content:\s*flex-start/, styleCss],
+  ['css composer order top', /\.composer \{[\s\S]*?order:\s*-1/, styleCss],
+  ['css messages under type-in', /\.messages \{[\s\S]*?order:\s*1/, styleCss],
+  ['css type-in word wrap', /overflow-wrap:\s*anywhere/, styleCss],
   ['css crt composer bezel', /html\[data-theme='terminal'\] body:not\(\.page-privacy\) \.composer/, styleCss],
   ['css crt inset shadow', /inset 0 0 18px rgba\(0, 0, 0, 0\.35\)/, styleCss],
   ['css cyan phosphor text', /color:\s*#7ef0e4/, styleCss],
   ['css native caret hidden', /caret-color:\s*transparent/, styleCss],
   ['css block caret', /\.term-caret/, styleCss],
   ['css caret blink', /term-caret-blink/, styleCss],
+  ['css caret typing solid', /\.term-caret\.is-typing/, styleCss],
+  ['css caret dim not gone', /opacity:\s*0\.28/, styleCss],
   ['css left-edged shell', /margin-inline:\s*0/, styleCss],
   ['js theme storage', /THEME_STORAGE_KEY\s*=\s*'nutrikod_theme'/, scriptJs],
   ['js setTheme', /function setTheme\(/, scriptJs],
   ['js syncTermCaret', /function syncTermCaret\(/, scriptJs],
+  ['js markTermCaretTyping', /function markTermCaretTyping\(/, scriptJs],
   ['js formatTerminalPlain', /function formatTerminalPlain\(/, scriptJs],
   ['js terminal dash lists', /– /, scriptJs],
   ['js migrate matrix', /matrix.*terminal|normalizeTheme/, scriptJs],
