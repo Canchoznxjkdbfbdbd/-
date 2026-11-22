@@ -57,7 +57,10 @@ const VIPFISH_SEARCH_PREFIX = 'https://vipfish.ru/search/?q=';
 const DEFAULT_ADMITAD_VIPFISH_BASE =
   'https://dorinebeaumont.com/g/lqb6l7197z268e100ca094cf89477e/?erid=2bL9aMPo2e49hMef4peVndVUPr';
 const DEFAULT_ADMITAD_VIPFISH_ERID = '2bL9aMPo2e49hMef4peVndVUPr';
-/** Owner banner zones — soft-gate in prompt; chips use [[vipfish:…]] / [[ryba:…]]. */
+/**
+ * Owner banner «Зоны доставки заказов» (2026-11-22) — soft-gate in prompt + partners.json.geo.
+ * Chips: [[vipfish:…]] / [[ryba:…]]. Do not add cities (e.g. Зеленогорск) without owner.
+ */
 const VIPFISH_GEO_CITIES = [
   'Санкт-Петербург',
   'Мурино',
@@ -143,7 +146,7 @@ const GROWFOOD_PROGRAM_PREFIX = 'https://growfood.pro/new-order/';
 const DEFAULT_ADMITAD_GROWFOOD_BASE =
   'https://naiawork.com/g/36wusytszy268e100ca0aeb982cd0a/?erid=MvGzQC98w3Z1gMq1kxQwfCfT';
 const DEFAULT_ADMITAD_GROWFOOD_ERID = 'MvGzQC98w3Z1gMq1kxQwfCfT';
-/** Soft-geo from owner dump (MSK + SPb only for now). */
+/** Soft-geo owner lock (2026-11-22): только Москва / Санкт-Петербург — рядом с зонами Важной рыбы. */
 const GROWFOOD_GEO_CITIES = ['Москва', 'Санкт-Петербург'];
 /** Owner lines + SPA-verified /new-order/{slug} (2026-11-17). */
 const GROWFOOD_PROGRAM_SLUGS = ['super-fit', 'fit', 'daily', 'balance', 'power'];
