@@ -7,6 +7,7 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "verify:overload": "node scripts/verify-gemini-overload.js",
+    "verify:gemini-keys": "node scripts/verify-gemini-keys.js",
     "verify:stream": "node scripts/verify-stream-complete.js",
     "verify:modes": "node scripts/verify-modes.js",
     "verify:history": "node scripts/verify-chat-history.js",

@@ -19,13 +19,50 @@ app.set('trust proxy', 1);
 const GEMINI_API_ORIGIN = (
   process.env.GEMINI_API_ORIGIN || 'https://generativelanguage.googleapis.com'
 ).replace(/\/$/, '');
-/** Slot 1 = GEMINI_API_KEY, slot 2 = GEMINI_API_KEY_2 (sticky primary after successful failover). */
-const GEMINI_KEY_SLOTS = [
-  { id: 1, key: String(process.env.GEMINI_API_KEY || '').trim() },
-  { id: 2, key: String(process.env.GEMINI_API_KEY_2 || '').trim() },
-].filter((slot) => slot.key);
+/**
+ * Free-tier key pool (different Google accounts). Empty slots ignored.
+ * Sources (merged, deduped by value, order preserved):
+ *   1) GEMINI_API_KEYS=keyA,keyB,… (comma/pipe list)
+ *   2) GEMINI_API_KEY, GEMINI_API_KEY_2 … GEMINI_API_KEY_5
+ * Load: round-robin among healthy; 429/quota → cooldown, then back in pool.
+ */
+const GEMINI_KEY_SLOT_MAX = 5;
+
+function parseGeminiKeySlotsFromEnv(env = process.env) {
+  const seen = new Set();
+  const slots = [];
+  const push = (raw) => {
+    const key = String(raw || '').trim();
+    if (!key || seen.has(key)) return;
+    if (slots.length >= GEMINI_KEY_SLOT_MAX) return;
+    seen.add(key);
+    slots.push({ id: slots.length + 1, key });
+  };
+  String(env.GEMINI_API_KEYS || '')
+    .split(/[,|]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .forEach(push);
+  push(env.GEMINI_API_KEY);
+  for (let n = 2; n <= GEMINI_KEY_SLOT_MAX; n++) {
+    push(env[`GEMINI_API_KEY_${n}`]);
+  }
+  return slots;
+}
+
+const GEMINI_KEY_SLOTS = parseGeminiKeySlotsFromEnv();
 const GEMINI_API_KEY = GEMINI_KEY_SLOTS[0]?.key || '';
+/** Last key that opened a successful stream (status only — not a sticky primary). */
 let activeGeminiKeyId = GEMINI_KEY_SLOTS[0]?.id || null;
+/** Round-robin cursor over the healthy pool (advances on each new request). */
+let geminiKeyRrCursor = 0;
+/** keyId → Date.now() until which the key stays out of the healthy pool. */
+const geminiKeyCooldownUntil = new Map();
+/** How long a key rests after 429 / quota (ms). Burst/concurrency site limits stay separate. */
+const GEMINI_KEY_COOLDOWN_MS = Math.max(
+  5_000,
+  Number(process.env.GEMINI_KEY_COOLDOWN_MS) || 60_000
+);
 /** Prefer lean/fast models first under free-tier load; gemini-3.8-flash is opt-in via env. */
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 /** Default chain after the primary model when Gemini returns 503 / UNAVAILABLE. */
@@ -789,13 +826,29 @@ function sleep(ms) {
 }
 
 function geminiKeyStatus() {
-  const has1 = GEMINI_KEY_SLOTS.some((s) => s.id === 1);
-  const has2 = GEMINI_KEY_SLOTS.some((s) => s.id === 2);
+  const now = Date.now();
+  const cooling = GEMINI_KEY_SLOTS.filter(
+    (s) => (geminiKeyCooldownUntil.get(s.id) || 0) > now
+  ).map((s) => s.id);
+  const healthy = GEMINI_KEY_SLOTS.filter(
+    (s) => (geminiKeyCooldownUntil.get(s.id) || 0) <= now
+  ).map((s) => s.id);
+  const slotFlags = {};
+  for (let n = 1; n <= GEMINI_KEY_SLOT_MAX; n++) {
+    slotFlags[`key${n}`] = GEMINI_KEY_SLOTS.some((s) => s.id === n)
+      ? 'configured'
+      : 'missing';
+  }
   return {
-    key1: has1 ? 'configured' : 'missing',
-    key2: has2 ? 'configured' : 'missing',
+    ...slotFlags,
+    configured: GEMINI_KEY_SLOTS.length,
+    maxSlots: GEMINI_KEY_SLOT_MAX,
     activeKey: activeGeminiKeyId,
-    failoverReady: has1 && has2,
+    healthyKeys: healthy,
+    coolingKeys: cooling,
+    /** True when ≥2 keys configured (RR + in-request failover possible). */
+    failoverReady: GEMINI_KEY_SLOTS.length >= 2,
+    mode: 'round-robin',
   };
 }
 
@@ -803,11 +856,60 @@ function getGeminiKeySlot(id) {
   return GEMINI_KEY_SLOTS.find((s) => s.id === id) || null;
 }
 
+function isKeyHealthy(id) {
+  return (geminiKeyCooldownUntil.get(id) || 0) <= Date.now();
+}
+
+function markKeyCooldown(id, reason = 'quota') {
+  const until = Date.now() + GEMINI_KEY_COOLDOWN_MS;
+  geminiKeyCooldownUntil.set(id, until);
+  console.warn(
+    `[gemini] key ${id} cooldown ${GEMINI_KEY_COOLDOWN_MS}ms (${reason}) until=${new Date(until).toISOString()}`
+  );
+}
+
+function clearKeyCooldown(id) {
+  geminiKeyCooldownUntil.delete(id);
+}
+
+/** Test helper: reset RR cursor + cooldowns (does not re-read env). */
+function resetGeminiKeyRotationForTests() {
+  geminiKeyRrCursor = 0;
+  geminiKeyCooldownUntil.clear();
+  activeGeminiKeyId = GEMINI_KEY_SLOTS[0]?.id || null;
+}
+
+function healthyGeminiKeySlots() {
+  return GEMINI_KEY_SLOTS.filter((s) => isKeyHealthy(s.id));
+}
+
+/**
+ * Ordered slots for one request: round-robin start among healthy keys, then the rest.
+ * If every key is cooling, fall back to soonest-to-revive order (still attempt).
+ */
 function orderedGeminiKeySlots() {
   if (!GEMINI_KEY_SLOTS.length) return [];
-  const primary = getGeminiKeySlot(activeGeminiKeyId) || GEMINI_KEY_SLOTS[0];
-  const rest = GEMINI_KEY_SLOTS.filter((s) => s.id !== primary.id);
-  return [primary, ...rest];
+  let pool = healthyGeminiKeySlots();
+  if (!pool.length) {
+    pool = [...GEMINI_KEY_SLOTS].sort(
+      (a, b) =>
+        (geminiKeyCooldownUntil.get(a.id) || 0) -
+        (geminiKeyCooldownUntil.get(b.id) || 0)
+    );
+    console.warn(
+      `[gemini] all ${GEMINI_KEY_SLOTS.length} key(s) in cooldown — trying soonest first`
+    );
+  }
+  const start = geminiKeyRrCursor % pool.length;
+  geminiKeyRrCursor = (start + 1) % pool.length;
+  return [...pool.slice(start), ...pool.slice(0, start)];
+}
+
+/** 429 / quota / rate — put key on cooldown and rotate. */
+function isQuotaError(status, code, message) {
+  if (status === 429) return true;
+  const blob = `${code || ''} ${message || ''}`;
+  return /RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(blob);
 }
 
 function geminiStreamUrl(model, apiKey) {
@@ -825,11 +927,11 @@ function isOverloadError(status, code, message) {
   return false;
 }
 
-/** Errors that justify one switch to the other API key. */
+/** Errors that justify trying the next key in the pool (quota, overload, network, geo). */
 function isKeyFailoverError(status, code, message) {
   if (!status) return true;
   const blob = `${code || ''} ${message || ''}`;
-  if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate/i.test(blob)) return true;
+  if (isQuotaError(status, code, message)) return true;
   if (isOverloadError(status, code, message)) return true;
   if (status === 400 && /FAILED_PRECONDITION|location is not supported/i.test(blob)) return true;
   return false;
@@ -2403,6 +2505,7 @@ async function openGeminiStreamWithKey(body, models, keySlot) {
     model: chain[0],
     keyId,
     failoverWorthy: true,
+    quotaHit: false,
   };
 
   for (let modelIndex = 0; modelIndex < chain.length; modelIndex++) {
@@ -2432,6 +2535,7 @@ async function openGeminiStreamWithKey(body, models, keySlot) {
           model,
           keyId,
           failoverWorthy: true,
+          quotaHit: false,
         };
         if (attempt < attempts - 1) {
           await sleep(OVERLOAD_BACKOFF_MS * Math.pow(2, attempt));
@@ -2452,12 +2556,14 @@ async function openGeminiStreamWithKey(body, models, keySlot) {
       const errText = await upstream.text().catch(() => '');
       const { code, message } = parseGeminiErrorBody(errText);
       const failoverWorthy = isKeyFailoverError(upstream.status, code, message);
+      const quotaHit = isQuotaError(upstream.status, code, message);
       lastFailure = {
         errorText: summarizeGeminiError(upstream.status, errText, model),
         status: upstream.status,
         model,
         keyId,
         failoverWorthy,
+        quotaHit,
       };
 
       if (isOverloadError(upstream.status, code, message)) {
@@ -2488,7 +2594,8 @@ async function openGeminiStreamWithKey(body, models, keySlot) {
 }
 
 /**
- * Open a Gemini SSE stream with dual-key failover (one switch on 429/503/network/geo).
+ * Open a Gemini SSE stream: round-robin among healthy keys; on 429/quota cooldown + next;
+ * on other failover-worthy errors try remaining healthy keys in the same request.
  * @param {object} body request JSON
  * @param {string[]} [models] override chain (e.g. stick to one model on MAX_TOKENS continue)
  */
@@ -2505,23 +2612,32 @@ async function openGeminiStream(body, models = GEMINI_MODEL_CHAIN) {
   }
 
   let lastFailure = null;
+  const tried = new Set();
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i];
+    if (tried.has(slot.id)) continue;
+    tried.add(slot.id);
     const result = await openGeminiStreamWithKey(body, models, slot);
     if (result?.upstream) {
+      clearKeyCooldown(slot.id);
       if (activeGeminiKeyId !== slot.id) {
         console.info(
-          `[gemini] primary key switched ${activeGeminiKeyId || 'n/a'} → ${slot.id}`
+          `[gemini] last-ok key ${activeGeminiKeyId || 'n/a'} → ${slot.id} (rr, not sticky)`
         );
-        activeGeminiKeyId = slot.id;
       }
+      activeGeminiKeyId = slot.id;
       return result;
     }
     lastFailure = result;
-    const canFailover = i === 0 && slots.length > 1 && result?.failoverWorthy === true;
-    if (canFailover) {
+    const status = result?.status || 0;
+    if (result?.quotaHit) {
+      markKeyCooldown(slot.id, `status=${status}`);
+    }
+    const canRotate =
+      result?.failoverWorthy === true && i < slots.length - 1;
+    if (canRotate) {
       console.warn(
-        `[gemini] key ${slot.id} failed (status=${result.status || 0}) — one failover to key ${slots[1].id}`
+        `[gemini] key ${slot.id} failed (status=${status}) — try next healthy ${slots[i + 1].id} (${i + 2}/${slots.length})`
       );
       continue;
     }
@@ -3284,7 +3400,9 @@ if (require.main === module) {
       console.log(
         `НутриКод worker pid=${process.pid} on http://127.0.0.1:${PORT} (keys: ${
           GEMINI_KEY_SLOTS.length
-        }, active: ${activeGeminiKeyId || 'n/a'}, origin: ${GEMINI_API_ORIGIN}, model: ${GEMINI_MODEL}, chain: ${GEMINI_MODEL_CHAIN.join('→')})`
+        } [${GEMINI_KEY_SLOTS.map((s) => s.id).join(',')}] rr+cooldown=${GEMINI_KEY_COOLDOWN_MS}ms, last-ok: ${
+          activeGeminiKeyId || 'n/a'
+        }, origin: ${GEMINI_API_ORIGIN}, model: ${GEMINI_MODEL}, chain: ${GEMINI_MODEL_CHAIN.join('→')})`
       );
     });
   }
@@ -3295,6 +3413,13 @@ module.exports = {
   parseModelChain,
   isOverloadError,
   isKeyFailoverError,
+  isQuotaError,
+  geminiKeyStatus,
+  orderedGeminiKeySlots,
+  markKeyCooldown,
+  clearKeyCooldown,
+  isKeyHealthy,
+  healthyGeminiKeySlots,
   summarizeGeminiError,
   openGeminiStream,
   openGeminiStreamWithKey,
@@ -3314,6 +3439,10 @@ module.exports = {
   parseBotProductTag,
   GEMINI_API_ORIGIN,
   GEMINI_KEY_SLOTS,
+  GEMINI_KEY_SLOT_MAX,
+  GEMINI_KEY_COOLDOWN_MS,
+  parseGeminiKeySlotsFromEnv,
+  resetGeminiKeyRotationForTests,
   pickPartner,
   isLivePartner,
   partnerPayload,
