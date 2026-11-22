@@ -20,14 +20,37 @@ const GEMINI_API_ORIGIN = (
   process.env.GEMINI_API_ORIGIN || 'https://generativelanguage.googleapis.com'
 ).replace(/\/$/, '');
 /**
- * Free-tier key pool: GEMINI_API_KEY / _2 / _3 (empty slots ignored).
- * Load spreads via round-robin among healthy keys; 429/quota → cooldown, then back in pool.
+ * Free-tier key pool (different Google accounts). Empty slots ignored.
+ * Sources (merged, deduped by value, order preserved):
+ *   1) GEMINI_API_KEYS=keyA,keyB,… (comma/pipe list)
+ *   2) GEMINI_API_KEY, GEMINI_API_KEY_2 … GEMINI_API_KEY_5
+ * Load: round-robin among healthy; 429/quota → cooldown, then back in pool.
  */
-const GEMINI_KEY_SLOTS = [
-  { id: 1, key: String(process.env.GEMINI_API_KEY || '').trim() },
-  { id: 2, key: String(process.env.GEMINI_API_KEY_2 || '').trim() },
-  { id: 3, key: String(process.env.GEMINI_API_KEY_3 || '').trim() },
-].filter((slot) => slot.key);
+const GEMINI_KEY_SLOT_MAX = 5;
+
+function parseGeminiKeySlotsFromEnv(env = process.env) {
+  const seen = new Set();
+  const slots = [];
+  const push = (raw) => {
+    const key = String(raw || '').trim();
+    if (!key || seen.has(key)) return;
+    if (slots.length >= GEMINI_KEY_SLOT_MAX) return;
+    seen.add(key);
+    slots.push({ id: slots.length + 1, key });
+  };
+  String(env.GEMINI_API_KEYS || '')
+    .split(/[,|]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .forEach(push);
+  push(env.GEMINI_API_KEY);
+  for (let n = 2; n <= GEMINI_KEY_SLOT_MAX; n++) {
+    push(env[`GEMINI_API_KEY_${n}`]);
+  }
+  return slots;
+}
+
+const GEMINI_KEY_SLOTS = parseGeminiKeySlotsFromEnv();
 const GEMINI_API_KEY = GEMINI_KEY_SLOTS[0]?.key || '';
 /** Last key that opened a successful stream (status only — not a sticky primary). */
 let activeGeminiKeyId = GEMINI_KEY_SLOTS[0]?.id || null;
@@ -803,9 +826,6 @@ function sleep(ms) {
 }
 
 function geminiKeyStatus() {
-  const has1 = GEMINI_KEY_SLOTS.some((s) => s.id === 1);
-  const has2 = GEMINI_KEY_SLOTS.some((s) => s.id === 2);
-  const has3 = GEMINI_KEY_SLOTS.some((s) => s.id === 3);
   const now = Date.now();
   const cooling = GEMINI_KEY_SLOTS.filter(
     (s) => (geminiKeyCooldownUntil.get(s.id) || 0) > now
@@ -813,11 +833,16 @@ function geminiKeyStatus() {
   const healthy = GEMINI_KEY_SLOTS.filter(
     (s) => (geminiKeyCooldownUntil.get(s.id) || 0) <= now
   ).map((s) => s.id);
+  const slotFlags = {};
+  for (let n = 1; n <= GEMINI_KEY_SLOT_MAX; n++) {
+    slotFlags[`key${n}`] = GEMINI_KEY_SLOTS.some((s) => s.id === n)
+      ? 'configured'
+      : 'missing';
+  }
   return {
-    key1: has1 ? 'configured' : 'missing',
-    key2: has2 ? 'configured' : 'missing',
-    key3: has3 ? 'configured' : 'missing',
+    ...slotFlags,
     configured: GEMINI_KEY_SLOTS.length,
+    maxSlots: GEMINI_KEY_SLOT_MAX,
     activeKey: activeGeminiKeyId,
     healthyKeys: healthy,
     coolingKeys: cooling,
@@ -845,6 +870,13 @@ function markKeyCooldown(id, reason = 'quota') {
 
 function clearKeyCooldown(id) {
   geminiKeyCooldownUntil.delete(id);
+}
+
+/** Test helper: reset RR cursor + cooldowns (does not re-read env). */
+function resetGeminiKeyRotationForTests() {
+  geminiKeyRrCursor = 0;
+  geminiKeyCooldownUntil.clear();
+  activeGeminiKeyId = GEMINI_KEY_SLOTS[0]?.id || null;
 }
 
 function healthyGeminiKeySlots() {
@@ -3407,7 +3439,10 @@ module.exports = {
   parseBotProductTag,
   GEMINI_API_ORIGIN,
   GEMINI_KEY_SLOTS,
+  GEMINI_KEY_SLOT_MAX,
   GEMINI_KEY_COOLDOWN_MS,
+  parseGeminiKeySlotsFromEnv,
+  resetGeminiKeyRotationForTests,
   pickPartner,
   isLivePartner,
   partnerPayload,
