@@ -15,7 +15,7 @@
     <link rel="canonical" href="https://nutricode.online/" />
     <meta name="robots" content="index, follow" />
     <meta name="yandex-verification" content="ahqu5907aej2onyu" />
-    <meta name="theme-color" content="#1f6b4f" />
+    <meta name="theme-color" content="#1f6b4f" id="theme-color-meta" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -43,7 +43,20 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/fonts.css" />
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/style.css?v=20261122-matrix" />
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem('nutrikod_theme') === 'matrix') {
+            document.documentElement.setAttribute('data-theme', 'matrix');
+            var m = document.getElementById('theme-color-meta');
+            if (m) m.setAttribute('content', '#0d1117');
+          }
+        } catch (e) {
+          /* ignore */
+        }
+      })();
+    </script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -59,6 +72,7 @@
     </script>
   </head>
   <body>
+    <canvas id="matrix-rain" class="matrix-rain" aria-hidden="true" hidden></canvas>
     <div class="atmosphere" aria-hidden="true">
       <div class="atmosphere-photo"></div>
       <div class="atmosphere-wash"></div>
@@ -79,9 +93,19 @@
         </div>
         <span class="brand-word">НутриКод</span>
       </div>
-      <button type="button" id="clear-chat" class="clear-chat" hidden aria-expanded="false">
-        Очистить чат
-      </button>
+      <div class="top-actions">
+        <div class="theme-toggle" role="group" aria-label="Тема оформления">
+          <button type="button" class="theme-btn" data-theme-choice="default" aria-pressed="true">
+            Обычная
+          </button>
+          <button type="button" class="theme-btn" data-theme-choice="matrix" aria-pressed="false">
+            Матрица
+          </button>
+        </div>
+        <button type="button" id="clear-chat" class="clear-chat" hidden aria-expanded="false">
+          Очистить чат
+        </button>
+      </div>
     </header>
 
     <main class="shell">
@@ -165,8 +189,8 @@
       </p>
     </footer>
 
-    <script src="/history-store.js?v=20261120-admin-metrika" defer></script>
-    <script src="/script.js?v=20261120-admin-metrika" defer></script>
+    <script src="/history-store.js?v=20261122-matrix" defer></script>
+    <script src="/script.js?v=20261122-matrix" defer></script>
 
     <!-- Yandex.Metrika: JS loads after chat boot from script.js (async, timeout). -->
     <noscript
