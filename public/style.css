@@ -184,7 +184,7 @@ body {
   height: 100%;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.14;
+  opacity: 0.1;
 }
 
 .clear-chat {
@@ -993,8 +993,9 @@ html[data-theme='matrix'] {
   --ink: #b3d4b3;
   --ink-soft: #9fbf9f;
   --muted: #2ea043;
-  --leaf: #00ff41;
-  --leaf-deep: #00ff41;
+  /* Soft accent — dosed green, easier on eyes than neon acid */
+  --leaf: #3fb950;
+  --leaf-deep: #3fb950;
   --mist: rgba(18, 24, 31, 0.88);
   --line: #30363d;
   --user-bg: rgba(46, 160, 67, 0.1);
@@ -1039,7 +1040,7 @@ html[data-theme='matrix'] .atmosphere-wash::after {
 html[data-theme='matrix'] .top {
   position: relative;
   z-index: 1;
-  color: var(--leaf);
+  color: var(--ink);
 }
 
 html[data-theme='matrix'] .shell,
@@ -1053,6 +1054,10 @@ html[data-theme='matrix'] .brand-hero {
   text-indent: 0.12em;
   color: var(--leaf);
   font-weight: 600;
+}
+
+html[data-theme='matrix'] .brand-word {
+  color: var(--ink);
 }
 
 html[data-theme='matrix'] .eyebrow,
@@ -1077,13 +1082,13 @@ html[data-theme='matrix'] .theme-btn {
 }
 
 html[data-theme='matrix'] .theme-btn:hover {
-  color: var(--leaf);
-  background: rgba(0, 255, 65, 0.06);
+  color: var(--ink);
+  background: rgba(46, 160, 67, 0.1);
 }
 
 html[data-theme='matrix'] .theme-btn[aria-pressed='true'] {
   color: #0d1117;
-  background: var(--leaf);
+  background: var(--muted);
 }
 
 html[data-theme='matrix'] .clear-chat {
@@ -1093,9 +1098,9 @@ html[data-theme='matrix'] .clear-chat {
 }
 
 html[data-theme='matrix'] .clear-chat:hover:not(:disabled) {
-  color: var(--leaf);
+  color: var(--ink);
   border-color: var(--muted);
-  background: rgba(0, 255, 65, 0.06);
+  background: rgba(46, 160, 67, 0.1);
 }
 
 html[data-theme='matrix'] .chat {
@@ -1136,9 +1141,9 @@ html[data-theme='matrix'] .product-chip,
 html[data-theme='matrix'] .cart-block-first-order-btn,
 html[data-theme='matrix'] .feedback button {
   border-radius: 2px;
-  border-color: var(--leaf);
+  border-color: var(--muted);
   background: transparent;
-  color: var(--leaf);
+  color: var(--ink);
 }
 
 html[data-theme='matrix'] .starter-chip:hover:not(:disabled),
@@ -1146,8 +1151,8 @@ html[data-theme='matrix'] .mode-chip:hover,
 html[data-theme='matrix'] .product-chip:hover,
 html[data-theme='matrix'] .cart-block-first-order-btn:hover,
 html[data-theme='matrix'] .feedback button:hover {
-  background: var(--leaf);
-  color: #0d1117;
+  background: rgba(46, 160, 67, 0.18);
+  color: var(--ink);
   border-color: var(--leaf);
   text-decoration: none;
   transform: none;
@@ -1155,9 +1160,9 @@ html[data-theme='matrix'] .feedback button:hover {
 
 html[data-theme='matrix'] .mode-chip[aria-checked='true'],
 html[data-theme='matrix'] .feedback button[aria-pressed='true'] {
-  background: var(--leaf);
+  background: var(--muted);
   color: #0d1117;
-  border-color: var(--leaf);
+  border-color: var(--muted);
 }
 
 html[data-theme='matrix'] .mode-bar {
@@ -1188,14 +1193,15 @@ html[data-theme='matrix'] .composer textarea::placeholder {
 
 html[data-theme='matrix'] .send {
   border-radius: 2px;
-  border: 1px solid var(--leaf);
+  border: 1px solid var(--muted);
   background: transparent;
   color: var(--leaf);
 }
 
 html[data-theme='matrix'] .send:hover:not(:disabled) {
-  background: var(--leaf);
+  background: var(--muted);
   color: #0d1117;
+  border-color: var(--muted);
   transform: none;
 }
 
@@ -1228,7 +1234,7 @@ html[data-theme='matrix'] .partner {
 
 html[data-theme='matrix'] .partner a,
 html[data-theme='matrix'] .legal-link {
-  color: var(--leaf);
+  color: var(--muted);
 }
 
 html[data-theme='matrix'] .legal-link-muted {
@@ -1250,13 +1256,13 @@ html[data-theme='matrix'] .privacy-card {
 
 html[data-theme='matrix'] .privacy-return {
   background: transparent;
-  color: var(--leaf);
-  border: 1px solid var(--leaf);
+  color: var(--ink);
+  border: 1px solid var(--muted);
   border-radius: 2px;
 }
 
 html[data-theme='matrix'] .privacy-return:hover {
-  background: var(--leaf);
+  background: var(--muted);
   color: #0d1117;
 }
 
@@ -1268,7 +1274,7 @@ html[data-theme='matrix'] .cart-block-first-order-btn:focus-visible,
 html[data-theme='matrix'] .clear-chat:focus-visible,
 html[data-theme='matrix'] .send:focus-visible,
 html[data-theme='matrix'] .legal-link:focus-visible {
-  outline-color: rgba(0, 255, 65, 0.55);
+  outline-color: rgba(46, 160, 67, 0.55);
 }
 
 @media (prefers-reduced-motion: reduce) {

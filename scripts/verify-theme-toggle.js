@@ -12,6 +12,7 @@ const indexHtml = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
 const styleCss = fs.readFileSync(path.join(root, 'public/style.css'), 'utf8');
 const scriptJs = fs.readFileSync(path.join(root, 'public/script.js'), 'utf8');
 
+/** @type {[string, RegExp, string, boolean?][]} */
 const checks = [
   ['index theme toggle', /data-theme-choice="default"/, indexHtml],
   ['index matrix choice', /data-theme-choice="matrix"/, indexHtml],
@@ -19,10 +20,12 @@ const checks = [
   ['index FOUC key', /nutrikod_theme/, indexHtml],
   ['index metrika preserved', /114157729/, indexHtml],
   ['css matrix vars', /html\[data-theme='matrix'\]/, styleCss],
+  ['css soft leaf not acid', /--leaf:\s*#3fb950/, styleCss],
   ['css first-order matrix', /cart-block-first-order[\s\S]*#0f2418/, styleCss],
   ['js theme storage', /THEME_STORAGE_KEY\s*=\s*'nutrikod_theme'/, scriptJs],
   ['js setTheme', /function setTheme\(/, scriptJs],
   ['js matrix rain', /function startMatrixRain\(/, scriptJs],
+  ['js rain slow', /fallSpeed\s*=\s*0\.28/, scriptJs],
 ];
 
 let failed = 0;
@@ -33,6 +36,13 @@ for (const [name, re, src] of checks) {
   } else {
     console.log(`ok: ${name}`);
   }
+}
+
+if (/#00ff41|#00FF41/.test(styleCss)) {
+  console.error('FAIL: css still has acid #00FF41');
+  failed += 1;
+} else {
+  console.log('ok: css no acid accent');
 }
 
 if (failed) {
