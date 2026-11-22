@@ -6,6 +6,8 @@
  */
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const {
   buildGrowfoodAdmitadUrl,
   buildBefitAdmitadUrl,
@@ -32,6 +34,8 @@ const {
   VIPFISH_DEEPLINK,
 } = require('../server');
 
+const OWNER_GROWFOOD_GEO = ['Москва', 'Санкт-Петербург'];
+
 assert.strictEqual(GROWFOOD_SEARCH_PREFIX, 'https://growfood.pro/new-order/');
 assert.strictEqual(GROWFOOD_CATALOG_URL, 'https://growfood.pro/new-order/');
 assert.strictEqual(GROWFOOD_PROGRAM_PREFIX, 'https://growfood.pro/new-order/');
@@ -44,10 +48,16 @@ assert.ok(GROWFOOD_DEEPLINK.tagPrefixes.includes('growfood'));
 assert.ok(GROWFOOD_DEEPLINK.tagPrefixes.includes('gf'));
 assert.ok(GROWFOOD_DEEPLINK.cities.includes('Москва'));
 assert.ok(GROWFOOD_DEEPLINK.cities.includes('Санкт-Петербург'));
-assert.deepStrictEqual(
-  GROWFOOD_GEO_CITIES.slice().sort(),
-  ['Москва', 'Санкт-Петербург'].sort()
+assert.deepStrictEqual(GROWFOOD_GEO_CITIES.slice().sort(), OWNER_GROWFOOD_GEO.slice().sort());
+assert.deepStrictEqual(GROWFOOD_DEEPLINK.cities.slice().sort(), OWNER_GROWFOOD_GEO.slice().sort());
+assert.strictEqual(GROWFOOD_GEO_CITIES.length, 2);
+
+const partners = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', 'partners.json'), 'utf8')
 );
+const gfRow = partners.find((p) => p && p.id === 'growfood');
+assert.ok(gfRow, 'partners.json growfood');
+assert.deepStrictEqual((gfRow.geo || []).slice().sort(), OWNER_GROWFOOD_GEO.slice().sort());
 assert.ok(/ГФ Трейд/.test(String(GROWFOOD_DEEPLINK.legalName || GROWFOOD_DEEPLINK.disclaimer || '')));
 assert.strictEqual(GROWFOOD_DEEPLINK.inn, '7811715411');
 assert.strictEqual(GROWFOOD_DEEPLINK.promoCode, null);

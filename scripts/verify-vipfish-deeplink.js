@@ -6,6 +6,8 @@
  */
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const {
   buildVipfishAdmitadUrl,
   buildVkusvillAdmitadUrl,
@@ -19,6 +21,18 @@ const {
   VKUSVILL_DEEPLINK,
 } = require('../server');
 
+const OWNER_VIPFISH_ZONES = [
+  'Бугры',
+  'Всеволожск',
+  'Кудрово',
+  'Мурино',
+  'Петергоф',
+  'Пушкин',
+  'Санкт-Петербург',
+  'Сестрорецк',
+  'Шушары',
+];
+
 assert.strictEqual(VIPFISH_SEARCH_PREFIX, 'https://vipfish.ru/search/?q=');
 assert.ok(VIPFISH_DEEPLINK.enabled);
 assert.ok(VIPFISH_DEEPLINK.admitadBase.includes('dorinebeaumont.com'));
@@ -28,20 +42,19 @@ assert.ok(Array.isArray(VIPFISH_DEEPLINK.cities));
 assert.ok(VIPFISH_DEEPLINK.cities.includes('Санкт-Петербург'));
 assert.ok(VIPFISH_DEEPLINK.cities.includes('Мурино'));
 assert.ok(VIPFISH_DEEPLINK.cities.includes('Кудрово'));
-assert.deepStrictEqual(
-  VIPFISH_GEO_CITIES.slice().sort(),
-  [
-    'Бугры',
-    'Всеволожск',
-    'Кудрово',
-    'Мурино',
-    'Петергоф',
-    'Пушкин',
-    'Санкт-Петербург',
-    'Сестрорецк',
-    'Шушары',
-  ].sort()
+assert.deepStrictEqual(VIPFISH_GEO_CITIES.slice().sort(), OWNER_VIPFISH_ZONES.slice().sort());
+assert.deepStrictEqual(VIPFISH_DEEPLINK.cities.slice().sort(), OWNER_VIPFISH_ZONES.slice().sort());
+
+const partners = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', 'partners.json'), 'utf8')
 );
+const vipfishRow = partners.find((p) => p && p.id === 'vazhnaya-ryba');
+assert.ok(vipfishRow, 'partners.json vazhnaya-ryba');
+assert.deepStrictEqual(
+  (vipfishRow.geo || []).slice().sort(),
+  OWNER_VIPFISH_ZONES.slice().sort()
+);
+assert.ok(!/Зеленогорск/.test(JSON.stringify(vipfishRow.geo || [])));
 assert.ok(VIPFISH_DEEPLINK.tagPrefixes.includes('vipfish'));
 assert.ok(VIPFISH_DEEPLINK.tagPrefixes.includes('ryba'));
 assert.ok(/Кейтеринг-Рент/.test(String(VIPFISH_DEEPLINK.legalName || VIPFISH_DEEPLINK.disclaimer || '')));
