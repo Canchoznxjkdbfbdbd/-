@@ -39,6 +39,7 @@
   const messagesEl = document.getElementById('messages');
   const form = document.getElementById('composer');
   const input = document.getElementById('input');
+  const termCaret = document.getElementById('term-caret');
   const sendBtn = document.getElementById('send');
   const clearChatBtn = document.getElementById('clear-chat');
   const communityVkLink = document.getElementById('community-vk');
@@ -277,6 +278,7 @@
   }
 
   function setTheme(id, { persist = true } = {}) {
+    const prev = activeTheme;
     activeTheme = normalizeTheme(id);
     if (activeTheme === 'terminal') {
       document.documentElement.setAttribute('data-theme', 'terminal');
@@ -290,7 +292,107 @@
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
     if (persist) persistTheme(activeTheme);
-    syncSessionChrome();
+    // Re-paint transcript so Terminal shell text vs default cards stay in sync.
+    if (prev !== activeTheme && !streaming && hasUserMessage()) {
+      renderRestoredHistory({ messages: history, partnerShown, userTurns });
+    } else {
+      syncSessionChrome();
+    }
+    syncTermCaret();
+  }
+
+  /** Mirror node for measuring caret offset inside the terminal textarea. */
+  let termCaretMirror = null;
+
+  function ensureTermCaretMirror() {
+    if (termCaretMirror && termCaretMirror.isConnected) return termCaretMirror;
+    termCaretMirror = document.createElement('div');
+    termCaretMirror.setAttribute('aria-hidden', 'true');
+    termCaretMirror.style.cssText =
+      'position:absolute;visibility:hidden;pointer-events:none;white-space:pre-wrap;word-wrap:break-word;overflow:hidden;top:0;left:0;z-index:-1;';
+    const field = input && input.parentElement;
+    if (field) field.appendChild(termCaretMirror);
+    return termCaretMirror;
+  }
+
+  function syncTermCaret() {
+    if (!termCaret || !input) return;
+    const show =
+      activeTheme === 'terminal' &&
+      document.activeElement === input &&
+      !input.disabled &&
+      !streaming;
+    if (!show) {
+      termCaret.hidden = true;
+      return;
+    }
+
+    const field = input.parentElement;
+    if (!field) return;
+    const mirror = ensureTermCaretMirror();
+    const style = window.getComputedStyle(input);
+    const copyProps = [
+      'boxSizing',
+      'fontFamily',
+      'fontSize',
+      'fontWeight',
+      'fontStyle',
+      'letterSpacing',
+      'lineHeight',
+      'paddingTop',
+      'paddingRight',
+      'paddingBottom',
+      'paddingLeft',
+      'borderTopWidth',
+      'borderRightWidth',
+      'borderBottomWidth',
+      'borderLeftWidth',
+      'textAlign',
+      'direction',
+      'textTransform',
+      'textIndent',
+      'whiteSpace',
+      'wordSpacing',
+      'wordBreak',
+      'overflowWrap',
+    ];
+    for (const prop of copyProps) {
+      mirror.style[prop] = style[prop];
+    }
+    // Overlay the textarea box so marker coords map 1:1 (minus scroll).
+    mirror.style.top = `${input.offsetTop}px`;
+    mirror.style.left = `${input.offsetLeft}px`;
+    mirror.style.width = `${input.clientWidth}px`;
+    mirror.style.height = `${input.clientHeight}px`;
+
+    const pos = input.selectionEnd ?? input.value.length;
+    const before = input.value.slice(0, pos);
+    const marker = document.createElement('span');
+    marker.textContent = '\u200b';
+    mirror.textContent = '';
+    mirror.appendChild(document.createTextNode(before));
+    mirror.appendChild(marker);
+    if (before.endsWith('\n')) mirror.appendChild(document.createTextNode('\u200b'));
+
+    const fieldRect = field.getBoundingClientRect();
+    const markerRect = marker.getBoundingClientRect();
+    const lineH = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.45;
+    const caretH = Math.max(14, Math.round(lineH * 0.9));
+    const caretW = Math.max(8, Math.round(Number.parseFloat(style.fontSize) * 0.58));
+
+    let top = markerRect.top - fieldRect.top - input.scrollTop;
+    let left = markerRect.left - fieldRect.left - input.scrollLeft;
+    const minTop = input.offsetTop + (Number.parseFloat(style.paddingTop) || 0) * 0.1;
+    const minLeft = input.offsetLeft + (Number.parseFloat(style.paddingLeft) || 0) * 0.1;
+    const maxTop = input.offsetTop + input.clientHeight - caretH;
+    const maxLeft = input.offsetLeft + input.clientWidth - caretW;
+    top = Math.min(Math.max(top, minTop), maxTop);
+    left = Math.min(Math.max(left, minLeft), maxLeft);
+
+    termCaret.style.width = `${caretW}px`;
+    termCaret.style.height = `${caretH}px`;
+    termCaret.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+    termCaret.hidden = false;
   }
 
   function setMode(id, { persist = true } = {}) {
@@ -353,6 +455,7 @@
   function autoGrow() {
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+    syncTermCaret();
   }
 
   /**
@@ -990,8 +1093,44 @@
     btn.dataset.offer = 'firstOrder';
   }
 
+  /**
+   * Terminal 1+4: strip markdown chrome to plain RU shell text.
+   * Lists become «– …»; no code fences / headings / emphasis markers.
+   */
+  function formatTerminalPlain(text) {
+    let s = String(text || '');
+    s = s.replace(/```[\w-]*\n?([\s\S]*?)```/g, (_, body) => String(body || '').replace(/\s+$/g, ''));
+    s = s.replace(/`([^`]+)`/g, '$1');
+    s = s.replace(/^#{1,6}\s+/gm, '');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '$1');
+    s = s.replace(/__([^_]+)__/g, '$1');
+    s = s.replace(/\*([^*\n]+)\*/g, '$1');
+    s = s.replace(/_([^_\n]+)_/g, '$1');
+    s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    s = s.replace(/^\s*>\s?/gm, '');
+    s = s.replace(/^\s*(-{3,}|\*{3,}|_{3,})\s*$/gm, '');
+    s = s.replace(/^\s*[-*+]\s+/gm, '– ');
+    s = s.replace(/^\s*\d+[.)]\s+/gm, '– ');
+    // Collapse leftover blank runs from stripped markdown blocks.
+    s = s.replace(/\n{3,}/g, '\n\n');
+    return s.replace(/^\s+|\s+$/g, '');
+  }
+
+  function clearTerminalExtras(wrap) {
+    if (!wrap) return;
+    wrap.querySelectorAll(':scope > .cart-block, :scope > .partner, :scope > .ad-disclosure, :scope > .feedback').forEach((el) => {
+      el.remove();
+    });
+  }
+
   /** Paint assistant bubble: plain names in prose; chips + soft CTA in cart block under the message. */
   function fillAssistantBubble(bubble, text, wrap, opts = {}) {
+    // Terminal: clean shell text only — no markdown cards / chips / partner plaques.
+    if (activeTheme === 'terminal') {
+      bubble.textContent = formatTerminalPlain(stripBracketTags(text));
+      clearTerminalExtras(wrap);
+      return;
+    }
     // First user turn (starter / opening) — never paint cart chips even if the model dumped [[tags]].
     const allowChips = opts.allowChips != null ? Boolean(opts.allowChips) : userTurns >= 2;
     const { fragment, chips, primaryStore, disclosures } = renderProductDeeplinks(text, { allowChips });
@@ -1009,7 +1148,7 @@
     bubble.className = 'bubble';
     wrap.appendChild(bubble);
 
-    if (role === 'assistant' && opts.feedback) {
+    if (role === 'assistant' && opts.feedback && activeTheme !== 'terminal') {
       const fb = document.createElement('div');
       fb.className = 'feedback';
       fb.innerHTML =
@@ -1034,6 +1173,8 @@
 
     if (role === 'assistant' && !opts.notice && !opts.error) {
       fillAssistantBubble(bubble, text, wrap);
+    } else if (role === 'assistant' && activeTheme === 'terminal') {
+      bubble.textContent = formatTerminalPlain(text);
     } else {
       bubble.textContent = text;
     }
@@ -1055,6 +1196,8 @@
   /** Quiet offer below the assistant bubble — nest into cart block when present. */
   function attachPartner(wrap, partner) {
     if (!partner || !wrap) return;
+    // Terminal keeps clean shell text — no partner cards.
+    if (activeTheme === 'terminal') return;
     if (!isRealPartnerLink(partner.link)) return;
     // One promo plaque per reply.
     if (wrap.querySelector('.partner')) return;
@@ -1376,6 +1519,7 @@
     streaming = true;
     sendBtn.disabled = true;
     syncSessionChrome();
+    syncTermCaret();
 
     let full = '';
     let gotToken = false;
@@ -1590,6 +1734,7 @@
       syncSessionChrome();
       // Focus composer for typing; do not scroll the transcript to cart.
       input.focus({ preventScroll: true });
+      syncTermCaret();
     }
   }
 
@@ -1653,6 +1798,16 @@
       form.requestSubmit();
     }
   });
+  // Terminal block caret tracks the type-in caret; ignore on default theme.
+  for (const evt of ['keyup', 'click', 'select', 'focus', 'blur', 'scroll']) {
+    input.addEventListener(evt, () => {
+      requestAnimationFrame(syncTermCaret);
+    });
+  }
+  document.addEventListener('selectionchange', () => {
+    if (document.activeElement === input) requestAnimationFrame(syncTermCaret);
+  });
+  window.addEventListener('resize', () => requestAnimationFrame(syncTermCaret));
 
   async function boot() {
     setTheme(readStoredTheme(), { persist: false });
@@ -1669,6 +1824,7 @@
       syncSessionChrome();
     }
     input.focus();
+    syncTermCaret();
   }
 
   boot();
