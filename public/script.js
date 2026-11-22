@@ -25,6 +25,7 @@
   }
 
   const MODE_STORAGE_KEY = 'nutrikod_mode';
+  const THEME_STORAGE_KEY = 'nutrikod_theme';
   /** Immediate fallback so chips are never empty before / while /api/modes loads. */
   const FALLBACK_MODES = [
     { id: 'normal', label: 'Обычный' },
@@ -44,9 +45,19 @@
   const emptyStart = document.getElementById('empty-start');
   const modeBar = document.getElementById('mode-bar');
   const modeChipsEl = document.querySelector('.mode-chips');
+  const themeBtns = Array.from(document.querySelectorAll('[data-theme-choice]'));
+  const matrixRainCanvas = document.getElementById('matrix-rain');
+  const themeColorMeta = document.getElementById('theme-color-meta');
   /** @type {HTMLButtonElement[]} */
   let modeChips = [];
   const starterChips = Array.from(document.querySelectorAll('.starter-chip'));
+
+  /** @type {'default' | 'matrix'} */
+  let activeTheme = 'default';
+  /** @type {number} */
+  let matrixRainRaf = 0;
+  /** @type {(() => void) | null} */
+  let matrixRainCleanup = null;
 
   /** @type {{role: string, content: string}[]} */
   let history = [];
@@ -244,6 +255,110 @@
     } catch {
       /* ignore */
     }
+  }
+
+  function normalizeTheme(id) {
+    return String(id || '').trim().toLowerCase() === 'matrix' ? 'matrix' : 'default';
+  }
+
+  function readStoredTheme() {
+    try {
+      return normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY));
+    } catch {
+      return 'default';
+    }
+  }
+
+  function persistTheme(id) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, id);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function prefersReducedMotion() {
+    try {
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+      return false;
+    }
+  }
+
+  function stopMatrixRain() {
+    if (matrixRainRaf) {
+      cancelAnimationFrame(matrixRainRaf);
+      matrixRainRaf = 0;
+    }
+    if (matrixRainCleanup) {
+      matrixRainCleanup();
+      matrixRainCleanup = null;
+    }
+    if (matrixRainCanvas) {
+      matrixRainCanvas.hidden = true;
+      const ctx = matrixRainCanvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, matrixRainCanvas.width, matrixRainCanvas.height);
+    }
+  }
+
+  function startMatrixRain() {
+    if (!matrixRainCanvas || prefersReducedMotion()) {
+      stopMatrixRain();
+      return;
+    }
+    stopMatrixRain();
+    matrixRainCanvas.hidden = false;
+    const ctx = matrixRainCanvas.getContext('2d');
+    if (!ctx) return;
+
+    const glyphs = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿ0123456789ﾊﾋﾌﾍﾎ';
+    const fontSize = 13;
+    /** @type {number[]} */
+    let cols = [];
+
+    const resize = () => {
+      matrixRainCanvas.width = window.innerWidth;
+      matrixRainCanvas.height = window.innerHeight;
+      cols = Array.from({ length: Math.max(1, Math.floor(matrixRainCanvas.width / fontSize)) }, () =>
+        Math.random() * 40
+      );
+    };
+
+    const draw = () => {
+      ctx.fillStyle = 'rgba(13, 17, 23, 0.12)';
+      ctx.fillRect(0, 0, matrixRainCanvas.width, matrixRainCanvas.height);
+      ctx.fillStyle = '#2ea043';
+      ctx.font = `${fontSize}px monospace`;
+      cols.forEach((y, i) => {
+        const ch = glyphs[Math.floor(Math.random() * glyphs.length)];
+        ctx.fillText(ch, i * fontSize, y * fontSize);
+        cols[i] = y * fontSize > matrixRainCanvas.height && Math.random() > 0.975 ? 0 : y + 0.85;
+      });
+      matrixRainRaf = requestAnimationFrame(draw);
+    };
+
+    resize();
+    window.addEventListener('resize', resize);
+    matrixRainCleanup = () => window.removeEventListener('resize', resize);
+    matrixRainRaf = requestAnimationFrame(draw);
+  }
+
+  function setTheme(id, { persist = true } = {}) {
+    activeTheme = normalizeTheme(id);
+    if (activeTheme === 'matrix') {
+      document.documentElement.setAttribute('data-theme', 'matrix');
+      if (themeColorMeta) themeColorMeta.setAttribute('content', '#0d1117');
+      startMatrixRain();
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      if (themeColorMeta) themeColorMeta.setAttribute('content', '#1f6b4f');
+      stopMatrixRain();
+    }
+    themeBtns.forEach((btn) => {
+      const on = btn.getAttribute('data-theme-choice') === activeTheme;
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    if (persist) persistTheme(activeTheme);
   }
 
   function setMode(id, { persist = true } = {}) {
@@ -1585,6 +1700,13 @@
     resetToFreshChat();
   });
 
+  themeBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const choice = btn.getAttribute('data-theme-choice') || 'default';
+      setTheme(choice);
+    });
+  });
+
   // Tap elsewhere cancels the armed clear — avoids accidental wipe.
   document.addEventListener('click', (e) => {
     if (!clearArmed || !clearChatBtn) return;
@@ -1601,6 +1723,7 @@
   });
 
   async function boot() {
+    setTheme(readStoredTheme(), { persist: false });
     await loadConfig();
     await loadModesFromApi();
     setMode(readStoredMode());
