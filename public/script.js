@@ -320,7 +320,7 @@
     focusActiveTypeIn();
   }
 
-  /** Soft support links: Normal uses footer; Terminal shows mono `# donate` (no amounts). */
+  /** Soft support links: Normal = footer bottom line; Terminal = fixed safe-bottom (no amounts). */
   function applySupportHrefs() {
     const base = donateUrl || DONATE_URL_DEFAULT;
     const isPlaceholder = base === '#donate' || base.startsWith('#');
@@ -495,20 +495,26 @@
   /**
    * Keep Terminal output above the mobile keyboard via visualViewport.
    * Sets --term-kb-inset to the obscured bottom strip (layout − visible).
+   * Also toggles data-term-kb so the bottom support CTA hides while the KB is up
+   * (avoids accidental taps on the thumb/keyboard edge).
    */
   function syncTermKeyboardInset() {
     const root = document.documentElement;
     if (activeTheme !== 'terminal') {
       root.style.removeProperty('--term-kb-inset');
+      root.removeAttribute('data-term-kb');
       return;
     }
     const vv = window.visualViewport;
     if (!vv) {
       root.style.removeProperty('--term-kb-inset');
+      root.removeAttribute('data-term-kb');
       return;
     }
     const obscured = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
     root.style.setProperty('--term-kb-inset', `${obscured}px`);
+    if (obscured > 48) root.setAttribute('data-term-kb', '');
+    else root.removeAttribute('data-term-kb');
   }
 
   function keepTermLiveInView() {
