@@ -993,7 +993,7 @@ html[data-theme='matrix'] {
   --ink: #b3d4b3;
   --ink-soft: #9fbf9f;
   --muted: #2ea043;
-  /* Soft accent — avoid acid #00FF41; dosed and easier on eyes */
+  /* Soft accent — dosed green, easier on eyes than neon acid */
   --leaf: #3fb950;
   --leaf-deep: #3fb950;
   --mist: rgba(18, 24, 31, 0.88);
