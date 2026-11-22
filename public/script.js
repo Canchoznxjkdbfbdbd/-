@@ -48,6 +48,7 @@
   const termLinkDock = document.getElementById('term-link-dock');
   const termLinkAd = document.getElementById('term-link-ad');
   const termLinkRow = document.getElementById('term-link-row');
+  const chatEl = document.querySelector('.chat');
   const sendBtn = document.getElementById('send');
   const clearChatBtn = document.getElementById('clear-chat');
   const communityVkLink = document.getElementById('community-vk');
@@ -315,6 +316,7 @@
       syncSessionChrome();
     }
     syncTermLive();
+    syncTermKeyboardInset();
     focusActiveTypeIn();
   }
 
@@ -470,6 +472,12 @@
   }
 
   function scrollBottom() {
+    // Terminal: .chat is the scrollport (messages overflow visible). Default: #messages.
+    if (activeTheme === 'terminal' && chatEl) {
+      markProgrammaticScroll();
+      chatEl.scrollTop = chatEl.scrollHeight;
+      return;
+    }
     if (!messagesEl) return;
     markProgrammaticScroll();
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -477,8 +485,43 @@
 
   /** Near the bottom of the transcript (user is following the latest lines). */
   function isNearBottom(threshold = 96) {
+    if (activeTheme === 'terminal' && chatEl) {
+      return chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight <= threshold;
+    }
     if (!messagesEl) return true;
     return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight <= threshold;
+  }
+
+  /**
+   * Keep Terminal output above the mobile keyboard via visualViewport.
+   * Sets --term-kb-inset to the obscured bottom strip (layout − visible).
+   */
+  function syncTermKeyboardInset() {
+    const root = document.documentElement;
+    if (activeTheme !== 'terminal') {
+      root.style.removeProperty('--term-kb-inset');
+      return;
+    }
+    const vv = window.visualViewport;
+    if (!vv) {
+      root.style.removeProperty('--term-kb-inset');
+      return;
+    }
+    const obscured = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    root.style.setProperty('--term-kb-inset', `${obscured}px`);
+  }
+
+  function keepTermLiveInView() {
+    if (activeTheme !== 'terminal' || !termLive || !chatEl) return;
+    // After keyboard inset applies, keep the live prompt in the visible scrollport.
+    requestAnimationFrame(() => {
+      termLive.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  }
+
+  function onTermViewportChange() {
+    syncTermKeyboardInset();
+    keepTermLiveInView();
   }
 
   /**
@@ -1624,7 +1667,10 @@
       if (ignoreScrollEvent) return;
       streamPinBottom = isNearBottom();
     };
-    messagesEl.addEventListener('scroll', onStreamScroll, { passive: true });
+    // Terminal scrollport is .chat; Ordinary keeps #messages.
+    const streamScrollEl =
+      activeTheme === 'terminal' && chatEl ? chatEl : messagesEl;
+    streamScrollEl.addEventListener('scroll', onStreamScroll, { passive: true });
 
     const setStatus = (next, phrase) => {
       if (gotToken || stage === 'reply') return;
@@ -1820,7 +1866,7 @@
         paint();
       }
     } finally {
-      messagesEl.removeEventListener('scroll', onStreamScroll);
+      streamScrollEl.removeEventListener('scroll', onStreamScroll);
       streamPinBottom = false;
       ignoreScrollEvent = false;
       if (ignoreScrollTimer) {
@@ -1909,8 +1955,8 @@
     termCapture.addEventListener('input', () => {
       syncTermLive();
       markTermCaretTyping();
-      // Keep the live line in view while wrapping grows.
-      if (termLive) termLive.scrollIntoView({ block: 'nearest' });
+      // Keep the live line in view while wrapping grows / keyboard is open.
+      keepTermLiveInView();
     });
     termCapture.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -1921,7 +1967,22 @@
       }
       markTermCaretTyping();
     });
+    termCapture.addEventListener('focus', () => {
+      syncTermKeyboardInset();
+      keepTermLiveInView();
+    });
+    termCapture.addEventListener('blur', () => {
+      // Keyboard closing — clear inset after the viewport settles.
+      window.setTimeout(syncTermKeyboardInset, 120);
+    });
   }
+
+  // Mobile keyboard: shrink the Terminal output zone with visualViewport.
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', onTermViewportChange);
+    window.visualViewport.addEventListener('scroll', onTermViewportChange);
+  }
+  window.addEventListener('resize', onTermViewportChange);
 
   // Click anywhere in the shell to keep typing focus on the live prompt.
   if (termLive) {

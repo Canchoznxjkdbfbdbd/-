@@ -1162,7 +1162,12 @@ html[data-theme='terminal'] body:not(.page-privacy) .shell {
   margin-inline: 0;
   justify-content: flex-start;
   padding-top: 0.45rem;
-  padding-bottom: max(1.1rem, env(safe-area-inset-bottom, 0px));
+  /* --term-kb-inset: obscured bottom from visualViewport (mobile keyboard). */
+  padding-bottom: max(
+    1.1rem,
+    env(safe-area-inset-bottom, 0px),
+    var(--term-kb-inset, 0px)
+  );
   padding-left: max(1.1rem, env(safe-area-inset-left, 0px));
   padding-right: max(1.1rem, env(safe-area-inset-right, 0px));
   gap: 0;
@@ -1307,19 +1312,26 @@ html[data-theme='terminal'] body:not(.page-privacy) .term-live-text {
   color: #7ef0e4;
 }
 
-/* Inline block caret at end of the current wrapped line — stays in layout. */
+/* Inline block caret — square right after prompt/text, no extra gap. */
 html[data-theme='terminal'] body:not(.page-privacy) .term-caret {
   display: inline-block;
-  width: 0.58em;
-  height: 1.05em;
-  margin-left: 1px;
-  vertical-align: -0.12em;
+  width: 0.55em;
+  height: 1em;
+  margin: 0;
+  padding: 0;
+  vertical-align: -0.08em;
   background: #f4fffd;
   border-radius: 1px;
   box-shadow: 0 0 6px rgba(180, 255, 245, 0.35);
   pointer-events: none;
   opacity: 1;
   animation: term-caret-blink 1.05s steps(1, end) infinite;
+}
+
+/* Hide native caret of the offscreen capture field (esp. mobile). */
+html[data-theme='terminal'] body:not(.page-privacy) .term-capture {
+  caret-color: transparent;
+  color: transparent;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .term-caret.is-typing {
@@ -1431,6 +1443,60 @@ html[data-theme='terminal'] .stream-truncated-tip {
   html[data-theme='terminal'] body:not(.page-privacy) .term-caret {
     animation: none;
     opacity: 1;
+  }
+}
+
+/*
+ * Mobile Terminal (≤480px): full-width wrap (not 50vw «ДО СЮ»), denser
+ * transcript, slightly more readable mono. Desktop mid-wrap stays above.
+ */
+@media (max-width: 480px) {
+  html[data-theme='terminal'] body:not(.page-privacy) .shell {
+    padding-top: 0.3rem;
+    padding-left: max(0.7rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.7rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(
+      0.55rem,
+      env(safe-area-inset-bottom, 0px),
+      var(--term-kb-inset, 0px)
+    );
+  }
+
+  html[data-theme='terminal'] body:not(.page-privacy) .messages {
+    gap: 0.22rem;
+    padding: 0.2rem 0 0.05rem;
+    letter-spacing: 0.012em;
+  }
+
+  html[data-theme='terminal'] body:not(.page-privacy) .msg {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  html[data-theme='terminal'] body:not(.page-privacy) .bubble {
+    font-size: 0.98rem;
+    line-height: 1.28;
+    letter-spacing: 0.012em;
+  }
+
+  html[data-theme='terminal'] body:not(.page-privacy) .term-live {
+    width: 100%;
+    max-width: 100%;
+    padding: 0.08rem 0 0.45rem;
+    font-size: 1.02rem;
+    line-height: 1.28;
+    letter-spacing: 0.014em;
+  }
+
+  html[data-theme='terminal'] body:not(.page-privacy) .term-link-dock {
+    padding: 0.4rem 0 0.1rem;
+    gap: 0.35rem;
+  }
+
+  html[data-theme='terminal'] body:not(.page-privacy) .term-link-btn {
+    font-size: 0.84rem;
+    line-height: 1.25;
+    padding: 0.24rem 0.48rem;
   }
 }
 
