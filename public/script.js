@@ -312,27 +312,30 @@
     if (!ctx) return;
 
     const glyphs = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿ0123456789ﾊﾋﾌﾍﾎ';
-    const fontSize = 13;
+    const fontSize = 14;
+    const fallSpeed = 0.28;
+    const colStep = fontSize + 4;
     /** @type {number[]} */
     let cols = [];
 
     const resize = () => {
       matrixRainCanvas.width = window.innerWidth;
       matrixRainCanvas.height = window.innerHeight;
-      cols = Array.from({ length: Math.max(1, Math.floor(matrixRainCanvas.width / fontSize)) }, () =>
+      cols = Array.from({ length: Math.max(1, Math.floor(matrixRainCanvas.width / colStep)) }, () =>
         Math.random() * 40
       );
     };
 
     const draw = () => {
-      ctx.fillStyle = 'rgba(13, 17, 23, 0.12)';
+      // Stronger trail fade + slower fall = calmer rain, less flicker.
+      ctx.fillStyle = 'rgba(13, 17, 23, 0.22)';
       ctx.fillRect(0, 0, matrixRainCanvas.width, matrixRainCanvas.height);
-      ctx.fillStyle = '#2ea043';
+      ctx.fillStyle = '#238636';
       ctx.font = `${fontSize}px monospace`;
       cols.forEach((y, i) => {
         const ch = glyphs[Math.floor(Math.random() * glyphs.length)];
-        ctx.fillText(ch, i * fontSize, y * fontSize);
-        cols[i] = y * fontSize > matrixRainCanvas.height && Math.random() > 0.975 ? 0 : y + 0.85;
+        ctx.fillText(ch, i * colStep, y * fontSize);
+        cols[i] = y * fontSize > matrixRainCanvas.height && Math.random() > 0.985 ? 0 : y + fallSpeed;
       });
       matrixRainRaf = requestAnimationFrame(draw);
     };
