@@ -315,15 +315,34 @@
     return termCaretMirror;
   }
 
+  /** While typing, keep the block caret solid (no blink); resume blink after idle. */
+  let termCaretTypingTimer = 0;
+
+  function markTermCaretTyping() {
+    if (!termCaret || termCaret.hidden) return;
+    termCaret.classList.add('is-typing');
+    if (termCaretTypingTimer) window.clearTimeout(termCaretTypingTimer);
+    termCaretTypingTimer = window.setTimeout(() => {
+      termCaretTypingTimer = 0;
+      if (termCaret) termCaret.classList.remove('is-typing');
+    }, 520);
+  }
+
   function syncTermCaret() {
     if (!termCaret || !input) return;
+    // Show on focus and while the type-in is active; keep the square in layout
+    // (never display:none during blink — only dim via CSS).
     const show =
       activeTheme === 'terminal' &&
       document.activeElement === input &&
-      !input.disabled &&
-      !streaming;
+      !input.disabled;
     if (!show) {
       termCaret.hidden = true;
+      termCaret.classList.remove('is-typing');
+      if (termCaretTypingTimer) {
+        window.clearTimeout(termCaretTypingTimer);
+        termCaretTypingTimer = 0;
+      }
       return;
     }
 
@@ -392,6 +411,7 @@
     termCaret.style.width = `${caretW}px`;
     termCaret.style.height = `${caretH}px`;
     termCaret.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+    // Keep in layout: clear hidden without toggling display during blink.
     termCaret.hidden = false;
   }
 
@@ -1791,12 +1811,17 @@
     setClearArmed(false);
   });
 
-  input.addEventListener('input', autoGrow);
+  input.addEventListener('input', () => {
+    autoGrow();
+    markTermCaretTyping();
+  });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       form.requestSubmit();
+      return;
     }
+    if (activeTheme === 'terminal') markTermCaretTyping();
   });
   // Terminal block caret tracks the type-in caret; ignore on default theme.
   for (const evt of ['keyup', 'click', 'select', 'focus', 'blur', 'scroll']) {
