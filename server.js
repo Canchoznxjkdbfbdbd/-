@@ -74,6 +74,12 @@ const AUCHAN_PRODUCT_PREFIX = 'https://www.auchan.ru/product/';
 const DEFAULT_ADMITAD_AUCHAN_BASE =
   'https://rthsu.com/g/g1f8w0wsou268e100ca0414eca7795/?erid=2bL9aMPo2e49hMef4rrTkXfiWn';
 const DEFAULT_ADMITAD_AUCHAN_ERID = '2bL9aMPo2e49hMef4rrTkXfiWn';
+/** First-order Admitad (i=3) — separate erid from search deeplink; user builds cart themselves. */
+const DEFAULT_AUCHAN_FIRST_ORDER_LINK =
+  'https://rthsu.com/g/30o5vsx0bi268e100ca0414eca7795/?i=3&erid=2bL9aMPo2e49hMef4rrUepvhzG';
+const DEFAULT_AUCHAN_FIRST_ORDER_ERID = '2bL9aMPo2e49hMef4rrUepvhzG';
+const DEFAULT_AUCHAN_FIRST_ORDER_MIN_RUB = 4000;
+const DEFAULT_AUCHAN_FIRST_ORDER_DISCOUNT_HINT = 'больше 800 ₽';
 /** Soft-geo: hypermarkets in MSK, SPb + many RF cities — delivery not everywhere. */
 const AUCHAN_GEO_CITIES = ['Москва', 'Санкт-Петербург'];
 
@@ -389,6 +395,38 @@ function resolveAuchanTargetUrl(label, cfg = {}) {
   return `${prefix}${encodeURIComponent(raw)}`;
 }
 
+/**
+ * Parse partners.json firstOrder for Ашан (landing CTA, not search deeplink).
+ * @param {object|null|undefined} row
+ * @returns {{link:string,erid:string,minOrderRub:number,discountHint:string,hint:string,cta:string}|null}
+ */
+function resolveAuchanFirstOrder(row) {
+  const raw = row && row.firstOrder && typeof row.firstOrder === 'object' ? row.firstOrder : null;
+  const link = String(
+    (raw && (raw.link || raw.url)) || DEFAULT_AUCHAN_FIRST_ORDER_LINK
+  ).trim();
+  const erid = String(
+    (raw && raw.erid) || DEFAULT_AUCHAN_FIRST_ORDER_ERID
+  ).trim();
+  if (!link || !/^https?:\/\//i.test(link)) return null;
+  // Keep first-order webmaster link as-is (may include i=3); do not strip or reuse search base.
+  if (!looksLikeAdmitadWebmaster(link) && !/rthsu\.com/i.test(link)) return null;
+  // Never reuse search deeplink erid for first-order CTA.
+  if (erid && erid === DEFAULT_ADMITAD_AUCHAN_ERID) return null;
+  const minRaw = raw && raw.minOrderRub != null ? Number(raw.minOrderRub) : NaN;
+  const minOrderRub =
+    Number.isFinite(minRaw) && minRaw > 0 ? Math.round(minRaw) : DEFAULT_AUCHAN_FIRST_ORDER_MIN_RUB;
+  const discountHint = String(
+    (raw && raw.discountHint) || DEFAULT_AUCHAN_FIRST_ORDER_DISCOUNT_HINT
+  ).trim();
+  const minFmt = String(minOrderRub).replace(/\B(?=(\d{3})+(?!\d))/g, '\u202f');
+  const hint = String((raw && (raw.hint || raw.text)) || '').trim()
+    || `Если раньше не заказывали в Ашане — на заказ от ${minFmt}\u202f₽ скидка ${discountHint}`;
+  const cta = String((raw && (raw.cta || raw.ctaLabel || raw.button)) || '').trim()
+    || 'Забрать скидку на первый заказ';
+  return { link, erid, minOrderRub, discountHint, hint, cta };
+}
+
 function resolveAuchanDeeplinkConfig(partners) {
   const row =
     findPartnerRow(partners, 'auchan') ||
@@ -415,6 +453,7 @@ function resolveAuchanDeeplinkConfig(partners) {
     cities,
     tagPrefixes: ['auchan', 'ashan'],
     productPrefix: AUCHAN_PRODUCT_PREFIX,
+    firstOrder: resolveAuchanFirstOrder(row),
   };
 }
 
@@ -1665,6 +1704,17 @@ app.get('/api/config', (_req, res) => {
       legalName: AUCHAN_DEEPLINK.legalName,
       inn: AUCHAN_DEEPLINK.inn,
       name: AUCHAN_DEEPLINK.name,
+      /** First-order landing (not search ulp); separate erid from admitadBase. */
+      firstOrder: AUCHAN_DEEPLINK.firstOrder
+        ? {
+            link: AUCHAN_DEEPLINK.firstOrder.link,
+            erid: AUCHAN_DEEPLINK.firstOrder.erid,
+            minOrderRub: AUCHAN_DEEPLINK.firstOrder.minOrderRub,
+            discountHint: AUCHAN_DEEPLINK.firstOrder.discountHint,
+            hint: AUCHAN_DEEPLINK.firstOrder.hint,
+            cta: AUCHAN_DEEPLINK.firstOrder.cta,
+          }
+        : null,
     },
   });
 });
@@ -1853,9 +1903,10 @@ function botDisclosureShortName(store) {
 /**
  * One compact legal block for Telegram (not N full «Реклама…Admitad» lines).
  * @param {Set<string>|Iterable<string>} storesUsed
+ * @param {Array<{name:string,erid:string}>} [extraItems] — e.g. Auchan first-order erid
  * @returns {string}
  */
-function buildCompactAdDisclosure(storesUsed) {
+function buildCompactAdDisclosure(storesUsed, extraItems = []) {
   const used = storesUsed instanceof Set ? storesUsed : new Set(storesUsed || []);
   const items = [];
   /** @type {Set<string>} */
@@ -1868,6 +1919,15 @@ function buildCompactAdDisclosure(storesUsed) {
     seenErids.add(erid);
     const name = botDisclosureShortName(store);
     if (!name) continue;
+    items.push(`• ${name} (erid: ${erid})`);
+  }
+  const extras = Array.isArray(extraItems) ? extraItems : [];
+  for (const extra of extras) {
+    if (!extra || typeof extra !== 'object') continue;
+    const erid = String(extra.erid || '').trim();
+    const name = String(extra.name || '').trim();
+    if (!erid || !name || seenErids.has(erid)) continue;
+    seenErids.add(erid);
     items.push(`• ${name} (erid: ${erid})`);
   }
   if (!items.length) return '';
@@ -2078,16 +2138,41 @@ function expandPartnerChipsForBot(text) {
     return parsed.label || '';
   });
 
+  // Optional Auchan first-order CTA (landing, not search deeplink) — separate erid.
+  /** @type {Array<{name:string,erid:string}>} */
+  const disclosureExtras = [];
+  const fo = AUCHAN_DEEPLINK && AUCHAN_DEEPLINK.firstOrder;
+  if (
+    fo &&
+    fo.link &&
+    storesUsed.has('auchan') &&
+    links.length < BOT_LINKS_MAX &&
+    !seenHref.has(fo.link)
+  ) {
+    seenHref.add(fo.link);
+    links.push({
+      label: fo.cta || 'Забрать скидку на первый заказ',
+      store: 'auchan',
+      url: fo.link,
+      kind: 'firstOrder',
+    });
+    if (fo.erid && fo.erid !== AUCHAN_DEEPLINK.erid) {
+      disclosureExtras.push({ name: 'Ашан, первый заказ', erid: fo.erid });
+    }
+  }
+
   if (links.length) {
     // Prefer Telegram inline buttons for URLs — keep prose clean.
     // Drop trailing bare product list that only duplicates button labels.
     out = stripTrailingDuplicateProductList(out, links);
     // Link labels stay product-name-only (bot renders buttons without store prefix).
     const programStores = new Set(['befit', 'hvalwaters', 'growfood']);
-    const onlyPrograms = links.every((l) => programStores.has(l.store));
+    const productLinks = links.filter((l) => l.kind !== 'firstOrder');
+    const onlyPrograms =
+      productLinks.length > 0 && productLinks.every((l) => programStores.has(l.store));
     const hint = onlyPrograms ? 'Ссылки ниже ↓' : 'Собрать корзину — ссылки ниже ↓';
     const lines = [hint];
-    const disclosure = buildCompactAdDisclosure(storesUsed);
+    const disclosure = buildCompactAdDisclosure(storesUsed, disclosureExtras);
     if (disclosure) {
       lines.push('');
       lines.push(disclosure);
@@ -3213,6 +3298,7 @@ module.exports = {
   resolveVkusvillDeeplinkConfig,
   resolveVipfishDeeplinkConfig,
   resolveAuchanDeeplinkConfig,
+  resolveAuchanFirstOrder,
   resolveBefitDeeplinkConfig,
   resolveHvalwatersDeeplinkConfig,
   resolveGrowfoodDeeplinkConfig,

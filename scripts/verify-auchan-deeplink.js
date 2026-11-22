@@ -27,6 +27,11 @@ assert.ok(!/auchan\.ru/i.test(AUCHAN_DEEPLINK.admitadBase));
 assert.strictEqual(AUCHAN_DEEPLINK.erid, '2bL9aMPo2e49hMef4rrTkXfiWn');
 assert.strictEqual(AUCHAN_DEEPLINK.promoCode, null);
 assert.deepStrictEqual(AUCHAN_DEEPLINK.tagPrefixes, ['auchan', 'ashan']);
+assert.ok(AUCHAN_DEEPLINK.firstOrder);
+assert.strictEqual(AUCHAN_DEEPLINK.firstOrder.erid, '2bL9aMPo2e49hMef4rrUepvhzG');
+assert.notStrictEqual(AUCHAN_DEEPLINK.firstOrder.erid, AUCHAN_DEEPLINK.erid);
+assert.ok(String(AUCHAN_DEEPLINK.firstOrder.link).includes('30o5vsx0bi'));
+assert.ok(!String(AUCHAN_DEEPLINK.admitadBase).includes('30o5vsx0bi'));
 
 const stripped = normalizeAdmitadBase(
   'https://rthsu.com/g/g1f8w0wsou268e100ca0414eca7795/?erid=2bL9aMPo2e49hMef4rrTkXfiWn&ulp=https%3A%2F%2Fold'

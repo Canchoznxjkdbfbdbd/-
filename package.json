@@ -14,6 +14,7 @@
     "verify:vkusvill": "node scripts/verify-vkusvill-deeplink.js",
     "verify:vipfish": "node scripts/verify-vipfish-deeplink.js",
     "verify:auchan": "node scripts/verify-auchan-deeplink.js",
+    "verify:auchan-first-order": "node scripts/verify-auchan-first-order.js",
     "verify:befit": "node scripts/verify-befit-deeplink.js",
     "verify:hvalwaters": "node scripts/verify-hvalwaters-deeplink.js",
     "verify:growfood": "node scripts/verify-growfood-deeplink.js",

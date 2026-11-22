@@ -196,6 +196,12 @@
     "blurb": "Гипермаркеты Ашан: МСК, СПб и многие города РФ; доставка не везде — смотри зону на сайте.",
     "legal_name": "ООО «АШАН»",
     "inn": "7703270067",
-    "disclaimer": "Реклама. ООО «АШАН», ИНН 7703270067. erid: 2bL9aMPo2e49hMef4rrTkXfiWn. Партнёрская ссылка Admitad."
+    "disclaimer": "Реклама. ООО «АШАН», ИНН 7703270067. erid: 2bL9aMPo2e49hMef4rrTkXfiWn. Партнёрская ссылка Admitad.",
+    "firstOrder": {
+      "link": "https://rthsu.com/g/30o5vsx0bi268e100ca0414eca7795/?i=3&erid=2bL9aMPo2e49hMef4rrUepvhzG",
+      "erid": "2bL9aMPo2e49hMef4rrUepvhzG",
+      "minOrderRub": 4000,
+      "discountHint": "больше 800 ₽"
+    }
   }
 ]
