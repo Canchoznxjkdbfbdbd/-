@@ -43,7 +43,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/fonts.css" />
-    <link rel="stylesheet" href="/style.css?v=20261122-terminal-header" />
+    <link rel="stylesheet" href="/style.css?v=20261122-terminal-crt" />
     <script>
       (function () {
         try {
@@ -149,14 +149,17 @@
 
         <form id="composer" class="composer" autocomplete="off">
           <label class="sr-only" for="input">Сообщение</label>
-          <textarea
-            id="input"
-            name="message"
-            rows="1"
-            maxlength="4000"
-            placeholder="Или напишите своё…"
-            required
-          ></textarea>
+          <div class="term-field">
+            <textarea
+              id="input"
+              name="message"
+              rows="1"
+              maxlength="4000"
+              placeholder="Или напишите своё…"
+              required
+            ></textarea>
+            <span id="term-caret" class="term-caret" aria-hidden="true" hidden></span>
+          </div>
           <button type="submit" id="send" class="send" aria-label="Отправить">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
               <path
@@ -190,8 +193,8 @@
       </p>
     </footer>
 
-    <script src="/history-store.js?v=20261122-terminal-header" defer></script>
-    <script src="/script.js?v=20261122-terminal-header" defer></script>
+    <script src="/history-store.js?v=20261122-terminal-crt" defer></script>
+    <script src="/script.js?v=20261122-terminal-crt" defer></script>
 
     <!-- Yandex.Metrika: JS loads after chat boot from script.js (async, timeout). -->
     <noscript

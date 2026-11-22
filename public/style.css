@@ -682,8 +682,19 @@ body {
   background: rgba(255, 255, 255, 0.55);
 }
 
+.term-field {
+  position: relative;
+  min-width: 0;
+  display: block;
+}
+
+.term-caret {
+  display: none;
+}
+
 .composer textarea {
   resize: none;
+  width: 100%;
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 0.75rem 0.85rem;
@@ -1013,14 +1024,17 @@ html[data-theme='terminal'] body:not(.page-privacy) {
   min-height: 100vh;
 }
 
-/* Terminal: only header + composer. Hide the rest of the page chrome. */
+/* Terminal: header + shell transcript + composer. Hide the rest of the page chrome. */
 html[data-theme='terminal'] body:not(.page-privacy) .atmosphere,
 html[data-theme='terminal'] body:not(.page-privacy) .hero,
-html[data-theme='terminal'] body:not(.page-privacy) .messages,
 html[data-theme='terminal'] body:not(.page-privacy) .empty-start,
 html[data-theme='terminal'] body:not(.page-privacy) .mode-bar,
 html[data-theme='terminal'] body:not(.page-privacy) .legal,
-html[data-theme='terminal'] .clear-chat {
+html[data-theme='terminal'] .clear-chat,
+html[data-theme='terminal'] .feedback,
+html[data-theme='terminal'] .cart-block,
+html[data-theme='terminal'] .partner,
+html[data-theme='terminal'] .ad-disclosure {
   display: none !important;
 }
 
@@ -1082,78 +1096,195 @@ html[data-theme='terminal'] .send:focus-visible {
   outline-color: rgba(46, 160, 67, 0.45);
 }
 
-/* Shell collapses to a quiet composer stage under the header. */
+/* Shell: left-edged transcript + type-in (not screen-centered). */
 html[data-theme='terminal'] body:not(.page-privacy) .shell {
   position: relative;
   z-index: 1;
   flex: 1;
   min-height: 0;
+  width: min(920px, 100%);
+  margin: 0;
+  margin-inline: 0;
   justify-content: flex-end;
-  padding-top: 1.5rem;
-  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+  padding-top: 0.75rem;
+  padding-bottom: max(1.1rem, env(safe-area-inset-bottom, 0px));
+  padding-left: max(1.1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1.1rem, env(safe-area-inset-right, 0px));
   gap: 0;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .chat {
+  flex: 1;
   min-height: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   backdrop-filter: none;
   box-shadow: none;
-  overflow: visible;
+  overflow: hidden;
   animation: none;
 }
 
-/* Soft CRT bezel around the compose strip — quiet phosphor, no theatrics. */
+/* 1+4: shell session — query line, then clean reply text. */
+html[data-theme='terminal'] body:not(.page-privacy) .messages {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 0.55rem;
+  padding: 0.35rem 0.15rem 0.85rem;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  color: #9adfd6;
+}
+
+html[data-theme='terminal'] body:not(.page-privacy) .msg {
+  max-width: 100%;
+  width: 100%;
+  align-self: stretch;
+  gap: 0.2rem;
+  animation: none;
+}
+
+html[data-theme='terminal'] body:not(.page-privacy) .msg.user,
+html[data-theme='terminal'] body:not(.page-privacy) .msg.assistant {
+  align-self: stretch;
+}
+
+html[data-theme='terminal'] body:not(.page-privacy) .bubble {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.98rem;
+  line-height: 1.45;
+  color: #9adfd6;
+  text-shadow: 0 0 4px rgba(90, 230, 215, 0.18);
+}
+
+html[data-theme='terminal'] body:not(.page-privacy) .msg.user .bubble {
+  color: #7ef0e4;
+  background: transparent;
+}
+
+html[data-theme='terminal'] body:not(.page-privacy) .msg.user .bubble::before {
+  content: 'nutrikod:~$ ';
+  color: #5ecfc4;
+  text-shadow: none;
+  white-space: pre;
+}
+
+html[data-theme='terminal'] body:not(.page-privacy) .msg.assistant .bubble {
+  color: #b7ebe4;
+  background: transparent;
+}
+
+html[data-theme='terminal'] body:not(.page-privacy) .msg.assistant .bubble.typing {
+  color: #6a9e98;
+  text-shadow: none;
+}
+
+html[data-theme='terminal'] body:not(.page-privacy) .msg.notice .bubble,
+html[data-theme='terminal'] body:not(.page-privacy) .msg.error .bubble {
+  background: transparent;
+  border: 0;
+  color: #8ebbb5;
+}
+
+/* Soft CRT compose strip — cyan phosphor type-in, quiet bezel, no theatrics. */
+
 html[data-theme='terminal'] body:not(.page-privacy) .composer {
-  border: 1px solid #2a3a2e;
+  border: 1px solid #1a2a2c;
   border-radius: 4px;
   background:
-    linear-gradient(180deg, rgba(63, 185, 80, 0.04), transparent 42%),
-    #101612;
+    linear-gradient(180deg, rgba(64, 220, 210, 0.035), transparent 42%),
+    #070b0c;
   box-shadow:
-    inset 0 1px 0 rgba(179, 212, 179, 0.06),
+    inset 0 1px 0 rgba(140, 230, 220, 0.05),
     inset 0 0 18px rgba(0, 0, 0, 0.35),
-    inset 0 0 0 1px rgba(16, 22, 18, 0.9);
+    inset 0 0 0 1px rgba(7, 11, 12, 0.9);
   gap: 0.5rem;
   padding: 0.7rem;
+  direction: ltr;
+  text-align: left;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .composer textarea {
-  background: #0c120e;
-  border: 1px solid #243028;
+  background: #040707;
+  border: 1px solid #152022;
   border-radius: 3px;
-  color: #b7d4b0;
+  color: #7ef0e4;
+  text-shadow: 0 0 5px rgba(90, 230, 215, 0.28);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
-  caret-color: #6fbf78;
+  /* Native caret hidden — custom square block follows the type-in. */
+  caret-color: transparent;
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: plaintext;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  font-size: 1.02rem;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .composer textarea:focus {
-  border-color: #35503b;
+  border-color: #2a4548;
   box-shadow:
     inset 0 1px 3px rgba(0, 0, 0, 0.45),
-    inset 0 0 0 1px rgba(63, 185, 80, 0.12);
+    inset 0 0 0 1px rgba(64, 220, 210, 0.1);
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .composer textarea::placeholder {
-  color: #6d7f6d;
+  color: #4d6a68;
+  text-shadow: none;
+}
+
+html[data-theme='terminal'] body:not(.page-privacy) .term-caret {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0.62em;
+  height: 1.15em;
+  background: #f4fffd;
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(180, 255, 245, 0.35);
+  pointer-events: none;
+  z-index: 2;
+  opacity: 1;
+  animation: term-caret-blink 1.05s steps(1, end) infinite;
+}
+
+@keyframes term-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .send {
   border-radius: 3px;
-  border: 1px solid #35503b;
-  background: #132018;
-  color: #8fbf8a;
-  box-shadow: inset 0 1px 0 rgba(179, 212, 179, 0.08);
+  border: 1px solid #2a4548;
+  background: #0c1618;
+  color: #7bcfc6;
+  box-shadow: inset 0 1px 0 rgba(140, 230, 220, 0.06);
   transition: none;
 }
 
 html[data-theme='terminal'] body:not(.page-privacy) .send:hover:not(:disabled) {
-  background: #183022;
-  color: #b7d4b0;
-  border-color: #3f5a44;
+  background: #122022;
+  color: #9ae8de;
+  border-color: #35565a;
   transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme='terminal'] body:not(.page-privacy) .term-caret {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /* Privacy keeps readable content under Terminal palette. */
