@@ -47,42 +47,12 @@
   const modeChipsEl = document.querySelector('.mode-chips');
   const themeBtns = Array.from(document.querySelectorAll('[data-theme-choice]'));
   const themeColorMeta = document.getElementById('theme-color-meta');
-  const terminalIdleEl = document.getElementById('terminal-idle');
-  const terminalIdleZone = document.getElementById('terminal-idle-zone');
-  const terminalIdlePhrase = document.getElementById('terminal-idle-phrase');
   /** @type {HTMLButtonElement[]} */
   let modeChips = [];
   const starterChips = Array.from(document.querySelectorAll('.starter-chip'));
 
   /** @type {'default' | 'terminal'} */
   let activeTheme = 'default';
-  /** @type {number} */
-  let terminalIdleRaf = 0;
-  let terminalIdleRunning = false;
-  /** User clicked/focused input or started typing — ticker fades out. */
-  let terminalIdleEngaged = false;
-  let terminalIdleExampleIdx = 0;
-  /** @type {null | { text: string, x: number, bornAt: number, scrambleMs: number, speed: number }} */
-  let terminalIdleActive = null;
-  /** @type {number} */
-  let terminalIdleNextAt = 0;
-  /** Last Y band index — avoid same height twice in a row. */
-  let terminalIdleLastYBand = -1;
-
-  const TERMINAL_SCRAMBLE_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ#$%&';
-  /** Visual only — click still fills data-full without these. */
-  const TERMINAL_IDLE_DOTS = '……';
-  /** Distinct mid→bottom lanes for noticeable vertical spread. */
-  const TERMINAL_IDLE_Y_BANDS = [48, 60, 72, 86];
-  /** Full example prompts — visual clip only via mask/overflow, never truncated in data. */
-  const TERMINAL_IDLE_EXAMPLES = [
-    'давай разберёмся почему у меня изжога к обеду, я встаю завариваю крепкий чай…',
-    'давай готовить лагман? только надо закупиться…',
-    'придут дети на день рождения, хотим им отдельный стол…',
-    'врач рекомендует пить витамины, а едой как пополнить…',
-    'на съёмной хате только соль и вода из-под крана — собери нормальный набор…',
-    'ужин без тяжёлого после тренировки, 30 минут максимум…',
-  ];
 
   /** @type {{role: string, content: string}[]} */
   let history = [];
@@ -183,28 +153,15 @@
     return history.some((m) => m.role === 'user');
   }
 
-  function terminalIdleEligible() {
-    return (
-      activeTheme === 'terminal' &&
-      !hasUserMessage() &&
-      !String(input?.value || '').trim() &&
-      !terminalIdleEngaged &&
-      document.activeElement !== input
-    );
-  }
-
   function syncSessionChrome() {
     const hasUser = hasUserMessage();
-    const showTerminalIdle = activeTheme === 'terminal' && !hasUser;
-    const runTicker = terminalIdleEligible();
-    // Default empty → starter chips; terminal empty → idle ticker (no chips, no mode bar).
-    if (emptyStart) emptyStart.hidden = hasUser || showTerminalIdle;
+    // Empty chat → starter chips; after first message → mode bar. Terminal hides these via CSS.
+    if (emptyStart) emptyStart.hidden = hasUser;
     if (modeBar) modeBar.hidden = !hasUser;
-    if (messagesEl) messagesEl.hidden = showTerminalIdle;
+    if (messagesEl) messagesEl.hidden = false;
     starterChips.forEach((chip) => {
       chip.disabled = streaming;
     });
-    syncTerminalIdle(showTerminalIdle, runTicker);
     syncClearButton();
   }
 
@@ -237,22 +194,15 @@
     if (!hasUser || streaming) setClearArmed(false);
   }
 
-  function focusComposerUnlessTerminalIdle() {
-    // Autofocus would engage the ticker and hide examples — skip in Terminal empty state.
-    if (activeTheme === 'terminal' && !hasUserMessage()) return;
-    input.focus();
-  }
-
   function resetToFreshChat() {
     messagesEl.innerHTML = '';
     history = [];
     partnerShown = false;
     userTurns = 0;
-    terminalIdleEngaged = false;
     if (input) input.value = '';
     if (HistoryStore) HistoryStore.clear(window.localStorage);
     syncSessionChrome();
-    focusComposerUnlessTerminalIdle();
+    input.focus();
   }
 
   function renderRestoredHistory(saved) {
@@ -326,214 +276,20 @@
     }
   }
 
-  function prefersReducedMotion() {
-    try {
-      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    } catch {
-      return false;
-    }
-  }
-
-  function randomBetween(min, max) {
-    return min + Math.random() * (max - min);
-  }
-
-  function clearTerminalIdlePhrase() {
-    if (!terminalIdlePhrase) return;
-    terminalIdlePhrase.hidden = true;
-    terminalIdlePhrase.innerHTML = '';
-    terminalIdlePhrase.removeAttribute('data-full');
-    terminalIdlePhrase.style.top = '';
-    terminalIdlePhrase.style.transform = 'translate3d(0, -50%, 0)';
-  }
-
-  function stopTerminalIdle() {
-    terminalIdleRunning = false;
-    if (terminalIdleRaf) {
-      cancelAnimationFrame(terminalIdleRaf);
-      terminalIdleRaf = 0;
-    }
-    terminalIdleActive = null;
-    terminalIdleNextAt = 0;
-    clearTerminalIdlePhrase();
-  }
-
-  function paintScrambleText(target, progress) {
-    if (!terminalIdlePhrase) return;
-    const len = target.length;
-    const revealed = Math.floor(Math.max(0, Math.min(1, progress)) * len);
-    let html = '<span class="term-dots">' + TERMINAL_IDLE_DOTS + '</span><span class="term-plain"> </span>';
-    for (let i = 0; i < len; i += 1) {
-      const ch = target.charAt(i);
-      if (i < revealed || ch === ' ') {
-        html += '<span class="term-plain">' + escapeHtmlChar(ch) + '</span>';
-      } else {
-        const rnd = TERMINAL_SCRAMBLE_CHARS.charAt(
-          Math.floor(Math.random() * TERMINAL_SCRAMBLE_CHARS.length)
-        );
-        html += '<span class="term-scramble">' + escapeHtmlChar(rnd) + '</span>';
-      }
-    }
-    html += '<span class="term-plain"> </span><span class="term-dots">' + TERMINAL_IDLE_DOTS + '</span>';
-    terminalIdlePhrase.innerHTML = html;
-  }
-
-  function paintDecodedPhrase(text) {
-    if (!terminalIdlePhrase) return;
-    let body = '';
-    const raw = String(text || '');
-    for (let i = 0; i < raw.length; i += 1) {
-      body += '<span class="term-plain">' + escapeHtmlChar(raw.charAt(i)) + '</span>';
-    }
-    terminalIdlePhrase.innerHTML =
-      '<span class="term-dots">' +
-      TERMINAL_IDLE_DOTS +
-      '</span><span class="term-plain"> </span>' +
-      body +
-      '<span class="term-plain"> </span><span class="term-dots">' +
-      TERMINAL_IDLE_DOTS +
-      '</span>';
-  }
-
-  function pickTerminalIdleYPct() {
-    const bands = TERMINAL_IDLE_Y_BANDS;
-    if (!bands.length) return 70;
-    let idx = Math.floor(Math.random() * bands.length);
-    if (bands.length > 1 && idx === terminalIdleLastYBand) {
-      idx = (idx + 1 + Math.floor(Math.random() * (bands.length - 1))) % bands.length;
-    }
-    terminalIdleLastYBand = idx;
-    return bands[idx];
-  }
-
-  function escapeHtmlChar(ch) {
-    if (ch === '&') return '&amp;';
-    if (ch === '<') return '&lt;';
-    if (ch === '>') return '&gt;';
-    if (ch === '"') return '&quot;';
-    return ch;
-  }
-
-  function spawnTerminalIdlePhrase(now) {
-    if (!terminalIdlePhrase || !terminalIdleZone) return;
-    const text = TERMINAL_IDLE_EXAMPLES[terminalIdleExampleIdx % TERMINAL_IDLE_EXAMPLES.length];
-    terminalIdleExampleIdx += 1;
-    const zoneW = terminalIdleZone.clientWidth || 320;
-    // Y: distinct mid→bottom lanes (noticeable vertical spread, never top).
-    const yPct = pickTerminalIdleYPct();
-    terminalIdlePhrase.hidden = false;
-    terminalIdlePhrase.removeAttribute('data-decoded');
-    terminalIdlePhrase.setAttribute('data-full', text);
-    terminalIdlePhrase.style.top = yPct + '%';
-    paintScrambleText(text, 0);
-    // Start just past the right edge so the mask fades it in.
-    const startX = zoneW + 24;
-    terminalIdleActive = {
-      text,
-      x: startX,
-      bornAt: now,
-      scrambleMs: randomBetween(500, 1000),
-      // Noticeably faster horizontal pass.
-      speed: randomBetween(1.55, 2.35),
-    };
-    terminalIdlePhrase.style.transform = 'translate3d(' + startX + 'px, -50%, 0)';
-  }
-
-  function scheduleNextTerminalIdle(now) {
-    // Random gap — not a metronome.
-    terminalIdleNextAt = now + randomBetween(900, 2800);
-  }
-
-  function tickTerminalIdle(now) {
-    if (!terminalIdleRunning || !terminalIdlePhrase || !terminalIdleZone) return;
-
-    if (!terminalIdleActive) {
-      if (now >= terminalIdleNextAt) spawnTerminalIdlePhrase(now);
-    } else {
-      const active = terminalIdleActive;
-      active.x -= active.speed;
-      const scrambleProgress = (now - active.bornAt) / active.scrambleMs;
-      if (scrambleProgress < 1) {
-        paintScrambleText(active.text, scrambleProgress);
-      } else if (terminalIdlePhrase.getAttribute('data-decoded') !== '1') {
-        paintDecodedPhrase(active.text);
-        terminalIdlePhrase.setAttribute('data-decoded', '1');
-      }
-      terminalIdlePhrase.style.transform = 'translate3d(' + active.x + 'px, -50%, 0)';
-
-      const phraseW = terminalIdlePhrase.offsetWidth || 0;
-      const zoneW = terminalIdleZone.clientWidth || 320;
-      // Despawn once into the earlier left dissolve band.
-      if (active.x + phraseW < zoneW * 0.42) {
-        terminalIdlePhrase.removeAttribute('data-decoded');
-        clearTerminalIdlePhrase();
-        terminalIdleActive = null;
-        scheduleNextTerminalIdle(now);
-      }
-    }
-
-    terminalIdleRaf = requestAnimationFrame(tickTerminalIdle);
-  }
-
-  function startTerminalIdle() {
-    if (!terminalIdleEl || !terminalIdlePhrase || !terminalIdleZone) return;
-    if (prefersReducedMotion()) {
-      stopTerminalIdle();
-      // Static peek: one decoded phrase, no motion.
-      const text = TERMINAL_IDLE_EXAMPLES[0];
-      terminalIdlePhrase.hidden = false;
-      terminalIdlePhrase.setAttribute('data-full', text);
-      paintDecodedPhrase(text);
-      terminalIdlePhrase.style.top = '72%';
-      terminalIdlePhrase.style.transform = 'translate3d(12%, -50%, 0)';
-      return;
-    }
-    if (terminalIdleRunning) return;
-    terminalIdleRunning = true;
-    terminalIdleActive = null;
-    terminalIdleNextAt = 0;
-    terminalIdleRaf = requestAnimationFrame(tickTerminalIdle);
-  }
-
-  function syncTerminalIdle(showShell, runTicker) {
-    if (!terminalIdleEl) return;
-    terminalIdleEl.hidden = !showShell;
-    terminalIdleEl.setAttribute('aria-hidden', showShell && runTicker ? 'false' : 'true');
-    terminalIdleEl.classList.toggle('is-paused', Boolean(showShell) && !runTicker);
-    if (showShell && runTicker) startTerminalIdle();
-    else stopTerminalIdle();
-  }
-
-  function applyTerminalIdleExample(fullText) {
-    const text = String(fullText || '').trim();
-    if (!text || !input) return;
-    input.value = text;
-    autoGrow();
-    terminalIdleEngaged = true;
-    syncSessionChrome();
-    input.focus();
-  }
-
   function setTheme(id, { persist = true } = {}) {
     activeTheme = normalizeTheme(id);
     if (activeTheme === 'terminal') {
       document.documentElement.setAttribute('data-theme', 'terminal');
       if (themeColorMeta) themeColorMeta.setAttribute('content', '#0d1117');
-      // Already in the composer → don't start the ticker under the caret.
-      if (document.activeElement === input || String(input?.value || '').trim()) {
-        terminalIdleEngaged = true;
-      }
     } else {
       document.documentElement.removeAttribute('data-theme');
       if (themeColorMeta) themeColorMeta.setAttribute('content', '#1f6b4f');
-      terminalIdleEngaged = false;
     }
     themeBtns.forEach((btn) => {
       const on = btn.getAttribute('data-theme-choice') === activeTheme;
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
     if (persist) persistTheme(activeTheme);
-    // Idle ticker depends on theme + empty chat + empty input.
     syncSessionChrome();
   }
 
@@ -1890,37 +1646,12 @@
     setClearArmed(false);
   });
 
-  input.addEventListener('input', () => {
-    autoGrow();
-    if (activeTheme === 'terminal' && !hasUserMessage()) {
-      if (String(input.value || '').trim()) terminalIdleEngaged = true;
-      syncSessionChrome();
-    }
-  });
-  input.addEventListener('focus', () => {
-    if (activeTheme === 'terminal' && !hasUserMessage()) {
-      terminalIdleEngaged = true;
-      syncSessionChrome();
-    }
-  });
-  input.addEventListener('blur', () => {
-    if (activeTheme === 'terminal' && !hasUserMessage() && !String(input.value || '').trim()) {
-      terminalIdleEngaged = false;
-      syncSessionChrome();
-    }
-  });
+  input.addEventListener('input', autoGrow);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       form.requestSubmit();
     }
-  });
-
-  terminalIdlePhrase?.addEventListener('click', () => {
-    const full =
-      terminalIdlePhrase.getAttribute('data-full') ||
-      TERMINAL_IDLE_EXAMPLES[Math.max(0, (terminalIdleExampleIdx - 1) % TERMINAL_IDLE_EXAMPLES.length)];
-    applyTerminalIdleExample(full);
   });
 
   async function boot() {
@@ -1937,7 +1668,7 @@
       history = [];
       syncSessionChrome();
     }
-    focusComposerUnlessTerminalIdle();
+    input.focus();
   }
 
   boot();

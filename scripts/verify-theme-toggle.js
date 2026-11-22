@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Smoke: soft Terminal theme switcher + horizontal idle ticker markers.
+ * Smoke: Terminal theme = header + soft CRT composer; no idle ticker.
  */
 'use strict';
 
@@ -17,35 +17,31 @@ const checks = [
   ['index theme toggle', /data-theme-choice="default"/, indexHtml],
   ['index terminal choice', /data-theme-choice="terminal"/, indexHtml],
   ['index terminal label', />\s*Терминал\s*</, indexHtml],
-  ['index idle title Терминал', /terminal-idle-title">\s*Терминал\s*</, indexHtml],
+  ['index no idle zone', /^(?![\s\S]*id="terminal-idle")[\s\S]*$/, indexHtml],
+  ['index no idle phrase', /^(?![\s\S]*id="terminal-idle-phrase")[\s\S]*$/, indexHtml],
   ['index no matrix rain canvas', /^(?![\s\S]*id="matrix-rain")[\s\S]*$/, indexHtml],
-  ['index terminal idle zone', /id="terminal-idle"/, indexHtml],
-  ['index terminal idle phrase', /id="terminal-idle-phrase"/, indexHtml],
   ['index FOUC key', /nutrikod_theme/, indexHtml],
   ['index FOUC migrate matrix', /t === 'matrix' \|\| t === 'terminal'/, indexHtml],
   ['index metrika preserved', /114157729/, indexHtml],
+  ['index cache bust', /style\.css\?v=20261122-terminal-header/, indexHtml],
   ['css terminal vars', /html\[data-theme='terminal'\]/, styleCss],
   ['css soft leaf not acid', /--leaf:\s*#3fb950/, styleCss],
   ['css soft muted', /--muted:\s*#8b9a8b/, styleCss],
-  ['css idle horizontal mask', /mask-image:\s*linear-gradient\(to right, transparent 0%, black 64%, black 84%, transparent 100%\)/, styleCss],
-  ['css webkit mask', /-webkit-mask-image:\s*linear-gradient\(to right, transparent 0%, black 64%/, styleCss],
-  ['js Y bands mid-bottom', /TERMINAL_IDLE_Y_BANDS\s*=\s*\[48,\s*60,\s*72,\s*86\]/, scriptJs],
-  ['js visual dots', /TERMINAL_IDLE_DOTS\s*=\s*'……'/, scriptJs],
-  ['js faster speed', /randomBetween\(1\.55,\s*2\.35\)/, scriptJs],
-  ['css first-order terminal', /cart-block-first-order[\s\S]*#0f2418/, styleCss],
+  ['css hide hero on terminal', /body:not\(\.page-privacy\) \.hero/, styleCss],
+  ['css hide messages on terminal', /body:not\(\.page-privacy\) \.messages/, styleCss],
+  ['css hide empty-start on terminal', /body:not\(\.page-privacy\) \.empty-start/, styleCss],
+  ['css hide mode-bar on terminal', /body:not\(\.page-privacy\) \.mode-bar/, styleCss],
+  ['css hide legal on terminal', /body:not\(\.page-privacy\) \.legal/, styleCss],
+  ['css hide clear-chat on terminal', /html\[data-theme='terminal'\] \.clear-chat/, styleCss],
+  ['css crt composer bezel', /html\[data-theme='terminal'\] body:not\(\.page-privacy\) \.composer/, styleCss],
+  ['css crt inset shadow', /inset 0 0 18px rgba\(0, 0, 0, 0\.35\)/, styleCss],
+  ['css crt textarea phosphor', /color:\s*#b7d4b0/, styleCss],
   ['js theme storage', /THEME_STORAGE_KEY\s*=\s*'nutrikod_theme'/, scriptJs],
   ['js setTheme', /function setTheme\(/, scriptJs],
   ['js migrate matrix', /matrix.*terminal|normalizeTheme/, scriptJs],
-  ['js terminal idle', /function startTerminalIdle\(/, scriptJs],
-  ['js scramble charset', /TERMINAL_SCRAMBLE_CHARS\s*=\s*'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ#\$%&'/, scriptJs],
-  ['js paint scramble', /function paintScrambleText\(/, scriptJs],
-  ['js translateX ticker', /translate3d\(/, scriptJs],
-  ['js click → input', /function applyTerminalIdleExample\(/, scriptJs],
-  ['js full phrase heartburn', /завариваю крепкий чай/, scriptJs],
-  ['js full phrase kids', /отдельный стол/, scriptJs],
-  ['js full phrase vitamins', /как пополнить/, scriptJs],
-  ['js full phrase rental', /из-под крана/, scriptJs],
-  ['js full phrase workout', /30 минут максимум/, scriptJs],
+  ['js no terminal idle', /^(?![\s\S]*startTerminalIdle)[\s\S]*$/, scriptJs],
+  ['js no scramble', /^(?![\s\S]*TERMINAL_SCRAMBLE_CHARS)[\s\S]*$/, scriptJs],
+  ['js no paint scramble', /^(?![\s\S]*paintScrambleText)[\s\S]*$/, scriptJs],
   ['js no digital rain', /^(?![\s\S]*startMatrixRain)[\s\S]*$/, scriptJs],
 ];
 
@@ -73,11 +69,19 @@ if (/data-theme-choice="matrix"|Матрица|startMatrixRain|matrix-rain/.test
   console.log('ok: no leftover Matrix UI/rain');
 }
 
-if (/terminal-idle-stream|translateY\(|addTerminalIdleLine/.test(scriptJs)) {
-  console.error('FAIL: leftover vertical idle stream markers');
+if (/terminal-idle|TERMINAL_IDLE|terminalIdle|paintScrambleText|translate3d\(/.test(scriptJs + indexHtml)) {
+  console.error('FAIL: leftover idle ticker / scramble markers');
   failed += 1;
 } else {
-  console.log('ok: no vertical idle stream leftovers');
+  console.log('ok: no idle ticker leftovers');
+}
+
+const terminalCss = styleCss.slice(styleCss.indexOf("html[data-theme='terminal']"));
+if (/repeating-linear-gradient|scanline|vignette/i.test(terminalCss)) {
+  console.error('FAIL: terminal theme has scanline/vignette patterns');
+  failed += 1;
+} else {
+  console.log('ok: terminal theme no scanline/vignette patterns');
 }
 
 if (failed) {
