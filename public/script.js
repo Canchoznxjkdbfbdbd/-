@@ -46,18 +46,31 @@
   const modeBar = document.getElementById('mode-bar');
   const modeChipsEl = document.querySelector('.mode-chips');
   const themeBtns = Array.from(document.querySelectorAll('[data-theme-choice]'));
-  const matrixRainCanvas = document.getElementById('matrix-rain');
   const themeColorMeta = document.getElementById('theme-color-meta');
+  const terminalIdleEl = document.getElementById('terminal-idle');
+  const terminalIdleZone = document.getElementById('terminal-idle-zone');
+  const terminalIdleStream = document.getElementById('terminal-idle-stream');
   /** @type {HTMLButtonElement[]} */
   let modeChips = [];
   const starterChips = Array.from(document.querySelectorAll('.starter-chip'));
 
-  /** @type {'default' | 'matrix'} */
+  /** @type {'default' | 'terminal'} */
   let activeTheme = 'default';
   /** @type {number} */
-  let matrixRainRaf = 0;
-  /** @type {(() => void) | null} */
-  let matrixRainCleanup = null;
+  let terminalIdleRaf = 0;
+  let terminalIdleRunning = false;
+  let terminalIdleY = 0;
+  let terminalIdleNextAt = 0;
+  let terminalIdleExampleIdx = 0;
+
+  const TERMINAL_IDLE_EXAMPLES = [
+    'давай разберёмся почему у меня изжога к обеду, я встаю завариваю крепкий…',
+    'давай готовить лагман? только надо закупиться…',
+    'придут дети на день рождения, хотим им отдельн…',
+    'врач рекомендует пить витамины, а едой как пополн…',
+    'на съёмной хате только соль и вода — собери нормальный набор…',
+    'ужин без тяжёлого после тренировки, 30 минут…',
+  ];
 
   /** @type {{role: string, content: string}[]} */
   let history = [];
@@ -158,17 +171,17 @@
     return history.some((m) => m.role === 'user');
   }
 
-  function setEmptyChrome(on) {
-    if (emptyStart) emptyStart.hidden = !on;
-    if (modeBar) modeBar.hidden = on;
+  function syncSessionChrome() {
+    const hasUser = hasUserMessage();
+    const showTerminalIdle = activeTheme === 'terminal' && !hasUser;
+    // Default empty → starter chips; terminal empty → idle stream (no chips, no mode bar).
+    if (emptyStart) emptyStart.hidden = hasUser || showTerminalIdle;
+    if (modeBar) modeBar.hidden = !hasUser;
+    if (messagesEl) messagesEl.hidden = showTerminalIdle;
     starterChips.forEach((chip) => {
       chip.disabled = streaming;
     });
-  }
-
-  function syncSessionChrome() {
-    const hasUser = hasUserMessage();
-    setEmptyChrome(!hasUser);
+    syncTerminalIdle(showTerminalIdle);
     syncClearButton();
   }
 
@@ -258,12 +271,17 @@
   }
 
   function normalizeTheme(id) {
-    return String(id || '').trim().toLowerCase() === 'matrix' ? 'matrix' : 'default';
+    const value = String(id || '').trim().toLowerCase();
+    // Migrate legacy "matrix" storage value → terminal.
+    return value === 'matrix' || value === 'terminal' ? 'terminal' : 'default';
   }
 
   function readStoredTheme() {
     try {
-      return normalizeTheme(localStorage.getItem(THEME_STORAGE_KEY));
+      const raw = localStorage.getItem(THEME_STORAGE_KEY);
+      const id = normalizeTheme(raw);
+      if (raw === 'matrix' && id === 'terminal') persistTheme('terminal');
+      return id;
     } catch {
       return 'default';
     }
@@ -285,83 +303,92 @@
     }
   }
 
-  function stopMatrixRain() {
-    if (matrixRainRaf) {
-      cancelAnimationFrame(matrixRainRaf);
-      matrixRainRaf = 0;
+  function stopTerminalIdle() {
+    terminalIdleRunning = false;
+    if (terminalIdleRaf) {
+      cancelAnimationFrame(terminalIdleRaf);
+      terminalIdleRaf = 0;
     }
-    if (matrixRainCleanup) {
-      matrixRainCleanup();
-      matrixRainCleanup = null;
+    if (terminalIdleStream) {
+      terminalIdleStream.innerHTML = '';
+      terminalIdleStream.style.transform = '';
     }
-    if (matrixRainCanvas) {
-      matrixRainCanvas.hidden = true;
-      const ctx = matrixRainCanvas.getContext('2d');
-      if (ctx) ctx.clearRect(0, 0, matrixRainCanvas.width, matrixRainCanvas.height);
+    terminalIdleY = 0;
+    terminalIdleNextAt = 0;
+    terminalIdleExampleIdx = 0;
+  }
+
+  function addTerminalIdleLine(text) {
+    if (!terminalIdleStream) return;
+    const p = document.createElement('p');
+    p.className = 'terminal-idle-line';
+    p.textContent = '> ' + text;
+    terminalIdleStream.appendChild(p);
+    while (terminalIdleStream.children.length > 12) {
+      terminalIdleStream.removeChild(terminalIdleStream.firstChild);
     }
   }
 
-  function startMatrixRain() {
-    if (!matrixRainCanvas || prefersReducedMotion()) {
-      stopMatrixRain();
+  function tickTerminalIdle(t) {
+    if (!terminalIdleRunning || !terminalIdleStream || !terminalIdleZone) return;
+    if (t >= terminalIdleNextAt) {
+      addTerminalIdleLine(TERMINAL_IDLE_EXAMPLES[terminalIdleExampleIdx % TERMINAL_IDLE_EXAMPLES.length]);
+      terminalIdleExampleIdx += 1;
+      terminalIdleNextAt = t + 3200 + Math.random() * 900;
+    }
+    terminalIdleY += 0.22;
+    terminalIdleStream.style.transform = 'translateY(' + -terminalIdleY + 'px)';
+    const max = terminalIdleStream.scrollHeight - terminalIdleZone.clientHeight * 0.35;
+    if (ySafe(max) && terminalIdleY > max) {
+      terminalIdleY = max * 0.15;
+      terminalIdleStream.style.transform = 'translateY(' + -terminalIdleY + 'px)';
+    }
+    terminalIdleRaf = requestAnimationFrame(tickTerminalIdle);
+  }
+
+  function ySafe(max) {
+    return typeof max === 'number' && max > 0 && Number.isFinite(max);
+  }
+
+  function startTerminalIdle() {
+    if (!terminalIdleEl || !terminalIdleStream || !terminalIdleZone) return;
+    if (prefersReducedMotion()) {
+      stopTerminalIdle();
+      // Static peek: one line, no motion.
+      addTerminalIdleLine(TERMINAL_IDLE_EXAMPLES[0]);
       return;
     }
-    stopMatrixRain();
-    matrixRainCanvas.hidden = false;
-    const ctx = matrixRainCanvas.getContext('2d');
-    if (!ctx) return;
+    if (terminalIdleRunning) return;
+    stopTerminalIdle();
+    terminalIdleRunning = true;
+    terminalIdleNextAt = 0;
+    terminalIdleRaf = requestAnimationFrame(tickTerminalIdle);
+  }
 
-    const glyphs = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿ0123456789ﾊﾋﾌﾍﾎ';
-    const fontSize = 14;
-    const fallSpeed = 0.28;
-    const colStep = fontSize + 4;
-    /** @type {number[]} */
-    let cols = [];
-
-    const resize = () => {
-      matrixRainCanvas.width = window.innerWidth;
-      matrixRainCanvas.height = window.innerHeight;
-      cols = Array.from({ length: Math.max(1, Math.floor(matrixRainCanvas.width / colStep)) }, () =>
-        Math.random() * 40
-      );
-    };
-
-    const draw = () => {
-      // Stronger trail fade + slower fall = calmer rain, less flicker.
-      ctx.fillStyle = 'rgba(13, 17, 23, 0.22)';
-      ctx.fillRect(0, 0, matrixRainCanvas.width, matrixRainCanvas.height);
-      ctx.fillStyle = '#238636';
-      ctx.font = `${fontSize}px monospace`;
-      cols.forEach((y, i) => {
-        const ch = glyphs[Math.floor(Math.random() * glyphs.length)];
-        ctx.fillText(ch, i * colStep, y * fontSize);
-        cols[i] = y * fontSize > matrixRainCanvas.height && Math.random() > 0.985 ? 0 : y + fallSpeed;
-      });
-      matrixRainRaf = requestAnimationFrame(draw);
-    };
-
-    resize();
-    window.addEventListener('resize', resize);
-    matrixRainCleanup = () => window.removeEventListener('resize', resize);
-    matrixRainRaf = requestAnimationFrame(draw);
+  function syncTerminalIdle(show) {
+    if (!terminalIdleEl) return;
+    terminalIdleEl.hidden = !show;
+    terminalIdleEl.setAttribute('aria-hidden', show ? 'false' : 'true');
+    if (show) startTerminalIdle();
+    else stopTerminalIdle();
   }
 
   function setTheme(id, { persist = true } = {}) {
     activeTheme = normalizeTheme(id);
-    if (activeTheme === 'matrix') {
-      document.documentElement.setAttribute('data-theme', 'matrix');
+    if (activeTheme === 'terminal') {
+      document.documentElement.setAttribute('data-theme', 'terminal');
       if (themeColorMeta) themeColorMeta.setAttribute('content', '#0d1117');
-      startMatrixRain();
     } else {
       document.documentElement.removeAttribute('data-theme');
       if (themeColorMeta) themeColorMeta.setAttribute('content', '#1f6b4f');
-      stopMatrixRain();
     }
     themeBtns.forEach((btn) => {
       const on = btn.getAttribute('data-theme-choice') === activeTheme;
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
     if (persist) persistTheme(activeTheme);
+    // Idle stream depends on theme + empty chat.
+    syncSessionChrome();
   }
 
   function setMode(id, { persist = true } = {}) {
