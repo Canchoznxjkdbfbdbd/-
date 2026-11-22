@@ -30,6 +30,8 @@ let activeGeminiKeyId = GEMINI_KEY_SLOTS[0]?.id || null;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 /** Default chain after the primary model when Gemini returns 503 / UNAVAILABLE. */
 const DEFAULT_FALLBACK_MODELS = ['gemini-3.6-flash'];
+/** Soft support CTA (CloudTips historically); UI-only — never injected into Gemini prompt. */
+const DONATE_URL = String(process.env.DONATE_URL || '#donate').trim() || '#donate';
 /** Single place for the VK community footer link (override via env if shortname changes). */
 const COMMUNITY_VK_URL = process.env.COMMUNITY_VK_URL || 'https://vk.ru/ai.nutricode';
 /** Yandex.Metrika counter id; empty disables /api/config advertisement. */
@@ -1614,6 +1616,7 @@ app.get('/api/config', (_req, res) => {
   res.json({
     hasKey: Boolean(GEMINI_API_KEY),
     serviceEnabled: isServiceEnabled(),
+    donateUrl: DONATE_URL,
     communityVkUrl: COMMUNITY_VK_URL,
     yandexMetrikaId: YANDEX_METRIKA_ID || null,
     brand: 'НутриКод',
