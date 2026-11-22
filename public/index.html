@@ -43,7 +43,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/fonts.css" />
-    <link rel="stylesheet" href="/style.css?v=20261122-ticker-fade2" />
+    <link rel="stylesheet" href="/style.css?v=20261122-terminal-header" />
     <script>
       (function () {
         try {
@@ -121,19 +121,6 @@
       <section class="chat" aria-label="Чат с НутриКод">
         <div id="messages" class="messages" role="log" aria-live="polite"></div>
 
-        <div id="terminal-idle" class="terminal-idle" hidden aria-hidden="true">
-          <p class="terminal-idle-title">Терминал</p>
-          <div class="terminal-idle-zone" id="terminal-idle-zone">
-            <button
-              type="button"
-              class="terminal-idle-phrase"
-              id="terminal-idle-phrase"
-              hidden
-              aria-label="Подставить пример в поле ввода"
-            ></button>
-          </div>
-        </div>
-
         <div id="empty-start" class="empty-start">
           <p class="empty-invite">С чего начнём?</p>
           <div class="starter-chips" role="group" aria-label="Быстрый старт">
@@ -203,8 +190,8 @@
       </p>
     </footer>
 
-    <script src="/history-store.js?v=20261122-ticker-fade2" defer></script>
-    <script src="/script.js?v=20261122-ticker-fade2" defer></script>
+    <script src="/history-store.js?v=20261122-terminal-header" defer></script>
+    <script src="/script.js?v=20261122-terminal-header" defer></script>
 
     <!-- Yandex.Metrika: JS loads after chat boot from script.js (async, timeout). -->
     <noscript
