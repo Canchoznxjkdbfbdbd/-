@@ -1246,6 +1246,8 @@ html[data-theme='terminal'] body:not(.page-privacy) .term-live-line {
   display: block;
   width: 100%;
   max-width: 100%;
+  /* pre-wrap keeps typed newlines; prompt+text+caret must be adjacent in HTML
+     (no whitespace between spans) so the caret sits right after «$ ». */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;

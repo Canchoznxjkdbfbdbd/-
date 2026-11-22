@@ -731,6 +731,23 @@
   }
 
   /**
+   * Hide recipe block headers (neural structure) — keep product names after the colon.
+   * Clarify-first replies have no such headers; leave them untouched.
+   */
+  function stripRecipeCategoryLabels(text) {
+    let s = String(text || '');
+    const labels = [
+      /^(?:\s*[-–•*]?\s*)?Мясо\s*\/\s*птица\s*\/\s*рыба\s*:\s*/gim,
+      /^(?:\s*[-–•*]?\s*)?Овощи\s*\/\s*крупы\s*:\s*/gim,
+      /^(?:\s*[-–•*]?\s*)?Зелень\s*:\s*/gim,
+      /^(?:\s*[-–•*]?\s*)?Специи\s*:\s*/gim,
+      /^(?:\s*[-–•*]?\s*)?Ещё(?:\s*\([^)\n]*\))?\s*:\s*/gim,
+    ];
+    for (const re of labels) s = s.replace(re, '');
+    return s;
+  }
+
+  /**
    * Strip [[product]] / [[vipfish:…]] / [[auchan:…]] / [[befit:…]] / [[hval:…]] / [[growfood:…]] from prose
    * (plain names); collect Admitad chips for the cart block under the message. Hide [[partner:id]].
    * Incomplete trailing [[… stays plain text while streaming.
@@ -1152,18 +1169,19 @@
   function fillAssistantBubble(bubble, text, wrap, opts = {}) {
     // First user turn (starter / opening) — never paint cart chips even if the model dumped [[tags]].
     const allowChips = opts.allowChips != null ? Boolean(opts.allowChips) : userTurns >= 2;
+    const visible = stripRecipeCategoryLabels(text);
 
     // Terminal: clean shell text in the transcript; product links as bottom dock buttons.
     if (activeTheme === 'terminal') {
-      const { chips, disclosures } = renderProductDeeplinks(text, { allowChips });
-      bubble.textContent = formatTerminalPlain(stripBracketTags(text));
+      const { chips, disclosures } = renderProductDeeplinks(visible, { allowChips });
+      bubble.textContent = formatTerminalPlain(stripBracketTags(visible));
       clearTerminalExtras(wrap);
       syncTermLinkDock(chips, disclosures);
       return;
     }
 
     clearTermLinkDock();
-    const { fragment, chips, primaryStore, disclosures } = renderProductDeeplinks(text, { allowChips });
+    const { fragment, chips, primaryStore, disclosures } = renderProductDeeplinks(visible, { allowChips });
     bubble.replaceChildren(fragment);
     if (wrap) {
       syncCartBlock(wrap, chips, primaryStore);

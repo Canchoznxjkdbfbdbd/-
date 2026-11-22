@@ -2054,7 +2054,26 @@ function stripTrailingDuplicateProductList(text, links) {
 }
 
 /** Max structured product links for Telegram inline keyboard (API + bot). */
-const BOT_LINKS_MAX = 10;
+const BOT_LINKS_MAX = 24;
+
+/**
+ * Hide recipe block headers (neural structure) — keep product names after the colon.
+ * Clarify-first replies have no such headers.
+ * @param {string} text
+ * @returns {string}
+ */
+function stripRecipeCategoryLabels(text) {
+  let s = String(text || '');
+  const labels = [
+    /^(?:\s*[-–•*]?\s*)?Мясо\s*\/\s*птица\s*\/\s*рыба\s*:\s*/gim,
+    /^(?:\s*[-–•*]?\s*)?Овощи\s*\/\s*крупы\s*:\s*/gim,
+    /^(?:\s*[-–•*]?\s*)?Зелень\s*:\s*/gim,
+    /^(?:\s*[-–•*]?\s*)?Специи\s*:\s*/gim,
+    /^(?:\s*[-–•*]?\s*)?Ещё(?:\s*\([^)\n]*\))?\s*:\s*/gim,
+  ];
+  for (const re of labels) s = s.replace(re, '');
+  return s;
+}
 
 /**
  * Expand [[partner chips]] for Telegram / JSON bot clients.
@@ -2065,7 +2084,7 @@ const BOT_LINKS_MAX = 10;
  * @returns {{reply:string, links:Array<{label:string,url:string,store?:string}>}}
  */
 function expandPartnerChipsForBot(text) {
-  const src = stripModelAdDisclosures(text);
+  const src = stripRecipeCategoryLabels(stripModelAdDisclosures(text));
   if (!src.includes('[[')) return { reply: src, links: [] };
 
   const re = /\[\[([^\]]+)\]\]/g;
@@ -3254,6 +3273,7 @@ module.exports = {
   SERVICE_PATH,
   expandPartnerChipsForBot,
   stripModelAdDisclosures,
+  stripRecipeCategoryLabels,
   stripTrailingDuplicateProductList,
   buildCompactAdDisclosure,
   botDisclosureShortName,
