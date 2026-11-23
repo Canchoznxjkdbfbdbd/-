@@ -90,11 +90,11 @@ const DEFAULT_ADMITAD_VKUSVILL_BASE =
   'https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx';
 const DEFAULT_ADMITAD_VKUSVILL_ERID = '2bL9aMPo2e49hMef4phUrdrQCx';
 /**
- * Owner lock (2026-11-22): ВкусВилл — РФ nationwide (включая г. Москву, г. Санкт-Петербург, МО, ЛО).
- * Soft note in prompt; not a hard city-gate (chips ok without city).
+ * Owner zones (2026-11-23 harden): ВкусВилл — только Москва / СПб / МО / ЛО.
+ * Не nationwide: «Россия» убрали — модель врала в Комсомольске и ДВ.
+ * Hard city-gate в prompt + geo_mode:cities.
  */
 const VKUSVILL_GEO = [
-  'Россия',
   'Москва',
   'Санкт-Петербург',
   'Московская область',
@@ -133,7 +133,7 @@ const DEFAULT_AUCHAN_FIRST_ORDER_LINK =
 const DEFAULT_AUCHAN_FIRST_ORDER_ERID = '2bL9aMPo2e49hMef4rrUepvhzG';
 const DEFAULT_AUCHAN_FIRST_ORDER_MIN_RUB = 4000;
 const DEFAULT_AUCHAN_FIRST_ORDER_DISCOUNT_HINT = 'больше 800 ₽';
-/** Soft-geo: hypermarkets in MSK, SPb + many RF cities — delivery not everywhere. */
+/** Hard allowlist (2026-11-23): Ашан — только Москва / Санкт-Петербург; не выдумывать по РФ. */
 const AUCHAN_GEO_CITIES = ['Москва', 'Санкт-Петербург'];
 
 /** BeFit (letbefit.ru) — WP search works; /search/?q= 404. Chips: [[befit:…]] / [[letbefit:…]]. */
@@ -226,6 +226,18 @@ const GROWFOOD_PROGRAM_ALIASES = {
 };
 
 /**
+ * Просто Еда / ProstoEda (prostoeda.pro) — chips [[prostoeda:…]] / [[prosto:…]].
+ * Owner lock (2026-11-23, NU-175): гео строго Москва. Сайт также пишет МО/ЦКАД —
+ * пригороды в allowlist не добавляем без owner. Landing = #delivery-section.
+ */
+const PROSTOEDA_LANDING_URL = 'https://prostoeda.pro/#delivery-section';
+const PROSTOEDA_SEARCH_PREFIX = PROSTOEDA_LANDING_URL;
+const DEFAULT_ADMITAD_PROSTOEDA_BASE =
+  'https://uhtkc.com/g/waw3987n9y268e100ca0137f45f8b8/?erid=2bL9aMPo2e49hMef4phUdhhLCE';
+const DEFAULT_ADMITAD_PROSTOEDA_ERID = '2bL9aMPo2e49hMef4phUdhhLCE';
+const PROSTOEDA_GEO_CITIES = ['Москва'];
+
+/**
  * Verified product program slugs (named rations with kcal, like superstrongpremium).
  * SEO hub pages (gotovoe-menyu-dlya-pohudeniya / nabor-myshechnoj-massy) are NOT
  * orderable product URLs — owner reported them as dead affiliate targets; remap via aliases.
@@ -314,21 +326,22 @@ function eridFromUrl(raw) {
 
 /**
  * Admitad webmaster hosts only — never raw merchant landings
- * (vkusvill.ru / vipfish.ru / letbefit.ru / hvalwaters.ru / growfood.pro / gf.ru / auchan.ru).
+ * (vkusvill.ru / vipfish.ru / letbefit.ru / hvalwaters.ru / growfood.pro / gf.ru /
+ * auchan.ru / prostoeda.pro).
  * VV kdbov.com; рыба dorinebeaumont.com; BeFit uuwgc.com; Hvalwaters xmknb.com;
- * GrowFood naiawork.com; Ашан rthsu.com; classic admitad.com also ok.
+ * GrowFood naiawork.com; Ашан rthsu.com; Просто Еда uhtkc.com; classic admitad.com also ok.
  */
 function looksLikeAdmitadWebmaster(raw) {
   const value = String(raw || '').trim().toLowerCase();
   if (!value) return false;
   if (
-    /vkusvill\.ru|vipfish\.ru|letbefit\.ru|hvalwaters\.ru|growfood\.pro|gf\.ru|auchan\.ru/i.test(
+    /vkusvill\.ru|vipfish\.ru|letbefit\.ru|hvalwaters\.ru|growfood\.pro|gf\.ru|auchan\.ru|prostoeda\.pro/i.test(
       value
     )
   ) {
     return false;
   }
-  return /kdbov\.com|dorinebeaumont\.com|uuwgc\.com|xmknb\.com|naiawork\.com|rthsu\.com|admitad\.com|ad\.admitad\.com/i.test(
+  return /kdbov\.com|dorinebeaumont\.com|uuwgc\.com|xmknb\.com|naiawork\.com|rthsu\.com|uhtkc\.com|admitad\.com|ad\.admitad\.com/i.test(
     value
   );
 }
@@ -400,7 +413,7 @@ function resolveVkusvillDeeplinkConfig(partners) {
     ...cfg,
     id: 'vkusvill',
     name: String((row && row.name) || 'ВкусВилл'),
-    geoMode: String((row && row.geo_mode) || 'nationwide').trim() || 'nationwide',
+    geoMode: String((row && row.geo_mode) || 'cities').trim() || 'cities',
     cities,
   };
 }
@@ -786,6 +799,39 @@ function resolveGrowfoodDeeplinkConfig(partners) {
   };
 }
 
+/** ProstoEda: any chip label → fixed landing #delivery-section (no program SPA). */
+function resolveProstoedaTargetUrl(_label, cfg) {
+  return String((cfg && cfg.searchPrefix) || PROSTOEDA_LANDING_URL);
+}
+
+function resolveProstoedaDeeplinkConfig(partners) {
+  const row =
+    findPartnerRow(partners, 'prostoeda') ||
+    findPartnerRow(partners, 'prosto') ||
+    findPartnerRow(partners, 'простоеда');
+  const geoFromPartner = Array.isArray(row && row.geo) ? row.geo : null;
+  const cities =
+    geoFromPartner && geoFromPartner.length
+      ? geoFromPartner.map((c) => String(c || '').trim()).filter(Boolean)
+      : PROSTOEDA_GEO_CITIES.slice();
+  const cfg = resolveAdmitadDeeplinkConfig({
+    partners: row ? [row] : partners,
+    partnerId: (row && row.id) || 'prostoeda',
+    envBaseKey: 'ADMITAD_PROSTOEDA_BASE',
+    envEridKey: 'ADMITAD_PROSTOEDA_ERID',
+    defaultBase: DEFAULT_ADMITAD_PROSTOEDA_BASE,
+    defaultErid: DEFAULT_ADMITAD_PROSTOEDA_ERID,
+    searchPrefix: PROSTOEDA_SEARCH_PREFIX,
+  });
+  return {
+    ...cfg,
+    id: 'prostoeda',
+    name: String((row && row.name) || 'Просто Еда'),
+    cities,
+    tagPrefixes: ['prostoeda', 'prosto'],
+  };
+}
+
 /** Keep room for multi-paragraph ration replies; 1024 was cutting mid-thought. */
 const MAX_OUTPUT_TOKENS = Math.min(
   Math.max(Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 8192, 1024),
@@ -1045,6 +1091,7 @@ const AUCHAN_DEEPLINK = resolveAuchanDeeplinkConfig(loadPartners());
 const BEFIT_DEEPLINK = resolveBefitDeeplinkConfig(loadPartners());
 const HVALWATERS_DEEPLINK = resolveHvalwatersDeeplinkConfig(loadPartners());
 const GROWFOOD_DEEPLINK = resolveGrowfoodDeeplinkConfig(loadPartners());
+const PROSTOEDA_DEEPLINK = resolveProstoedaDeeplinkConfig(loadPartners());
 
 /**
  * Quiet chat-mode overlays (надстройки) — loaded from modes/*.json at startup.
@@ -1827,7 +1874,20 @@ app.get('/api/config', (_req, res) => {
       inn: GROWFOOD_DEEPLINK.inn,
       name: GROWFOOD_DEEPLINK.name,
     },
-    /** Ашан (auchan.ru) — hypermarkets MSK/SPb+RF; chips [[auchan:…]] / [[ashan:…]]. */
+    /** Просто Еда (prostoeda.pro) — только Москва; chips [[prostoeda:…]] / [[prosto:…]]. */
+    prostoedaDeeplink: {
+      enabled: PROSTOEDA_DEEPLINK.enabled,
+      admitadBase: PROSTOEDA_DEEPLINK.admitadBase,
+      erid: PROSTOEDA_DEEPLINK.erid,
+      searchPrefix: PROSTOEDA_DEEPLINK.searchPrefix,
+      cities: PROSTOEDA_DEEPLINK.cities,
+      tagPrefixes: PROSTOEDA_DEEPLINK.tagPrefixes,
+      disclaimer: PROSTOEDA_DEEPLINK.disclaimer,
+      legalName: PROSTOEDA_DEEPLINK.legalName,
+      inn: PROSTOEDA_DEEPLINK.inn,
+      name: PROSTOEDA_DEEPLINK.name,
+    },
+    /** Ашан (auchan.ru) — allowlist MSK/SPb; chips [[auchan:…]] / [[ashan:…]]. */
     auchanDeeplink: {
       enabled: AUCHAN_DEEPLINK.enabled,
       admitadBase: AUCHAN_DEEPLINK.admitadBase,
@@ -1917,6 +1977,15 @@ function buildGrowfoodAdmitadUrl(label, cfg = GROWFOOD_DEEPLINK) {
   return `${base}${sep}ulp=${encodeURIComponent(target)}`;
 }
 
+/** ProstoEda: fixed landing #delivery-section (week+ meal plans, Moscow only). */
+function buildProstoedaAdmitadUrl(label, cfg = PROSTOEDA_DEEPLINK) {
+  const target = resolveProstoedaTargetUrl(label, cfg || PROSTOEDA_DEEPLINK);
+  const base = normalizeAdmitadBase(cfg && cfg.admitadBase);
+  if (!target || !base) return null;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+}
+
 /**
  * Parse [[chip]] inner text the same way as public/script.js parseProductTag.
  * @returns {{kind:string,label:string,store:string|null}|null}
@@ -1948,6 +2017,9 @@ function parseBotProductTag(inner) {
     const gfPrefixes = (GROWFOOD_DEEPLINK.tagPrefixes || ['growfood', 'gf']).map((p) =>
       String(p).toLowerCase()
     );
+    const pePrefixes = (PROSTOEDA_DEEPLINK.tagPrefixes || ['prostoeda', 'prosto']).map((p) =>
+      String(p).toLowerCase()
+    );
     const auchanPrefixes = (AUCHAN_DEEPLINK.tagPrefixes || ['auchan', 'ashan']).map((p) =>
       String(p).toLowerCase()
     );
@@ -1966,6 +2038,9 @@ function parseBotProductTag(inner) {
     if (gfPrefixes.includes(prefix)) {
       return { kind: 'product', label, store: 'growfood' };
     }
+    if (pePrefixes.includes(prefix)) {
+      return { kind: 'product', label, store: 'prostoeda' };
+    }
     // Unknown prefix — plain label, no invented link.
     return { kind: 'plain', label, store: null };
   }
@@ -1978,6 +2053,7 @@ function botStoreDisplayName(store) {
   if (store === 'befit') return BEFIT_DEEPLINK.name || 'BeFit';
   if (store === 'hvalwaters') return HVALWATERS_DEEPLINK.name || 'Хваловская вода';
   if (store === 'growfood') return GROWFOOD_DEEPLINK.name || 'GrowFood';
+  if (store === 'prostoeda') return PROSTOEDA_DEEPLINK.name || 'Просто Еда';
   if (store === 'vkusvill') return 'ВкусВилл';
   return '';
 }
@@ -2001,6 +2077,9 @@ function botBuildChipHref(store, label) {
   if (store === 'growfood' && GROWFOOD_DEEPLINK.enabled) {
     return buildGrowfoodAdmitadUrl(label, GROWFOOD_DEEPLINK);
   }
+  if (store === 'prostoeda' && PROSTOEDA_DEEPLINK.enabled) {
+    return buildProstoedaAdmitadUrl(label, PROSTOEDA_DEEPLINK);
+  }
   return null;
 }
 
@@ -2011,6 +2090,7 @@ function botStoreDeeplinkCfg(store) {
   if (store === 'befit') return { cfg: BEFIT_DEEPLINK, fallback: 'ООО «АЛ-МУЛК»' };
   if (store === 'hvalwaters') return { cfg: HVALWATERS_DEEPLINK, fallback: 'ООО «АКВАСИТИ»' };
   if (store === 'growfood') return { cfg: GROWFOOD_DEEPLINK, fallback: 'ООО «ГФ Трейд»' };
+  if (store === 'prostoeda') return { cfg: PROSTOEDA_DEEPLINK, fallback: 'ООО «Джаст Фуд»' };
   return { cfg: null, fallback: '' };
 }
 
@@ -2047,7 +2127,15 @@ function buildCompactAdDisclosure(storesUsed, extraItems = []) {
   const items = [];
   /** @type {Set<string>} */
   const seenErids = new Set();
-  for (const store of ['vkusvill', 'vipfish', 'auchan', 'befit', 'hvalwaters', 'growfood']) {
+  for (const store of [
+    'vkusvill',
+    'vipfish',
+    'auchan',
+    'befit',
+    'hvalwaters',
+    'growfood',
+    'prostoeda',
+  ]) {
     if (!used.has(store)) continue;
     const { cfg } = botStoreDeeplinkCfg(store);
     const erid = String((cfg && cfg.erid) || '').trim();
@@ -2321,7 +2409,7 @@ function expandPartnerChipsForBot(text) {
     // Drop trailing bare product list that only duplicates button labels.
     out = stripTrailingDuplicateProductList(out, links);
     // Link labels stay product-name-only (bot renders buttons without store prefix).
-    const programStores = new Set(['befit', 'hvalwaters', 'growfood']);
+    const programStores = new Set(['befit', 'hvalwaters', 'growfood', 'prostoeda']);
     const productLinks = links.filter((l) => l.kind !== 'firstOrder');
     const onlyPrograms =
       productLinks.length > 0 && productLinks.every((l) => programStores.has(l.store));
@@ -2344,7 +2432,7 @@ function expandPartnerChipsForBot(text) {
  * in the latest user reply (see pickPartner). Avoid \\b — JS word boundaries break Cyrillic.
  */
 const INTENT_RE =
-  /готов(?:ое|ый|ую|ые|ого)(?:\s+(?:питан\w*|ед\w*|рацион\w*|пакет\w*))?|заказ(?:ать|аю|аем|ите)|заказы|доставк\w*|недельн\w*\s*(?:рацион\w*|пакет\w*)|нет времени готовить|некогда готовить|готовый\s+рацион|befit|летбифит|letbefit|growfood|гроуфуд|grow\s*food/i;
+  /готов(?:ое|ый|ую|ые|ого)(?:\s+(?:питан\w*|ед\w*|рацион\w*|пакет\w*))?|заказ(?:ать|аю|аем|ите)|заказы|доставк\w*|недельн\w*\s*(?:рацион\w*|пакет\w*)|нет времени готовить|некогда готовить|готовый\s+рацион|befit|летбифит|letbefit|growfood|гроуфуд|grow\s*food|prostoeda|просто\s*еда|простоеда/i;
 
 /** Placeholder / demo hosts must never ship as live offers. */
 const PLACEHOLDER_LINK_RE = /^https?:\/\/(www\.)?example\.com(\/|$)/i;
@@ -3487,6 +3575,8 @@ module.exports = {
   buildGrowfoodAdmitadUrl,
   resolveGrowfoodTargetUrl,
   resolveGrowfoodProgramSlug,
+  buildProstoedaAdmitadUrl,
+  resolveProstoedaTargetUrl,
   normalizeAdmitadBase,
   looksLikeAdmitadWebmaster,
   resolveVkusvillDeeplinkConfig,
@@ -3496,6 +3586,7 @@ module.exports = {
   resolveBefitDeeplinkConfig,
   resolveHvalwatersDeeplinkConfig,
   resolveGrowfoodDeeplinkConfig,
+  resolveProstoedaDeeplinkConfig,
   VKUSVILL_SEARCH_PREFIX,
   VKUSVILL_DEEPLINK,
   VKUSVILL_GEO,
@@ -3525,4 +3616,8 @@ module.exports = {
   GROWFOOD_GEO_CITIES,
   GROWFOOD_PROGRAM_SLUGS,
   GROWFOOD_PROGRAM_ALIASES,
+  PROSTOEDA_LANDING_URL,
+  PROSTOEDA_SEARCH_PREFIX,
+  PROSTOEDA_DEEPLINK,
+  PROSTOEDA_GEO_CITIES,
 };
