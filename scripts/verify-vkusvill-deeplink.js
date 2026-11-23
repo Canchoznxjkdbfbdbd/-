@@ -21,7 +21,6 @@ const OWNER_VKUSVILL_GEO = [
   'Ленинградская область',
   'Москва',
   'Московская область',
-  'Россия',
   'Санкт-Петербург',
 ];
 
@@ -31,20 +30,21 @@ assert.ok(VKUSVILL_DEEPLINK.admitadBase.includes('kdbov.com'));
 assert.ok(!/vkusvill\.ru/i.test(VKUSVILL_DEEPLINK.admitadBase));
 assert.strictEqual(VKUSVILL_DEEPLINK.erid, '2bL9aMPo2e49hMef4phUrdrQCx');
 assert.strictEqual(VKUSVILL_DEEPLINK.promoCode, null);
-assert.strictEqual(VKUSVILL_DEEPLINK.geoMode, 'nationwide');
+assert.strictEqual(VKUSVILL_DEEPLINK.geoMode, 'cities');
 assert.deepStrictEqual(VKUSVILL_GEO.slice().sort(), OWNER_VKUSVILL_GEO.slice().sort());
 assert.deepStrictEqual(VKUSVILL_DEEPLINK.cities.slice().sort(), OWNER_VKUSVILL_GEO.slice().sort());
 assert.ok(VKUSVILL_DEEPLINK.cities.includes('Москва'));
 assert.ok(VKUSVILL_DEEPLINK.cities.includes('Санкт-Петербург'));
 assert.ok(VKUSVILL_DEEPLINK.cities.includes('Московская область'));
 assert.ok(VKUSVILL_DEEPLINK.cities.includes('Ленинградская область'));
+assert.ok(!VKUSVILL_DEEPLINK.cities.includes('Россия'));
 
 const partners = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', 'partners.json'), 'utf8')
 );
 const vvRow = partners.find((p) => p && p.id === 'vkusvill');
 assert.ok(vvRow, 'partners.json vkusvill');
-assert.strictEqual(vvRow.geo_mode, 'nationwide');
+assert.strictEqual(vvRow.geo_mode, 'cities');
 assert.deepStrictEqual((vvRow.geo || []).slice().sort(), OWNER_VKUSVILL_GEO.slice().sort());
 
 const stripped = normalizeAdmitadBase(

@@ -3,13 +3,12 @@
     "id": "vkusvill",
     "name": "ВкусВилл",
     "geo": [
-      "Россия",
       "Москва",
       "Санкт-Петербург",
       "Московская область",
       "Ленинградская область"
     ],
-    "geo_mode": "nationwide",
+    "geo_mode": "cities",
     "tags": [
       "вкусвилл",
       "vkusvill",
@@ -31,7 +30,7 @@
     "erid": "2bL9aMPo2e49hMef4phUrdrQCx",
     "link": "https://kdbov.com/g/2xtzn37pfe268e100ca0b80ad6f8ae/?erid=2bL9aMPo2e49hMef4phUrdrQCx",
     "landing_url": "https://vkusvill.ru/?utm_medium=677297&utm_source=partners&utm_campaign=16031&utm_content=381&promo_code=VSC7247&web_id=2603881&click_id=3b650a472375dbe278075b7ea2f168b6",
-    "blurb": "Продукты и доставка ВкусВилл по РФ (включая г. Москву, г. Санкт-Петербург, МО, ЛО).",
+    "blurb": "Продукты и доставка ВкусВилл — allowlist: Москва, Санкт-Петербург, МО, ЛО. Вне зоны не предлагать.",
     "legal_name": "АО «ВкусВилл»",
     "inn": "7734443270",
     "disclaimer": "Реклама. АО «ВкусВилл», ИНН 7734443270. erid: 2bL9aMPo2e49hMef4phUrdrQCx. Партнёрская ссылка Admitad."
@@ -179,8 +178,8 @@
   {
     "id": "auchan",
     "name": "Ашан",
-    "geo": ["Москва", "Санкт-Петербург", "Россия"],
-    "geo_mode": "soft",
+    "geo": ["Москва", "Санкт-Петербург"],
+    "geo_mode": "cities",
     "tags": [
       "ашан",
       "auchan",
@@ -200,7 +199,7 @@
     "erid": "2bL9aMPo2e49hMef4rrTkXfiWn",
     "link": "https://rthsu.com/g/g1f8w0wsou268e100ca0414eca7795/?erid=2bL9aMPo2e49hMef4rrTkXfiWn",
     "landing_url": "https://www.auchan.ru/",
-    "blurb": "Гипермаркеты Ашан: МСК, СПб и многие города РФ; доставка не везде — смотри зону на сайте.",
+    "blurb": "Ашан — allowlist Москва и Санкт-Петербург. Вне зоны и без явной просьбы не предлагать; доставку «везде» не обещать.",
     "legal_name": "ООО «АШАН»",
     "inn": "7703270067",
     "disclaimer": "Реклама. ООО «АШАН», ИНН 7703270067. erid: 2bL9aMPo2e49hMef4rrTkXfiWn. Партнёрская ссылка Admitad.",
@@ -210,5 +209,36 @@
       "minOrderRub": 4000,
       "discountHint": "больше 800 ₽"
     }
+  },
+  {
+    "id": "prostoeda",
+    "name": "Просто Еда",
+    "geo": ["Москва"],
+    "geo_mode": "cities",
+    "tags": [
+      "prostoeda",
+      "просто еда",
+      "простоеда",
+      "готовое",
+      "пп",
+      "рацион",
+      "программа питания",
+      "неделя",
+      "доставка",
+      "нет времени"
+    ],
+    "offer_type": "meal_plan",
+    "promo_code": null,
+    "promo_terms": null,
+    "promos": [],
+    "live": false,
+    "admitad_base": "https://uhtkc.com/g/waw3987n9y268e100ca0137f45f8b8/?erid=2bL9aMPo2e49hMef4phUdhhLCE",
+    "erid": "2bL9aMPo2e49hMef4phUdhhLCE",
+    "link": "https://uhtkc.com/g/waw3987n9y268e100ca0137f45f8b8/?erid=2bL9aMPo2e49hMef4phUdhhLCE",
+    "landing_url": "https://prostoeda.pro/#delivery-section",
+    "blurb": "Готовая еда на неделю и дольше — Просто Еда (prostoeda.pro); гео строго Москва (не СПб/регионы).",
+    "legal_name": "ООО «Джаст Фуд»",
+    "inn": "7719465858",
+    "disclaimer": "Реклама. ООО «Джаст Фуд», ИНН 7719465858. erid: 2bL9aMPo2e49hMef4phUdhhLCE. Партнёрская ссылка Admitad."
   }
 ]

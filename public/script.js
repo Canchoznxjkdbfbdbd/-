@@ -145,6 +145,18 @@
     promoCode: null,
     promos: [],
   };
+  /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,disclaimer:string,legalName:string,inn:string,name:string,tagPrefixes:string[]}} */
+  let prostoedaDeeplink = {
+    enabled: false,
+    admitadBase: '',
+    erid: '',
+    searchPrefix: 'https://prostoeda.pro/#delivery-section',
+    disclaimer: '',
+    legalName: 'ООО «Джаст Фуд»',
+    inn: '7719465858',
+    name: 'Просто Еда',
+    tagPrefixes: ['prostoeda', 'prosto'],
+  };
   /** @type {{enabled:boolean,admitadBase:string,erid:string,searchPrefix:string,productPrefix:string,disclaimer:string,legalName:string,inn:string,name:string,tagPrefixes:string[],firstOrder:{link:string,erid:string,minOrderRub:number,discountHint:string,hint:string,cta:string}|null}} */
   let auchanDeeplink = {
     enabled: false,
@@ -691,6 +703,17 @@
     return `${base}${sep}ulp=${encodeURIComponent(target)}`;
   }
 
+  /** ProstoEda: any label → fixed landing #delivery-section. */
+  function buildProstoedaAdmitadUrl(_label) {
+    const target = String(
+      prostoedaDeeplink.searchPrefix || 'https://prostoeda.pro/#delivery-section'
+    ).trim();
+    const base = String(prostoedaDeeplink.admitadBase || '').trim();
+    if (!target || !base) return null;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}ulp=${encodeURIComponent(target)}`;
+  }
+
   function parseProductTag(inner) {
     const raw = String(inner || '').trim();
     if (!raw) return null;
@@ -716,6 +739,9 @@
       const gfPrefixes = (growfoodDeeplink.tagPrefixes || ['growfood', 'gf']).map((p) =>
         String(p).toLowerCase()
       );
+      const pePrefixes = (prostoedaDeeplink.tagPrefixes || ['prostoeda', 'prosto']).map((p) =>
+        String(p).toLowerCase()
+      );
       const auchanPrefixes = (auchanDeeplink.tagPrefixes || ['auchan', 'ashan']).map((p) =>
         String(p).toLowerCase()
       );
@@ -734,7 +760,10 @@
       if (gfPrefixes.includes(prefix)) {
         return { kind: 'product', label, store: 'growfood' };
       }
-      // Unknown prefix (e.g. magnit:) — show label only; do not invent links.
+      if (pePrefixes.includes(prefix)) {
+        return { kind: 'product', label, store: 'prostoeda' };
+      }
+      // Unknown prefix — show label only; do not invent links.
       return { kind: 'plain', label, store: null };
     }
     return { kind: 'product', label: raw, store: 'vkusvill' };
@@ -757,6 +786,7 @@
     if (store === 'befit') return 'befit';
     if (store === 'hvalwaters') return 'hvalwaters';
     if (store === 'growfood') return 'growfood';
+    if (store === 'prostoeda') return 'prostoeda';
     if (store === 'vkusvill') return 'vkusvill';
     return '';
   }
@@ -767,13 +797,19 @@
     if (store === 'befit') return befitDeeplink.name || 'BeFit';
     if (store === 'hvalwaters') return hvalwatersDeeplink.name || 'Хваловская вода';
     if (store === 'growfood') return growfoodDeeplink.name || 'GrowFood';
+    if (store === 'prostoeda') return prostoedaDeeplink.name || 'Просто Еда';
     if (store === 'vkusvill') return 'ВкусВилл';
     return '';
   }
 
   function cartBlockTitleForStore(store) {
     // Grocery / fish basket vs ready programs & water delivery.
-    if (store === 'befit' || store === 'hvalwaters' || store === 'growfood') {
+    if (
+      store === 'befit' ||
+      store === 'hvalwaters' ||
+      store === 'growfood' ||
+      store === 'prostoeda'
+    ) {
       return 'Полезные ссылки';
     }
     return 'Собрать корзину';
@@ -794,6 +830,7 @@
     else if (hit.store === 'befit') a.title = `${name} — программа / поиск`;
     else if (hit.store === 'hvalwaters') a.title = `${name} — товар / поиск`;
     else if (hit.store === 'growfood') a.title = `${name} — линейка / каталог`;
+    else if (hit.store === 'prostoeda') a.title = `${name} — рацион / доставка`;
     else a.title = 'ВкусВилл — поиск';
     return a;
   }
@@ -826,8 +863,8 @@
   }
 
   /**
-   * Strip [[product]] / [[vipfish:…]] / [[auchan:…]] / [[befit:…]] / [[hval:…]] / [[growfood:…]] from prose
-   * (plain names); collect Admitad chips for the cart block under the message. Hide [[partner:id]].
+   * Strip [[product]] / [[vipfish:…]] / [[auchan:…]] / [[befit:…]] / [[hval:…]] / [[growfood:…]] /
+   * [[prostoeda:…]] from prose (plain names); collect Admitad chips for the cart block. Hide [[partner:id]].
    * Incomplete trailing [[… stays plain text while streaming.
    * @param {string} text
    * @param {{ allowChips?: boolean }} [opts] — allowChips=false: plain names only, empty chip list
@@ -865,6 +902,13 @@
         growfoodDeeplink.enabled
       ) {
         href = buildGrowfoodAdmitadUrl(parsed.label);
+      } else if (
+        allowChips &&
+        parsed.kind === 'product' &&
+        parsed.store === 'prostoeda' &&
+        prostoedaDeeplink.enabled
+      ) {
+        href = buildProstoedaAdmitadUrl(parsed.label);
       }
       hits.push({
         start: m.index,
@@ -884,6 +928,7 @@
     let befitCount = 0;
     let hvalCount = 0;
     let gfCount = 0;
+    let peCount = 0;
     /** @type {{label:string,store:string,href:string}[]} */
     const chips = [];
 
@@ -907,6 +952,7 @@
         else if (hit.store === 'befit') befitCount += 1;
         else if (hit.store === 'hvalwaters') hvalCount += 1;
         else if (hit.store === 'growfood') gfCount += 1;
+        else if (hit.store === 'prostoeda') peCount += 1;
         else vvCount += 1;
       } else {
         // No Admitad base / unknown prefix — show product name without raw brackets.
@@ -951,10 +997,15 @@
       const line = disclosureLine(growfoodDeeplink, 'ООО «ГФ Трейд»');
       if (line) disclosures.push(line);
     }
+    if (peCount >= 1) {
+      const line = disclosureLine(prostoedaDeeplink, 'ООО «Джаст Фуд»');
+      if (line) disclosures.push(line);
+    }
 
     /** @type {string|null} */
     let primaryStore = null;
-    if (gfCount >= 1) primaryStore = 'growfood';
+    if (peCount >= 1) primaryStore = 'prostoeda';
+    else if (gfCount >= 1) primaryStore = 'growfood';
     else if (hvalCount >= 1) primaryStore = 'hvalwaters';
     else if (befitCount >= 1) primaryStore = 'befit';
     else if (auchanCount >= 1) primaryStore = 'auchan';
@@ -965,22 +1016,25 @@
       fragment: root,
       chips,
       primaryStore,
-      linkCount: vvCount + fishCount + auchanCount + befitCount + hvalCount + gfCount,
+      linkCount:
+        vvCount + fishCount + auchanCount + befitCount + hvalCount + gfCount + peCount,
       disclosures,
       erid:
-        gfCount >= 1
-          ? growfoodDeeplink.erid || ''
-          : hvalCount >= 1
-            ? hvalwatersDeeplink.erid || ''
-            : befitCount >= 1
-              ? befitDeeplink.erid || ''
-              : auchanCount >= 1
-                ? auchanDeeplink.erid || ''
-                : fishCount >= 1
-                  ? vipfishDeeplink.erid || ''
-                  : vvCount >= 1
-                    ? vkusvillDeeplink.erid || ''
-                    : '',
+        peCount >= 1
+          ? prostoedaDeeplink.erid || ''
+          : gfCount >= 1
+            ? growfoodDeeplink.erid || ''
+            : hvalCount >= 1
+              ? hvalwatersDeeplink.erid || ''
+              : befitCount >= 1
+                ? befitDeeplink.erid || ''
+                : auchanCount >= 1
+                  ? auchanDeeplink.erid || ''
+                  : fishCount >= 1
+                    ? vipfishDeeplink.erid || ''
+                    : vvCount >= 1
+                      ? vkusvillDeeplink.erid || ''
+                      : '',
     };
   }
 
@@ -1237,6 +1291,7 @@
       else if (chip.store === 'befit') a.title = `${chip.label} — программа / поиск`;
       else if (chip.store === 'hvalwaters') a.title = `${chip.label} — товар / поиск`;
       else if (chip.store === 'growfood') a.title = `${chip.label} — линейка / каталог`;
+      else if (chip.store === 'prostoeda') a.title = `${chip.label} — рацион / доставка`;
       else a.title = 'ВкусВилл — поиск';
       termLinkRow.appendChild(a);
     }
@@ -1601,6 +1656,25 @@
           tagPrefixes: prefixes.length ? prefixes : ['growfood', 'gf'],
           promoCode: gf.promoCode ? String(gf.promoCode).trim() : null,
           promos: Array.isArray(gf.promos) ? gf.promos : [],
+        };
+      }
+      const pe = data.prostoedaDeeplink;
+      if (pe && typeof pe === 'object') {
+        const prefixes = Array.isArray(pe.tagPrefixes)
+          ? pe.tagPrefixes.map((p) => String(p || '').trim().toLowerCase()).filter(Boolean)
+          : ['prostoeda', 'prosto'];
+        prostoedaDeeplink = {
+          enabled: Boolean(pe.enabled && pe.admitadBase),
+          admitadBase: String(pe.admitadBase || '').trim(),
+          erid: String(pe.erid || '').trim(),
+          searchPrefix: String(
+            pe.searchPrefix || 'https://prostoeda.pro/#delivery-section'
+          ).trim(),
+          disclaimer: String(pe.disclaimer || '').trim(),
+          legalName: String(pe.legalName || 'ООО «Джаст Фуд»').trim(),
+          inn: String(pe.inn || '7719465858').trim(),
+          name: String(pe.name || 'Просто Еда').trim(),
+          tagPrefixes: prefixes.length ? prefixes : ['prostoeda', 'prosto'],
         };
       }
       const au = data.auchanDeeplink;
