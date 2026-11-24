@@ -26,6 +26,7 @@
     "verify:bot-chips": "node scripts/verify-bot-partner-chips.js",
     "verify:rate-limits": "node scripts/verify-smart-rate-limits.js",
     "verify:kill-switch": "node scripts/verify-kill-switch.js",
+    "verify:link-stats": "node scripts/verify-admin-link-stats.js",
     "verify:theme": "node scripts/verify-theme-toggle.js"
   },
   "engines": {
