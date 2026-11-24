@@ -193,6 +193,50 @@
     }
     .kill-state.on { color: var(--ok); }
     .kill-state.off { color: var(--danger); }
+    .holes {
+      margin-top: 0.9rem;
+      border-top: 1px dashed var(--line);
+      padding-top: 0.75rem;
+    }
+    .holes h3 {
+      margin: 0 0 0.4rem;
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+    .holes-hint {
+      margin: 0 0 0.55rem;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    .holes-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 0.45rem;
+    }
+    .holes-list li {
+      font-size: 0.84rem;
+      line-height: 1.35;
+      padding: 0.45rem 0.55rem;
+      background: #f7f2e8;
+      border: 1px solid var(--line);
+    }
+    .holes-list .meta {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 0.15rem;
+    }
+    .holes-list .frag {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .holes-empty {
+      color: var(--muted);
+      font-size: 0.84rem;
+      margin: 0;
+    }
   </style>
 </head>
 <body>
@@ -207,8 +251,16 @@
         <div class="metric"><strong id="uptime">—</strong><span>Аптайм сайта</span></div>
         <div class="metric"><strong id="ok-today">—</strong><span>Успешные ответы ИИ сегодня</span></div>
         <div class="metric"><strong id="err-today">—</strong><span>Ошибки Gemini сегодня</span></div>
+        <div class="metric"><strong id="links-today">—</strong><span>Ответы со ссылками сегодня</span></div>
+        <div class="metric"><strong id="holes-today">—</strong><span>Дыры (рекомендация без ссылки)</span></div>
       </div>
       <div id="warn" class="warn" role="alert"></div>
+      <div class="holes" aria-labelledby="holes-title">
+        <h3 id="holes-title">Последние дыры</h3>
+        <p class="holes-hint">Партнёр или призыв к доставке/магазину в тексте, но без [[чипов]] → реальных URL. Эвристика v1.</p>
+        <ul class="holes-list" id="holes-list" hidden></ul>
+        <p class="holes-empty" id="holes-empty">Пока пусто — дыр не зафиксировали.</p>
+      </div>
     </section>
 
     <section class="kill" id="kill-box" aria-labelledby="kill-title">
@@ -278,6 +330,48 @@
       applyServiceToggle(data.serviceEnabled !== false);
     }
 
+    function fmtHoleTime(ms) {
+      const t = Number(ms) || 0;
+      if (!t) return '—';
+      try {
+        return new Date(t).toLocaleString('ru-RU', {
+          timeZone: 'Asia/Vladivostok',
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      } catch {
+        return new Date(t).toISOString();
+      }
+    }
+
+    function renderHoles(list) {
+      const holes = Array.isArray(list) ? list : [];
+      const ul = el('holes-list');
+      const empty = el('holes-empty');
+      ul.innerHTML = '';
+      if (!holes.length) {
+        ul.hidden = true;
+        empty.hidden = false;
+        return;
+      }
+      empty.hidden = true;
+      ul.hidden = false;
+      for (const h of holes.slice(0, 12)) {
+        const li = document.createElement('li');
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = (h.id || '—') + ' · ' + fmtHoleTime(h.at);
+        const frag = document.createElement('div');
+        frag.className = 'frag';
+        frag.textContent = h.fragment || '(без фрагмента)';
+        li.appendChild(meta);
+        li.appendChild(frag);
+        ul.appendChild(li);
+      }
+    }
+
     async function refreshStats() {
       const res = await fetch('/api/admin/stats', { credentials: 'same-origin' });
       if (!res.ok) return;
@@ -287,6 +381,9 @@
       el('uptime').textContent = fmtUptime(s.uptimeSec);
       el('ok-today').textContent = String(s.successToday ?? 0);
       el('err-today').textContent = String(s.errorsToday ?? 0);
+      el('links-today').textContent = String(s.linksToday ?? 0);
+      el('holes-today').textContent = String(s.holesToday ?? 0);
+      renderHoles(s.recentHoles);
       if (typeof s.serviceEnabled === 'boolean') {
         applyServiceToggle(s.serviceEnabled);
       }

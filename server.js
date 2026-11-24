@@ -942,8 +942,17 @@ const PROMPT_PATH = path.join(ROOT, 'prompt.txt');
 const PARTNERS_PATH = path.join(ROOT, 'partners.json');
 /** Kill switch on disk (survives PM2 restart). Missing file = service ON. Not in git — live state. */
 const SERVICE_PATH = path.join(ROOT, 'service.json');
+/**
+ * Partner-link / hole counters for /admin (survives PM2 restart).
+ * Missing file = zeros. Not in git — live state; do not scp over from deploy.
+ */
+const LINK_STATS_PATH = path.join(ROOT, 'admin-link-stats.json');
 const ADMIN_HTML_PATH = path.join(ROOT, 'admin.html');
 const SERVICE_DISABLED_USER_MESSAGE = 'Сервис временно недоступен';
+/** How many recent «hole» samples to keep for the admin list. */
+const LINK_STATS_RECENT_HOLES_MAX = 12;
+/** Max chars of reply fragment shown in the holes list. */
+const LINK_STATS_FRAGMENT_MAX = 140;
 
 /**
  * Hot-reload from disk on each use (mtime cache). Admin saves invalidate immediately.
@@ -1252,12 +1261,108 @@ function createLocalStats() {
     day: dayKey(),
     successToday: 0,
     errorsToday: 0,
+    linksToday: 0,
+    holesToday: 0,
+    recentHoles: [],
+    holeSeq: 0,
     warning: null,
   };
 }
 
+/**
+ * Load persisted link/hole counters (best-effort). Corrupt/missing → empty.
+ * @returns {{day?:string,linksToday?:number,holesToday?:number,recentHoles?:Array,holeSeq?:number}|null}
+ */
+function readPersistedLinkStats() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(LINK_STATS_PATH, 'utf8'));
+    if (!raw || typeof raw !== 'object') return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist link/hole counters (sync, best-effort — admin analytics only).
+ * @param {{day:string,linksToday:number,holesToday:number,recentHoles:Array,holeSeq:number}} snap
+ */
+function writePersistedLinkStats(snap) {
+  try {
+    const out = `${JSON.stringify(
+      {
+        day: snap.day,
+        linksToday: snap.linksToday || 0,
+        holesToday: snap.holesToday || 0,
+        recentHoles: Array.isArray(snap.recentHoles) ? snap.recentHoles.slice(0, LINK_STATS_RECENT_HOLES_MAX) : [],
+        holeSeq: snap.holeSeq || 0,
+      },
+      null,
+      2
+    )}\n`;
+    fs.writeFileSync(LINK_STATS_PATH, out, 'utf8');
+  } catch (err) {
+    console.warn('[stats] link-stats persist failed', err?.message || err);
+  }
+}
+
+function hydrateLinkStats(target) {
+  const saved = readPersistedLinkStats();
+  if (!saved) return;
+  const today = dayKey();
+  if (saved.day === today) {
+    target.day = today;
+    target.linksToday = Math.max(0, Number(saved.linksToday) || 0);
+    target.holesToday = Math.max(0, Number(saved.holesToday) || 0);
+    target.holeSeq = Math.max(0, Number(saved.holeSeq) || 0);
+  }
+  // Keep recent holes across day rolls (timestamps tell the story).
+  if (Array.isArray(saved.recentHoles)) {
+    target.recentHoles = saved.recentHoles
+      .filter((h) => h && typeof h === 'object')
+      .map((h) => ({
+        id: String(h.id || ''),
+        at: Number(h.at) || 0,
+        fragment: String(h.fragment || '').slice(0, LINK_STATS_FRAGMENT_MAX + 8),
+      }))
+      .filter((h) => h.id && h.at)
+      .slice(0, LINK_STATS_RECENT_HOLES_MAX);
+    if (!target.holeSeq) {
+      target.holeSeq = target.recentHoles.length;
+    }
+  }
+}
+
+function applyLinkOutcomeToStats(stats, linksPayload) {
+  if (!linksPayload || typeof linksPayload !== 'object') return;
+  if (linksPayload.hasLinks) {
+    stats.linksToday += 1;
+  }
+  if (linksPayload.isHole) {
+    stats.holesToday += 1;
+    stats.holeSeq = (stats.holeSeq || 0) + 1;
+    const entry = {
+      id: `h${stats.holeSeq}`,
+      at: Date.now(),
+      fragment: String(linksPayload.fragment || '').slice(0, LINK_STATS_FRAGMENT_MAX + 8),
+    };
+    stats.recentHoles = [entry, ...(Array.isArray(stats.recentHoles) ? stats.recentHoles : [])].slice(
+      0,
+      LINK_STATS_RECENT_HOLES_MAX
+    );
+  }
+  writePersistedLinkStats({
+    day: stats.day,
+    linksToday: stats.linksToday,
+    holesToday: stats.holesToday,
+    recentHoles: stats.recentHoles,
+    holeSeq: stats.holeSeq,
+  });
+}
+
 /** In-process stats for single-worker / tests; cluster workers proxy to master. */
 const localStats = createLocalStats();
+hydrateLinkStats(localStats);
 
 function rollLocalStatsDay() {
   const today = dayKey();
@@ -1265,6 +1370,16 @@ function rollLocalStatsDay() {
     localStats.day = today;
     localStats.successToday = 0;
     localStats.errorsToday = 0;
+    localStats.linksToday = 0;
+    localStats.holesToday = 0;
+    // recentHoles kept; daily counters reset. Persist zeros for the new day.
+    writePersistedLinkStats({
+      day: localStats.day,
+      linksToday: 0,
+      holesToday: 0,
+      recentHoles: localStats.recentHoles,
+      holeSeq: localStats.holeSeq,
+    });
   }
 }
 
@@ -1272,6 +1387,7 @@ function applyLocalStatOp(op, payload = {}) {
   rollLocalStatsDay();
   if (op === 'success') {
     localStats.successToday += 1;
+    applyLinkOutcomeToStats(localStats, payload.links);
     return snapshotLocalStats();
   }
   if (op === 'error') {
@@ -1310,6 +1426,9 @@ function snapshotLocalStats() {
   return {
     successToday: localStats.successToday,
     errorsToday: localStats.errorsToday,
+    linksToday: localStats.linksToday || 0,
+    holesToday: localStats.holesToday || 0,
+    recentHoles: Array.isArray(localStats.recentHoles) ? localStats.recentHoles.slice(0, LINK_STATS_RECENT_HOLES_MAX) : [],
     warning,
     startedAt: SITE_STARTED_AT,
   };
@@ -1361,9 +1480,13 @@ function statsCall(op, payload = {}) {
   });
 }
 
-async function recordChatSuccess() {
+async function recordChatSuccess(replyText) {
   try {
-    await statsCall('success');
+    const links =
+      replyText != null && String(replyText).trim()
+        ? inspectPartnerLinkOutcome(String(replyText))
+        : null;
+    await statsCall('success', links ? { links } : {});
   } catch (err) {
     console.warn('[stats] success record failed', err?.message || err);
   }
@@ -1391,6 +1514,9 @@ async function readAdminStats() {
     processUptimeSec: Math.floor(process.uptime()),
     successToday: base.successToday || 0,
     errorsToday: base.errorsToday || 0,
+    linksToday: base.linksToday || 0,
+    holesToday: base.holesToday || 0,
+    recentHoles: Array.isArray(base.recentHoles) ? base.recentHoles : [],
     warning: base.warning || { active: false },
     day: dayKey(),
     // Status only — never key values.
@@ -1402,6 +1528,7 @@ async function readAdminStats() {
 /** Master-side admin stats IPC (shared across workers). */
 function attachClusterStatsMaster() {
   const masterStats = createLocalStats();
+  hydrateLinkStats(masterStats);
   const masterStartedAt = SITE_STARTED_AT;
 
   const roll = () => {
@@ -1410,6 +1537,15 @@ function attachClusterStatsMaster() {
       masterStats.day = today;
       masterStats.successToday = 0;
       masterStats.errorsToday = 0;
+      masterStats.linksToday = 0;
+      masterStats.holesToday = 0;
+      writePersistedLinkStats({
+        day: masterStats.day,
+        linksToday: 0,
+        holesToday: 0,
+        recentHoles: masterStats.recentHoles,
+        holeSeq: masterStats.holeSeq,
+      });
     }
   };
 
@@ -1423,6 +1559,11 @@ function attachClusterStatsMaster() {
     return {
       successToday: masterStats.successToday,
       errorsToday: masterStats.errorsToday,
+      linksToday: masterStats.linksToday || 0,
+      holesToday: masterStats.holesToday || 0,
+      recentHoles: Array.isArray(masterStats.recentHoles)
+        ? masterStats.recentHoles.slice(0, LINK_STATS_RECENT_HOLES_MAX)
+        : [],
       warning,
       startedAt: masterStartedAt,
     };
@@ -1432,6 +1573,7 @@ function attachClusterStatsMaster() {
     roll();
     if (op === 'success') {
       masterStats.successToday += 1;
+      applyLinkOutcomeToStats(masterStats, payload.links);
       return snapshot();
     }
     if (op === 'error') {
@@ -2339,6 +2481,83 @@ function expandPartnerChipsForBot(text) {
 }
 
 /**
+ * Keep-list partner names / aliases for hole heuristics (v1, not NLP).
+ * Matches preferences keep-list: ВВ, рыба, BeFit, вода, ГФ, Ашан, Просто Еда.
+ */
+const PARTNER_HOLE_NAME_RE =
+  /вкусвилл|vkusvill|важн[а-яё]*\s+рыб[а-яё]*|vipfish|befit|летбифит|letbefit|хваловск[а-яё]*|hvalwaters|growfood|гроуфуд|grow\s*food|ашан|auchan|ashan|просто\s*еда/i;
+
+/**
+ * Explicit delivery / store CTA without requiring a brand name.
+ * Soft city-ask alone («напиши город») is intentionally weaker — needs доставка|магазин|….
+ */
+const DELIVERY_STORE_CTA_RE =
+  /доставк\w*|гипермаркет\w*|супермаркет\w*|магазин\w*|собрать\s+корзин\w*|оформить\s+заказ|заказать\s+(?:онлайн|доставку|продукты|еду)|купить\s+в\s+(?:магазине|сети)|партн[её]рск\w*\s+ссылк\w*/i;
+
+/**
+ * Count chips that would become real Admitad URLs / buttons (server-side, not Gemini prose).
+ * @param {string} text raw model reply (may contain [[chips]])
+ * @returns {number}
+ */
+function countResolvablePartnerLinks(text) {
+  try {
+    const { links } = expandPartnerChipsForBot(String(text || ''));
+    return Array.isArray(links) ? links.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Short readable fragment for the admin holes list.
+ * @param {string} text
+ * @param {RegExp} [hintRe]
+ * @returns {string}
+ */
+function linkStatsFragment(text, hintRe) {
+  let src = String(text || '')
+    .replace(/\[\[([^\]]*)\]\]/g, (_, inner) => {
+      const parsed = parseBotProductTag(inner);
+      if (!parsed || parsed.kind === 'partner') return '';
+      return parsed.label || '';
+    })
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!src) return '';
+  let start = 0;
+  if (hintRe) {
+    const m = hintRe.exec(src);
+    if (m && typeof m.index === 'number') {
+      start = Math.max(0, m.index - 24);
+    }
+  }
+  let slice = src.slice(start, start + LINK_STATS_FRAGMENT_MAX);
+  if (start > 0) slice = '…' + slice;
+  if (start + LINK_STATS_FRAGMENT_MAX < src.length) slice += '…';
+  return slice;
+}
+
+/**
+ * Inspect one assistant reply for partner-link analytics.
+ * - hasLinks: at least one [[chip]] resolved to a real deeplink URL on the server
+ * - isHole: keep-list name or delivery/store CTA, but no resolvable links
+ * @param {string} text
+ * @returns {{hasLinks:boolean,linkCount:number,isHole:boolean,fragment:string}}
+ */
+function inspectPartnerLinkOutcome(text) {
+  const raw = String(text || '');
+  const linkCount = countResolvablePartnerLinks(raw);
+  const hasLinks = linkCount > 0;
+  const nameHit = PARTNER_HOLE_NAME_RE.test(raw);
+  const ctaHit = DELIVERY_STORE_CTA_RE.test(raw);
+  const isHole = !hasLinks && (nameHit || ctaHit);
+  const fragment = isHole
+    ? linkStatsFragment(raw, nameHit ? PARTNER_HOLE_NAME_RE : DELIVERY_STORE_CTA_RE)
+    : '';
+  return { hasLinks, linkCount, isHole, fragment };
+}
+
+/**
  * Soft-offer intent: готовая еда / заказ / доставка / недельный пакет.
  * Do NOT match bare «нет времени» from a starter chip — only clear ready-food wording
  * in the latest user reply (see pickPartner). Avoid \\b — JS word boundaries break Cyrillic.
@@ -2943,7 +3162,7 @@ async function generateGeminiReplyWithSlot({
   );
 
   if (assembled.trim()) {
-    void recordChatSuccess();
+    void recordChatSuccess(assembled);
   } else {
     void recordChatError('outage', defaultWarningMessage('outage'));
   }
@@ -3429,7 +3648,14 @@ module.exports = {
   setServiceEnabled,
   SERVICE_DISABLED_USER_MESSAGE,
   SERVICE_PATH,
+  recordChatSuccess,
+  readAdminStats,
   expandPartnerChipsForBot,
+  inspectPartnerLinkOutcome,
+  countResolvablePartnerLinks,
+  PARTNER_HOLE_NAME_RE,
+  DELIVERY_STORE_CTA_RE,
+  LINK_STATS_PATH,
   stripModelAdDisclosures,
   stripRecipeCategoryLabels,
   stripTrailingDuplicateProductList,

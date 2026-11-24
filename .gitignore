@@ -5,6 +5,8 @@ node_modules/
 .cursor/
 # Live kill-switch flag (admin); missing = service ON. Do not scp over from git.
 service.json
+# Daily partner-link / hole counters for /admin (survives PM2 restart). Do not scp over.
+admin-link-stats.json
 
 __pycache__/
 *.pyc
